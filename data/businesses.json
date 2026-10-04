@@ -2,174 +2,35 @@
   "biz_main": {
     "businessId": "biz_main",
     "config": {
+      "id": "biz_main",
       "name": "Peluquería Canina Luna",
-      "logoUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCgNdH5Hthy5Yi-fglcEX4qyy4-SEvVu9xcHv_WWfZ35c1EUd2VD0DrJuG9wAleNXW-bzR2vh9V6ET_9gV6vu71YIH_hwdXOlNwRfXAQXgczXcJRVANXrqeuHKQ6kIkUDcUVxkayIIwkFSpKTw3x6CPOgteHP_fPA2WtPu2oCARFuOhxuBRVEstwPARhMQCimBPElnj6HqxDzP1F4o_YHz7YSdnDgJk6MmbEmeSZykQaKqRT0Pv5BvxHQ",
-      "phonePrefix": "+54",
-      "phone": "11 5489 3210",
+      "bookingSlug": "pelo",
       "address": "Av. Corrientes 4520, Almagro, CABA",
-      "googleMapsPlaceName": "Peluquería Canina Luna - Almagro, CABA",
-      "googleMapsUrl": "https://maps.google.com/?q=-34.603722,-58.423145",
-      "coordinates": "-34.603722, -58.423145",
-      "allowSimultaneousStaff": true,
-      "maxSimultaneousAppointments": 2,
-      "workingDays": "Lunes a Sábado",
-      "openTime": "08:00",
-      "closeTime": "19:30",
-      "currency": "ARS",
-      "simultaneousCapacity": 2,
-      "staffMembers": [
-        {
-          "id": "st-1",
-          "name": "Carlos Morales",
-          "role": "Estilista Principal (Corte & Spa)",
-          "active": true,
-          "shiftAvailability": "todo_el_dia"
-        },
-        {
-          "id": "st-2",
-          "name": "Mariana V.",
-          "role": "Especialista en Baño y Deslanado",
-          "active": true,
-          "shiftAvailability": "todo_el_dia"
-        },
-        {
-          "id": "st-3",
-          "name": "Roberto Díaz",
-          "role": "Ayudante y Secado",
-          "active": true,
-          "shiftAvailability": "solo_tarde"
-        }
-      ],
-      "morningOpen": "08:00",
-      "morningClose": "12:30",
-      "afternoonOpen": "14:00",
-      "afternoonClose": "19:30",
-      "hasDoubleShift": true,
-      "bookingSlug": "peluqueria-luna",
-      "activeDays": [
-        "L",
-        "M",
-        "X",
-        "J",
-        "V",
-        "S"
-      ],
-      "staffScheduleConfig": {
-        "allDay": {
-          "start": "08:00",
-          "end": "18:00"
-        },
-        "morning": {
-          "start": "08:00",
-          "end": "13:00"
-        },
-        "afternoon": {
-          "start": "14:00",
-          "end": "19:30"
-        }
-      },
-      "hasMedicationProductsEnabled": true,
-      "medicationProducts": [
-        {
-          "id": "med-1",
-          "name": "Tratamiento antipulgas y garrapatas",
-          "type": "Gotas",
-          "purpose": "Pipeta tópica para control y eliminación de pulgas y garrapatas externas.",
-          "price": 4500,
-          "photoUrl": "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&auto=format&fit=crop&q=80",
-          "active": true
-        },
-        {
-          "id": "med-2",
-          "name": "Antiparasitario interno en comprimido",
-          "type": "Pastilla",
-          "purpose": "Comprimido masticable con premio para desparasitación gastrointestinal completa.",
-          "price": 3500,
-          "photoUrl": "https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=300&auto=format&fit=crop&q=80",
-          "active": true
-        },
-        {
-          "id": "med-3",
-          "name": "Loción dérmica calmante / antialérgica",
-          "type": "Tratamiento tópico",
-          "purpose": "Spray hidratante con aloe y avena para aliviar picazón y dermatitis tras el baño.",
-          "price": 2800,
-          "photoUrl": "https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?w=300&auto=format&fit=crop&q=80",
-          "active": true
-        }
-      ],
-      "medicationFee": 3500,
-      "reviews": [
-        {
-          "id": "rev-1",
-          "clientName": "Ana Gómez",
-          "petName": "Toby",
-          "serviceName": "Baño + corte",
-          "stars": 5,
-          "comment": "¡Increíble atención! Toby quedó súper suave y con un aroma riquísimo.",
-          "date": "4 de octubre de 2026",
-          "verified": true
-        }
-      ],
+      "phone": "11 5489 3210",
+      "phonePrefix": "+54",
       "services": [
         {
           "id": "s-1",
           "name": "Baño + corte",
-          "durationMin": 90,
           "price": 25000,
-          "pricingType": "tamano",
-          "priceBySize": {
-            "pequeno": 20000,
-            "mediano": 25000,
-            "grande": 30000,
-            "extraGrande": 35000
-          },
-          "desc": "Corte higiénico, estética de raza, corte de uñas y limpieza de oídos.",
-          "badge": "Popular",
-          "icon": "content_cut",
-          "active": true,
-          "rating": 5,
-          "reviewCount": 64
+          "durationMin": 90,
+          "active": true
         },
         {
           "id": "s-2",
           "name": "Baño completo",
-          "durationMin": 45,
           "price": 18000,
-          "pricingType": "unico",
-          "desc": "Higiene profunda con champú hipoalergénico, secado y perfume.",
-          "icon": "bathtub",
-          "active": true,
-          "rating": 4.9,
-          "reviewCount": 42
+          "durationMin": 45,
+          "active": true
         },
         {
           "id": "s-3",
           "name": "Deslanado premium",
-          "durationMin": 75,
           "price": 22000,
-          "pricingType": "unico",
-          "desc": "Eliminación exhaustiva de manto muerto con cardina y cepillado profundo.",
-          "icon": "pets",
-          "active": true,
-          "rating": 4.9,
-          "reviewCount": 28
-        },
-        {
-          "id": "s-4",
-          "name": "Corte de uñas y almohadillas",
-          "durationMin": 20,
-          "price": 8000,
-          "pricingType": "unico",
-          "desc": "Corte y limado de uñas, despeje de pelo interdigital.",
-          "icon": "spa",
-          "active": true,
-          "rating": 4.8,
-          "reviewCount": 19
+          "durationMin": 75,
+          "active": true
         }
-      ],
-      "id": "biz_main",
-      "userId": "usr_owner"
+      ]
     },
     "pets": [
       {
@@ -308,9 +169,53 @@
           }
         ],
         "recommendedIntervalWeeks": 3
+      },
+      {
+        "id": "#PET-9999",
+        "name": "Max",
+        "breed": "Beagle",
+        "gender": "Macho",
+        "weightKg": 10,
+        "age": "1 año",
+        "isVip": false,
+        "photoUrl": "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80",
+        "tutor": {
+          "name": "Pedro R.",
+          "phone": "+54 9 11 9988-7766",
+          "rawPhone": "+54 9 11 9988-7766"
+        },
+        "habitualMood": "tranquilo",
+        "healthAllergies": "",
+        "handlingObservations": "",
+        "lastVisit": {
+          "id": "v_1791147393589",
+          "date": "6 de octubre de 2026",
+          "serviceName": "Baño + corte",
+          "price": 25000,
+          "currency": "ARS",
+          "mood": "tranquilo",
+          "paid": false,
+          "photos": {}
+        },
+        "visitHistory": [],
+        "recommendedIntervalWeeks": 4
       }
     ],
     "appointments": [
+      {
+        "id": "apt_pelo_100",
+        "petId": "#PET-9999",
+        "petName": "Max",
+        "breed": "Beagle",
+        "tutorName": "Pedro R.",
+        "tutorPhone": "+54 9 11 9988-7766",
+        "serviceName": "Baño + corte",
+        "time": "14:00 hs",
+        "date": "6 de octubre de 2026",
+        "status": "pendiente",
+        "price": 25000,
+        "currency": "ARS"
+      },
       {
         "id": "apt-1",
         "petId": "#PET-2849",
@@ -357,7 +262,7 @@
       }
     ],
     "bookedRetentions": [],
-    "updatedAt": "2026-10-04T20:11:46.129Z"
+    "updatedAt": "2026-10-04T20:56:33.589Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",
@@ -428,5 +333,26 @@
     ],
     "bookedRetentions": [],
     "updatedAt": "2026-10-04T20:40:23.049Z"
+  },
+  "biz_robocat": {
+    "businessId": "biz_robocat",
+    "config": {
+      "id": "biz_robocat",
+      "name": "RoboCat",
+      "bookingSlug": "robocat",
+      "services": [
+        {
+          "id": "srv-cat-1",
+          "name": "Grooming Felino Premium",
+          "price": 40,
+          "active": true,
+          "durationMin": 60
+        }
+      ]
+    },
+    "pets": [],
+    "appointments": [],
+    "bookedRetentions": [],
+    "updatedAt": "2026-10-04T20:56:22.261Z"
   }
 }

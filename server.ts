@@ -126,6 +126,14 @@ app.get('/api/businesses/:idOrSlug', (req, res) => {
   const db = readDb();
   const business = findBusiness(idOrSlug, db);
 
+  const normalized = cleanString(extractSlug(idOrSlug));
+  console.log(`[PUBLIC BOOKING DEBUG]
+slug received: ${idOrSlug}
+normalized slug: ${normalized}
+business lookup: searching across ${Object.keys(db).length} businesses
+business found: ${business ? 'YES (' + (business.config?.name || business.businessId) + ')' : 'NO'}
+businessId: ${business ? business.businessId : 'null'}`);
+
   if (!business) {
     res.status(404).json({
       error: 'No encontramos este negocio',
@@ -151,7 +159,7 @@ app.get('/api/businesses/:idOrSlug', (req, res) => {
 
 app.post('/api/businesses', (req, res) => {
   const { businessId, config, pets, appointments, bookedRetentions } = req.body;
-  const id = businessId || config?.id || `biz_${Date.now()}`;
+  const id = businessId || config?.id || 'biz_main';
 
   if (!config) {
     res.status(400).json({ error: 'Config object is required' });
@@ -161,12 +169,16 @@ app.post('/api/businesses', (req, res) => {
   const db = readDb();
   const existing = db[id] || {};
 
+  const cleanSlug = extractSlug(config.bookingSlug) || cleanString(config.name);
+  const cleanConfig = {
+    ...config,
+    id,
+    bookingSlug: cleanSlug
+  };
+
   db[id] = {
     businessId: id,
-    config: {
-      ...config,
-      id
-    },
+    config: cleanConfig,
     pets: pets || existing.pets || [],
     appointments: appointments || existing.appointments || [],
     bookedRetentions: bookedRetentions || existing.bookedRetentions || [],
@@ -174,7 +186,14 @@ app.post('/api/businesses', (req, res) => {
   };
 
   writeDb(db);
-  res.json({ success: true, businessId: id });
+
+  console.log(`[BUSINESS PERSISTENCE DEBUG]
+businessId: ${id}
+businessName: ${cleanConfig.name}
+bookingSlug: ${cleanSlug}
+successfully persisted to db`);
+
+  res.json({ success: true, businessId: id, slug: cleanSlug });
 });
 
 app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {

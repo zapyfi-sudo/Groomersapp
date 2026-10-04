@@ -72,8 +72,16 @@ function getPublicBookingIdentifierFromUrl(): string | null {
 
 export default function App() {
   // Check if current URL is a public booking page request
-  const [urlBookingId] = useState<string | null>(() => getPublicBookingIdentifierFromUrl());
+  const [urlBookingId, setUrlBookingId] = useState<string | null>(() => getPublicBookingIdentifierFromUrl());
   const [previewBookingId, setPreviewBookingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleUrlChange = () => {
+      setUrlBookingId(getPublicBookingIdentifierFromUrl());
+    };
+    window.addEventListener('popstate', handleUrlChange);
+    return () => window.removeEventListener('popstate', handleUrlChange);
+  }, []);
 
   // Synchronous initial state from local persistent cache (zero flicker / immediate render)
   const initialData = useMemo(() => getSyncActiveData(), []);
@@ -117,6 +125,24 @@ export default function App() {
         if (res.activeData.pets.length > 0) {
           setSelectedPetId(res.activeData.pets[0].id);
         }
+
+        // Fetch from persistent server database to ensure latest slug and public appointments
+        const bizId = res.activeData.config?.id || res.activeData.businessId || 'biz_main';
+        fetch(`/api/businesses/${encodeURIComponent(bizId)}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .then((serverData) => {
+            if (serverData && serverData.config) {
+              setSalonConfig((prev) => ({
+                ...prev,
+                ...serverData.config,
+                bookingSlug: serverData.config.bookingSlug || prev.bookingSlug
+              }));
+              if (serverData.appointments && serverData.appointments.length > 0) {
+                setAppointments(serverData.appointments);
+              }
+            }
+          })
+          .catch(() => {});
       }
     }).catch((err) => {
       console.warn('initSaasDatabase warning:', err);

@@ -19,6 +19,7 @@ import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
 import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
 import { syncBusinessToServer } from '../utils/api';
+import { persistActiveConfig } from '../utils/saasDb';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -116,17 +117,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   // Clean, short shareable booking URL (Architecture: URL -> slug/id -> persistent data -> public booking)
   const realBookingUrl = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
-    const bId = config.id && config.id !== 'biz_main' && config.id !== 'biz_default'
-      ? config.id
-      : generateStableBusinessId(config.name);
     const slug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
-    
-    return buildPublicBookingUrl(origin, bId, slug, {
-      ...config,
-      name: businessName,
-      bookingSlug: slug
-    });
-  }, [config, customSlug, businessName]);
+    return `${origin.replace(/\/+$/, '')}/reservas/${slug}`;
+  }, [config.bookingSlug, customSlug, businessName]);
+
+  const [isSavingSlug, setIsSavingSlug] = useState<boolean>(false);
+  const [slugSaveError, setSlugSaveError] = useState<string | null>(null);
 
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -295,20 +291,61 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     setTimeout(() => setSavedToast(null), 3000);
   };
 
-  const handleSaveAll = (e?: React.FormEvent | React.MouseEvent) => {
+  const handleSaveSlug = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) e.preventDefault();
+    setSlugSaveError(null);
+    setIsSavingSlug(true);
+
+    const persistentBizId = config.id || 'biz_main';
+    const normalizedSlug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
+
+    const updatedConfig: SalonConfig = {
+      ...config,
+      id: persistentBizId,
+      name: businessName,
+      bookingSlug: normalizedSlug
+    };
+
+    try {
+      const success = await syncBusinessToServer(
+        persistentBizId,
+        updatedConfig,
+        undefined,
+        appointments
+      );
+
+      if (!success) {
+        throw new Error('Server returned false');
+      }
+
+      await persistActiveConfig(updatedConfig);
+      onUpdateConfig(updatedConfig);
+      setCustomSlug(normalizedSlug);
+
+      setSavedToast('¡Enlace guardado correctamente!');
+      setTimeout(() => setSavedToast(null), 3500);
+    } catch (err) {
+      console.error('[SLUG SAVE ERROR]', err);
+      setSlugSaveError('Error al guardar el enlace en el servidor. Por favor intenta de nuevo.');
+      setTimeout(() => setSlugSaveError(null), 5000);
+    } finally {
+      setIsSavingSlug(false);
+    }
+  };
+
+  const handleSaveAll = async (e?: React.FormEvent | React.MouseEvent) => {
     if (e) {
       e.preventDefault();
     }
     setIsSaving(true);
+    setSlugSaveError(null);
 
-    const stableId = config.id && config.id !== 'biz_main' && config.id !== 'biz_default'
-      ? config.id
-      : generateStableBusinessId(businessName);
+    const persistentBizId = config.id || 'biz_main';
     const safeSlug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
 
     const updatedConfig: SalonConfig = {
       ...config,
-      id: stableId,
+      id: persistentBizId,
       bookingSlug: safeSlug,
       name: businessName,
       logoUrl,
@@ -337,17 +374,29 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       activeDays
     };
 
-    onUpdateConfig(updatedConfig);
-    syncBusinessToServer(updatedConfig.id || 'biz_main', updatedConfig, undefined, appointments);
-    if (selectedLanguage !== currentLanguage) {
-      onUpdateLanguage(selectedLanguage);
-    }
+    try {
+      const success = await syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments);
+      if (!success) {
+        throw new Error('Server returned false');
+      }
 
-    setTimeout(() => {
-      setIsSaving(false);
+      await persistActiveConfig(updatedConfig);
+      onUpdateConfig(updatedConfig);
+      setCustomSlug(safeSlug);
+
+      if (selectedLanguage !== currentLanguage) {
+        onUpdateLanguage(selectedLanguage);
+      }
+
       setSavedToast(t.changesSavedSuccess || '¡Todos los cambios fueron guardados exitosamente!');
       setTimeout(() => setSavedToast(null), 3000);
-    }, 400);
+    } catch (err) {
+      console.error('[SAVE ALL ERROR]', err);
+      setSavedToast('Error al guardar en el servidor. Por favor intenta nuevamente.');
+      setTimeout(() => setSavedToast(null), 4000);
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
@@ -557,12 +606,27 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
                     <button
                       type="button"
-                      onClick={handleSaveAll}
-                      className="px-4 py-2 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                      onClick={handleSaveSlug}
+                      disabled={isSavingSlug}
+                      className="px-4 py-2 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-60 flex items-center gap-1.5"
                     >
-                      Guardar slug
+                      {isSavingSlug ? (
+                        <>
+                          <span className="w-3.5 h-3.5 border-2 border-[#261900] border-t-transparent rounded-full animate-spin"></span>
+                          <span>Guardando...</span>
+                        </>
+                      ) : (
+                        <span>Guardar slug</span>
+                      )}
                     </button>
                   </div>
+
+                  {slugSaveError && (
+                    <div className="p-2.5 bg-rose-500/20 border border-rose-400/40 rounded-xl text-rose-200 text-xs font-bold flex items-center gap-2">
+                      <span className="material-symbols-outlined text-sm">error</span>
+                      <span>{slugSaveError}</span>
+                    </div>
+                  )}
 
                   <p className="text-[11px] text-[#f2daff]">
                     Este slug se asocia de forma permanente al identificador único de tu negocio.
@@ -592,14 +656,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         <span>{isCopied ? '¡Copiado!' : 'Copiar enlace'}</span>
                       </button>
 
-                      <button
-                        type="button"
-                        onClick={onPreviewClientFlow}
+                      <a
+                        href={realBookingUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
                         className="px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                       >
                         <span className="material-symbols-outlined text-sm text-[#f9b900]">open_in_new</span>
                         <span>Probar enlace</span>
-                      </button>
+                      </a>
                     </div>
                   </div>
                 </div>

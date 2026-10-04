@@ -281,7 +281,7 @@ export async function initSaasDatabase(): Promise<{
 
     const primaryUserId = 'usr_owner';
     const legacyName = legacy.config?.name || 'Mi Peluquería Canina';
-    const primaryBizId = legacy.config?.id && legacy.config.id !== 'biz_main' && legacy.config.id !== 'biz_default'
+    const primaryBizId = (legacy.config?.id && legacy.config.id !== 'biz_default')
       ? legacy.config.id
       : generateStableBusinessId(legacyName);
 
