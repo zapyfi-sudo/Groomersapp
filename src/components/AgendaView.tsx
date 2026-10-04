@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
-import { Appointment, Pet } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Appointment, Pet, SalonConfig } from '../types';
 import { NewAppointmentView } from './NewAppointmentView';
 import { ShareLinkModal } from './ShareLinkModal';
+import { HOTLINK_IMAGES } from '../mockData';
+import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { formatDateSpanish } from '../utils/storage';
 
 interface AgendaViewProps {
   appointments: Appointment[];
@@ -9,11 +12,10 @@ interface AgendaViewProps {
   onSelectPet: (pet: Pet) => void;
   onNavigateToRetention: () => void;
   onAddNewAppointment: (newApt: Appointment) => void;
-  salonName?: string;
-  salonAddress?: string;
-  salonPhone?: string;
-  bookingSlug?: string;
-  simultaneousCapacity?: number;
+  salonConfig: SalonConfig;
+  urgentRetentionCount?: number;
+  totalRetentionCount?: number;
+  currentLanguage?: AppLanguage;
 }
 
 export const AgendaView: React.FC<AgendaViewProps> = ({
@@ -22,37 +24,83 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   onSelectPet,
   onNavigateToRetention,
   onAddNewAppointment,
-  salonName = 'Peluquería Canina Luna',
-  salonAddress = 'Av. Corrientes 4520, Almagro, CABA',
-  salonPhone = '+54 9 11 5566-7788',
-  bookingSlug = 'agendacan.app/peluquerialuna',
-  simultaneousCapacity = 2
+  salonConfig,
+  urgentRetentionCount = 0,
+  totalRetentionCount = 0,
+  currentLanguage = 'es-LA'
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isNewAptModalOpen, setIsNewAptModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [isOnlineClientPortalActive, setIsOnlineClientPortalActive] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'todos' | 'en_salon' | 'confirmada' | 'completado'>('todos');
-  const [selectedCalendarDay, setSelectedCalendarDay] = useState<number>(15);
 
-  const totalAppointments = appointments.length;
-  const inSalonCount = appointments.filter(
+  const today = useMemo(() => new Date(), []);
+  const todayFormatted = useMemo(() => formatDateSpanish(today), [today]);
+
+  const [selectedDateFormatted, setSelectedDateFormatted] = useState<string>(todayFormatted);
+
+  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+
+  // Generate the current week days dynamically from real system date
+  const weekDays = useMemo(() => {
+    const list = [];
+    const curr = new Date(today);
+    // Start from Monday of this week
+    const dayOfWeek = curr.getDay(); // 0 is Sunday
+    const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const monday = new Date(curr);
+    monday.setDate(curr.getDate() + distanceToMonday);
+
+    const dayLetters = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+
+    for (let i = 0; i < 6; i++) {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      const isToday = d.toDateString() === today.toDateString();
+      const formatted = formatDateSpanish(d);
+      const countForDay = appointments.filter((a) => a.date === formatted).length;
+
+      list.push({
+        dayName: dayLetters[i],
+        dayNum: d.getDate(),
+        formatted,
+        isToday,
+        count: countForDay
+      });
+    }
+    return list;
+  }, [today, appointments]);
+
+  // Today's specific appointments
+  const todayAppointments = useMemo(() => {
+    return appointments.filter((a) => a.date === todayFormatted);
+  }, [appointments, todayFormatted]);
+
+  const totalAppointmentsToday = todayAppointments.length;
+  const inSalonCount = todayAppointments.filter(
     (a) => a.status === 'en_salon' || a.status === 'en_corte'
   ).length;
-  const pickupCount = appointments.filter((a) => a.status === 'completado').length;
+  const pickupCount = todayAppointments.filter((a) => a.status === 'completado').length;
 
-  const filteredAppointments = appointments.filter((apt) => {
-    if (filterStatus === 'en_salon') {
-      return apt.status === 'en_salon' || apt.status === 'en_corte';
-    }
-    if (filterStatus === 'confirmada') {
-      return apt.status === 'confirmada' || apt.status === 'pendiente';
-    }
-    if (filterStatus === 'completado') {
-      return apt.status === 'completado';
-    }
-    return true;
-  });
+  // Selected date's appointments
+  const selectedDayAppointments = useMemo(() => {
+    return appointments.filter((a) => a.date === selectedDateFormatted);
+  }, [appointments, selectedDateFormatted]);
+
+  const filteredAppointments = useMemo(() => {
+    return selectedDayAppointments.filter((apt) => {
+      if (filterStatus === 'en_salon') {
+        return apt.status === 'en_salon' || apt.status === 'en_corte';
+      }
+      if (filterStatus === 'confirmada') {
+        return apt.status === 'confirmada' || apt.status === 'pendiente';
+      }
+      if (filterStatus === 'completado') {
+        return apt.status === 'completado';
+      }
+      return true;
+    });
+  }, [selectedDayAppointments, filterStatus]);
 
   const handleAppointmentCreated = (newApt: Appointment) => {
     onAddNewAppointment(newApt);
@@ -62,19 +110,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
 
   const handlePetCardClick = (apt: Appointment) => {
     const matchedPet =
-      pets.find((p) => p.name.toLowerCase() === apt.petName.toLowerCase()) || pets[0];
-    onSelectPet(matchedPet);
+      pets.find((p) => p.name.toLowerCase() === apt.petName.toLowerCase() || p.id === apt.petId) || pets[0];
+    if (matchedPet) {
+      onSelectPet(matchedPet);
+    }
   };
 
-  // Week days for quick horizontal switcher
-  const weekDays = [
-    { dayName: 'Lun', dayNum: 14 },
-    { dayName: 'Mar', dayNum: 15, isToday: true, count: totalAppointments },
-    { dayName: 'Mié', dayNum: 16, count: 2 },
-    { dayName: 'Jue', dayNum: 17, count: 3 },
-    { dayName: 'Vie', dayNum: 18, count: 4 },
-    { dayName: 'Sáb', dayNum: 19, count: 5 }
-  ];
+  // Capacity display
+  const effectiveCapacity = salonConfig.allowSimultaneousStaff === false ? 1 : salonConfig.simultaneousCapacity || 1;
 
   return (
     <div className="flex flex-col w-full pb-32 max-w-7xl mx-auto">
@@ -86,50 +129,55 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         </div>
       )}
 
-      {/* Main Responsive Grid Layout (Single column on mobile, 2 columns on PC) */}
+      {/* Main Responsive Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 px-4 sm:px-6 pt-2">
-        {/* LEFT COLUMN: Hero, Mini Calendar, Capacity Status, Action Buttons (5 cols on lg) */}
+        {/* LEFT COLUMN: Hero, Mini Calendar, Capacity Status, Action Buttons */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Top Hero Card (Deep Purple) */}
+          {/* Top Hero Card (Deep Purple with real Business Logo & Name) */}
           <section className="bg-gradient-to-br from-[#2e004e] via-[#37065e] to-[#4b0878] text-white p-5 rounded-3xl shadow-lg relative overflow-hidden">
-            {/* Header Bar */}
             <div className="flex items-center justify-between pb-3">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#f9b900] flex items-center justify-center text-[#261900] shadow-sm font-black text-sm">
-                  <span>🐕</span>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center text-[#261900] shadow-sm shrink-0 overflow-hidden">
+                  <img
+                    src={salonConfig.logoUrl || HOTLINK_IMAGES.logo}
+                    alt={salonConfig.name}
+                    className="w-full h-full object-contain"
+                  />
                 </div>
-                <div>
-                  <h2 className="font-extrabold text-sm text-white leading-tight">{salonName}</h2>
+                <div className="min-w-0">
+                  <h2 className="font-extrabold text-sm text-white leading-tight truncate">
+                    {salonConfig.name}
+                  </h2>
                   <div className="flex items-center gap-1.5 text-[11px] text-[#e3e0f1]">
                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                    <span>Turnos abiertos hoy</span>
+                    <span>{t.openToday}</span>
                   </div>
                 </div>
               </div>
 
-              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 text-white text-xs font-bold">
+              <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-white/10 text-white text-xs font-bold shrink-0">
                 <span className="w-2 h-2 rounded-full bg-emerald-400"></span>
                 <span>Abierto</span>
               </div>
             </div>
 
-            {/* Date Row */}
+            {/* Dynamic Date & Capacity Row */}
             <div className="flex items-center justify-between pt-1 pb-3">
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-[#f2daff] text-xs font-semibold backdrop-blur-xs">
                 <span className="material-symbols-outlined text-sm">calendar_month</span>
-                <span>Martes, 15 de Octubre 2024</span>
+                <span>{todayFormatted}</span>
               </div>
 
               <span className="text-[11px] text-[#f9b900] font-bold">
-                Capacidad: {simultaneousCapacity} estilistas
+                {t.simultaneousCapacity}: {effectiveCapacity}
               </span>
             </div>
 
-            {/* Greeting Headline */}
+            {/* Greeting Headline - Fully Dynamic Calculation */}
             <div className="pt-1 pb-4">
-              <h1 className="text-2xl font-black text-white tracking-tight">Buenos días 👋</h1>
+              <h1 className="text-2xl font-black text-white tracking-tight">{t.goodMorning}</h1>
               <p className="text-xs text-[#e3e0f1] mt-0.5">
-                Hoy tienes <strong className="text-[#f9b900] font-extrabold">{totalAppointments} citas</strong> programadas.
+                Hoy tienes <strong className="text-[#f9b900] font-extrabold">{totalAppointmentsToday} {t.todayAppointmentsCount}</strong> programadas.
               </p>
             </div>
 
@@ -137,7 +185,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             <div className="grid grid-cols-3 gap-2">
               {/* Citas Hoy */}
               <div className="bg-[#3e066a] rounded-2xl p-2.5 text-center flex flex-col items-center justify-center shadow-xs border border-white/10">
-                <span className="text-2xl font-black text-white leading-tight">{totalAppointments}</span>
+                <span className="text-2xl font-black text-white leading-tight">{totalAppointmentsToday}</span>
                 <span className="text-[9px] font-bold text-white/70 uppercase tracking-wider mt-0.5">
                   CITAS HOY
                 </span>
@@ -150,7 +198,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                   <span className="text-2xl font-black text-[#f9b900] leading-tight">{inSalonCount}</span>
                 </div>
                 <span className="text-[9px] font-bold text-[#ffdea1] uppercase tracking-wider mt-0.5">
-                  EN SALÓN
+                  {t.inSalon}
                 </span>
               </div>
 
@@ -158,7 +206,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
               <div className="bg-[#3e066a] rounded-2xl p-2.5 text-center flex flex-col items-center justify-center shadow-xs border border-white/10">
                 <span className="text-2xl font-black text-white leading-tight">{pickupCount}</span>
                 <span className="text-[9px] font-bold text-white/70 uppercase tracking-wider mt-0.5">
-                  POR RETIRAR
+                  {t.pickupReady}
                 </span>
               </div>
             </div>
@@ -168,14 +216,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           <div className="flex gap-2.5">
             <button
               type="button"
-              onClick={() => {
-                setIsOnlineClientPortalActive(false);
-                setIsNewAptModalOpen(true);
-              }}
+              onClick={() => setIsNewAptModalOpen(true)}
               className="flex-1 py-3.5 px-4 rounded-2xl bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-sm shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
             >
               <span className="material-symbols-outlined text-xl font-bold">add_circle</span>
-              <span>Nueva cita</span>
+              <span>{t.newAppointment}</span>
             </button>
 
             <button
@@ -184,31 +229,31 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
               className="flex-1 py-3.5 px-4 rounded-2xl bg-[#efebfa] hover:bg-[#e4ddfa] text-[#2e004e] font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
             >
               <span className="material-symbols-outlined text-lg">share</span>
-              <span>Compartir enlace</span>
+              <span>{t.shareLink}</span>
             </button>
           </div>
 
-          {/* Interactive Date Bar & Mini Calendar Widget */}
+          {/* Dynamic Week Bar & Mini Calendar Widget */}
           <div className="bg-white rounded-3xl p-4 shadow-sm border border-[#cfc2d2]/40 space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-xs font-extrabold text-[#1a1a26] flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-sm text-[#4b0878]">calendar_today</span>
-                <span>Semana de Octubre 2024</span>
+                <span>{selectedDateFormatted === todayFormatted ? 'Hoy en tu salón' : selectedDateFormatted}</span>
               </span>
               <span className="text-[11px] font-bold text-[#4b0878]">
-                Día {selectedCalendarDay}
+                {selectedDayAppointments.length} citas
               </span>
             </div>
 
-            {/* Quick days row */}
+            {/* Quick days row generated dynamically */}
             <div className="grid grid-cols-6 gap-1.5">
               {weekDays.map((d) => {
-                const isSelected = selectedCalendarDay === d.dayNum;
+                const isSelected = selectedDateFormatted === d.formatted;
                 return (
                   <button
-                    key={d.dayNum}
+                    key={d.formatted}
                     type="button"
-                    onClick={() => setSelectedCalendarDay(d.dayNum)}
+                    onClick={() => setSelectedDateFormatted(d.formatted)}
                     className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
                       isSelected
                         ? 'bg-[#2e004e] text-white shadow-sm'
@@ -219,7 +264,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                       {d.dayName}
                     </span>
                     <span className="text-sm font-extrabold">{d.dayNum}</span>
-                    {d.count ? (
+                    {d.count > 0 ? (
                       <span className="w-1.5 h-1.5 rounded-full bg-[#f9b900] mt-0.5"></span>
                     ) : null}
                   </button>
@@ -228,7 +273,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
           </div>
 
-          {/* Banner: Clientes por volver */}
+          {/* Banner: Clientes por volver (Derived dynamically) */}
           <div
             onClick={onNavigateToRetention}
             className="bg-[#ffea9f] hover:bg-[#ffe380] transition-colors rounded-2xl p-4 shadow-sm flex items-center justify-between gap-3 cursor-pointer border border-[#f9b900]/40 group active:scale-[0.99]"
@@ -239,10 +284,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
               </div>
               <div className="min-w-0">
                 <h3 className="font-extrabold text-sm text-[#261900] leading-snug">
-                  Clientes por volver
+                  {t.clientsToReturnBanner}
                 </h3>
                 <p className="text-xs text-[#5c4300] leading-tight truncate">
-                  6 mascotas necesitan una nueva cita de mantenimiento.
+                  {totalRetentionCount > 0
+                    ? `${totalRetentionCount} ${t.clientsNeedRebooking}`
+                    : t.noRetentionDue}
                 </p>
               </div>
             </div>
@@ -253,217 +300,131 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           </div>
         </div>
 
-        {/* RIGHT COLUMN: Cronograma de Hoy / Timeline & Filter (7 cols on lg) */}
+        {/* RIGHT COLUMN: Appointments List */}
         <div className="lg:col-span-7 space-y-4">
-          {/* Section Title & Filter Tabs */}
-          <div className="bg-white rounded-3xl p-4 shadow-sm border border-[#cfc2d2]/40 space-y-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <h2 className="text-base font-extrabold text-[#1a1a26]">
-                  Cronograma del Día • {selectedCalendarDay} de Octubre
-                </h2>
-                <p className="text-xs text-[#7e7482]">
-                  {filteredAppointments.length} citas programadas para hoy
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2">
-                <span className="text-[11px] text-[#7e7482] hidden sm:inline">
-                  Capacidad simultánea: {simultaneousCapacity}
-                </span>
-              </div>
-            </div>
-
-            {/* Filter pills */}
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none text-xs">
+          {/* Filter Chips Bar */}
+          <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
+            <div className="flex items-center gap-2">
               <button
                 type="button"
                 onClick={() => setFilterStatus('todos')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   filterStatus === 'todos'
                     ? 'bg-[#2e004e] text-white shadow-xs'
-                    : 'bg-[#f5f2ff] text-[#4c4451] hover:bg-[#efecfd]'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Todos ({totalAppointments})
+                Todos ({selectedDayAppointments.length})
               </button>
               <button
                 type="button"
                 onClick={() => setFilterStatus('en_salon')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   filterStatus === 'en_salon'
                     ? 'bg-[#2e004e] text-white shadow-xs'
-                    : 'bg-[#f5f2ff] text-[#4c4451] hover:bg-[#efecfd]'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                En Salón ({inSalonCount})
+                En Salón ({selectedDayAppointments.filter((a) => a.status === 'en_salon' || a.status === 'en_corte').length})
               </button>
               <button
                 type="button"
                 onClick={() => setFilterStatus('confirmada')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   filterStatus === 'confirmada'
                     ? 'bg-[#2e004e] text-white shadow-xs'
-                    : 'bg-[#f5f2ff] text-[#4c4451] hover:bg-[#efecfd]'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Confirmados
+                Confirmadas ({selectedDayAppointments.filter((a) => a.status === 'confirmada' || a.status === 'pendiente').length})
               </button>
               <button
                 type="button"
                 onClick={() => setFilterStatus('completado')}
-                className={`px-3 py-1.5 rounded-xl font-bold transition-all cursor-pointer ${
+                className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   filterStatus === 'completado'
                     ? 'bg-[#2e004e] text-white shadow-xs'
-                    : 'bg-[#f5f2ff] text-[#4c4451] hover:bg-[#efecfd]'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Listos ({pickupCount})
+                Completadas ({selectedDayAppointments.filter((a) => a.status === 'completado').length})
               </button>
             </div>
           </div>
 
-          {/* Appointment Cards List */}
-          <div className="space-y-3">
-            {filteredAppointments.length === 0 ? (
-              <div className="bg-white rounded-3xl p-8 text-center border border-[#cfc2d2]/40 text-[#7e7482] space-y-2">
-                <span className="material-symbols-outlined text-3xl text-[#4b0878]">event_busy</span>
-                <p className="text-sm font-bold text-[#1a1a26]">No hay citas en este filtro</p>
-                <p className="text-xs">Usa el botón "Nueva cita" para agregar una reserva.</p>
+          {/* List of Appointments for the selected day */}
+          {filteredAppointments.length === 0 ? (
+            <div className="bg-white rounded-3xl p-10 text-center border border-dashed border-gray-300 space-y-3 shadow-xs">
+              <div className="w-14 h-14 rounded-full bg-[#f5f2ff] text-[#4b0878] flex items-center justify-center mx-auto text-2xl font-bold">
+                <span className="material-symbols-outlined text-3xl">event_busy</span>
               </div>
-            ) : (
-              filteredAppointments.map((apt) => {
-                const isCompleted = apt.status === 'completado';
-                const isInSalon = apt.status === 'en_salon' || apt.status === 'en_corte';
-                const isConfirmed = apt.status === 'confirmada';
-
-                // Stripe color
-                const stripeColor = isCompleted
-                  ? 'bg-emerald-500'
-                  : isInSalon
-                  ? 'bg-[#f9b900]'
-                  : isConfirmed
-                  ? 'bg-[#4b0878]'
-                  : 'bg-[#7e7482]';
-
-                // Status Badge
-                const statusBadgeStyle = isCompleted
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : isInSalon
-                  ? 'bg-[#fff1b8] text-[#7a5900]'
-                  : isConfirmed
-                  ? 'bg-[#f2daff] text-[#2e004e]'
-                  : 'bg-[#f5f2ff] text-[#4c4451]';
-
-                return (
-                  <div
-                    key={apt.id}
-                    onClick={() => handlePetCardClick(apt)}
-                    className="bg-white rounded-2xl p-4 shadow-sm border border-[#cfc2d2]/30 relative overflow-hidden flex flex-col gap-2.5 cursor-pointer hover:border-[#4b0878]/50 hover:shadow-md transition-all active:scale-[0.99]"
-                  >
-                    {/* Left colored stripe */}
-                    <div className={`absolute left-0 top-0 bottom-0 w-1.5 ${stripeColor}`}></div>
-
-                    {/* Top Row: Time, Name, Status & Price */}
-                    <div className="flex items-start justify-between pl-1">
-                      <div className="flex items-center gap-3 min-w-0">
-                        {/* Time Box */}
-                        <div className="bg-[#f5f2ff] rounded-xl px-2.5 py-1.5 text-center shrink-0 border border-[#cfc2d2]/30">
-                          <span className="text-xs font-black text-[#1a1a26] block leading-tight">
-                            {apt.time.split(' ')[0]}
-                          </span>
-                          <span className="text-[10px] text-[#7e7482] uppercase font-bold block leading-tight">
-                            {apt.time.split(' ')[1] || 'HS'}
-                          </span>
-                        </div>
-
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="font-extrabold text-base text-[#1a1a26] truncate">
-                              {apt.petName}
-                            </h3>
-                            <span
-                              className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${statusBadgeStyle}`}
-                            >
-                              {apt.statusLabel}
-                            </span>
-                          </div>
-                          <p className="text-xs text-[#7e7482] truncate mt-0.5">
-                            {apt.breed} • <span className="text-[#4c4451] font-semibold">{apt.serviceName}</span>
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Price & Payment Status */}
-                      <div className="text-right shrink-0">
-                        <span className="text-base font-black text-[#1a1a26] block">
-                          ${apt.price.toLocaleString()} <span className="text-xs font-bold text-[#7e7482]">{apt.currency}</span>
-                        </span>
-                        <span
-                          className={`text-[11px] font-bold ${
-                            isCompleted ? 'text-emerald-700' : 'text-[#7e7482]'
-                          }`}
-                        >
-                          {apt.paymentStatusLabel}
-                        </span>
-                      </div>
+              <h3 className="text-sm font-bold text-[#1a1a26]">{t.noAppointmentsToday}</h3>
+              <p className="text-xs text-[#7e7482] max-w-sm mx-auto">
+                No hay turnos registrados con este filtro para {selectedDateFormatted}. Haz clic en "+ Nueva cita" para agendar un turno.
+              </p>
+              <button
+                type="button"
+                onClick={() => setIsNewAptModalOpen(true)}
+                className="py-2 px-4 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-sm font-bold">add</span>
+                <span>{t.newAppointment}</span>
+              </button>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {filteredAppointments.map((apt) => (
+                <div
+                  key={apt.id}
+                  onClick={() => handlePetCardClick(apt)}
+                  className="bg-white hover:bg-[#fcf8ff] rounded-2xl p-4 shadow-sm border border-[#cfc2d2]/30 hover:border-[#4b0878]/50 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
+                >
+                  <div className="flex items-start gap-3.5 min-w-0">
+                    <div className="w-12 h-12 rounded-2xl bg-[#f5f2ff] text-[#4b0878] flex flex-col items-center justify-center shrink-0 border border-[#cfc2d2]/30 font-mono text-xs font-black">
+                      <span>{apt.time.slice(0, 5)}</span>
                     </div>
 
-                    {/* Bottom Row: Groomer & Substatus */}
-                    <div className="flex items-center justify-between pt-2 border-t border-[#f5f2ff] pl-1 text-xs">
-                      <div className="flex items-center gap-1.5 text-[#4c4451] font-medium truncate">
-                        <span className="material-symbols-outlined text-sm text-[#7e7482]">person</span>
-                        <span className="truncate">{apt.groomer}</span>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h4 className="font-extrabold text-sm text-[#1a1a26] truncate">{apt.petName}</h4>
+                        <span className="text-[11px] text-[#7e7482]">({apt.breed})</span>
                       </div>
-
-                      <div className="shrink-0 flex items-center gap-2">
-                        {apt.subStatusType === 'action_pill' ? (
-                          <span className="bg-[#2e004e] text-white text-[11px] font-bold px-3 py-1 rounded-xl inline-flex items-center gap-1 shadow-xs">
-                            <span className="material-symbols-outlined text-xs text-[#f9b900]">bathtub</span>
-                            <span>{apt.subStatus}</span>
-                          </span>
-                        ) : apt.subStatusType === 'warning' ? (
-                          <span className="text-[#7e7482] flex items-center gap-1 text-xs">
-                            <span className="material-symbols-outlined text-xs text-[#f9b900]">chat</span>
-                            <span>{apt.subStatus}</span>
-                          </span>
-                        ) : apt.subStatusType === 'tag' ? (
-                          <span className="text-[#4b0878] font-bold flex items-center gap-1 text-xs">
-                            <span className="material-symbols-outlined text-xs">history</span>
-                            <span>{apt.subStatus}</span>
-                          </span>
-                        ) : (
-                          <span className="text-[#7e7482] flex items-center gap-1 text-xs">
-                            <span className="material-symbols-outlined text-xs">schedule</span>
-                            <span>{apt.subStatus}</span>
-                          </span>
-                        )}
-                        <span className="text-[#4b0878] font-bold text-xs hover:underline flex items-center gap-0.5">
-                          Ver Ficha &gt;
-                        </span>
+                      <p className="text-xs text-[#4c4451] font-medium mt-0.5">
+                        {apt.serviceName} • <span className="text-[#2e004e] font-bold">${apt.price.toLocaleString()} {apt.currency || salonConfig.currency}</span>
+                      </p>
+                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[#7e7482]">
+                        <span>Tutor: {apt.tutorName}</span>
+                        {apt.groomer && <span>• Estilista: {apt.groomer}</span>}
                       </div>
                     </div>
                   </div>
-                );
-              })
-            )}
-          </div>
+
+                  <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                        apt.status === 'completado'
+                          ? 'bg-emerald-100 text-emerald-800'
+                          : apt.status === 'en_salon' || apt.status === 'en_corte'
+                          ? 'bg-[#f9b900] text-[#261900]'
+                          : 'bg-[#efecfd] text-[#2e004e]'
+                      }`}
+                    >
+                      {apt.statusLabel || apt.status}
+                    </span>
+
+                    <span className="text-[11px] text-[#7e7482] font-semibold flex items-center gap-1 group-hover:text-[#4b0878]">
+                      <span>Ver ficha</span>
+                      <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Modal: Compartir Enlace para Redes Sociales */}
-      <ShareLinkModal
-        isOpen={isShareModalOpen}
-        onClose={() => setIsShareModalOpen(false)}
-        salonName={salonName}
-        bookingSlug={bookingSlug}
-        onOpenClientPortal={() => {
-          setIsOnlineClientPortalActive(true);
-          setIsNewAptModalOpen(true);
-        }}
-      />
-
-      {/* Modal/Pantalla: Nueva Cita (Flujo completo interactivo con calendario y capacidad) */}
+      {/* New Appointment Modal */}
       {isNewAptModalOpen && (
         <NewAppointmentView
           onClose={() => setIsNewAptModalOpen(false)}
@@ -471,14 +432,28 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             handleAppointmentCreated(newApt);
             setIsNewAptModalOpen(false);
           }}
-          salonName={salonName}
-          salonAddress={salonAddress}
-          salonPhone={salonPhone}
-          simultaneousCapacity={simultaneousCapacity}
+          salonName={salonConfig.name}
+          salonAddress={salonConfig.address}
+          salonPhone={salonConfig.phone}
+          simultaneousCapacity={effectiveCapacity}
           existingAppointments={appointments}
-          isOnlineClientPortal={isOnlineClientPortalActive}
+          isOnlineClientPortal={false}
+          salonConfig={salonConfig}
         />
       )}
+
+      {/* Share Link Modal */}
+      <ShareLinkModal
+        isOpen={isShareModalOpen}
+        onClose={() => setIsShareModalOpen(false)}
+        salonName={salonConfig.name}
+        bookingSlug={salonConfig.bookingSlug}
+        businessId={salonConfig.id || 'biz_main'}
+        onOpenClientPortal={() => {
+          setIsShareModalOpen(false);
+          setIsNewAptModalOpen(true);
+        }}
+      />
     </div>
   );
 };

@@ -1,36 +1,41 @@
 import React from 'react';
+import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 
 interface BottomNavProps {
   currentTab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding';
   onSelectTab: (tab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding') => void;
   urgentCount?: number;
+  currentLanguage?: AppLanguage;
 }
 
 export const BottomNav: React.FC<BottomNavProps> = ({
   currentTab,
   onSelectTab,
-  urgentCount = 3
+  urgentCount = 0,
+  currentLanguage = 'es-LA'
 }) => {
+  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+
   const tabs = [
     {
       id: 'agenda' as const,
-      label: 'Agenda',
+      label: t.agenda,
       icon: 'calendar_month'
     },
     {
       id: 'mascotas' as const,
-      label: 'Clientes',
+      label: t.clients,
       icon: 'pets'
     },
     {
       id: 'retencion' as const,
-      label: 'Por Volver',
+      label: t.retention,
       icon: 'sync',
       badge: urgentCount
     },
     {
       id: 'onboarding' as const,
-      label: 'Ajustes',
+      label: t.settings,
       icon: 'tune'
     }
   ];
@@ -39,7 +44,6 @@ export const BottomNav: React.FC<BottomNavProps> = ({
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#cfc2d2]/40 shadow-[0_-4px_20px_rgba(46,0,78,0.06)] md:hidden">
       <div className="max-w-md mx-auto grid grid-cols-4 h-16 divide-x divide-dashed divide-[#5b95ff]/40">
         {tabs.map((tab) => {
-          // If on 'ficha', highlight 'mascotas' or 'retencion' depending on context
           const isActive =
             currentTab === tab.id || (tab.id === 'mascotas' && currentTab === 'ficha');
 

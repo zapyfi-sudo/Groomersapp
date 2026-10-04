@@ -1,30 +1,43 @@
 import React from 'react';
 import { HOTLINK_IMAGES } from '../mockData';
+import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { UserAccount } from '../types';
 
 interface HeaderProps {
   currentTab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding';
   onSelectTab: (tab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding') => void;
   salonName?: string;
+  logoUrl?: string;
+  urgentCount?: number;
+  currentLanguage?: AppLanguage;
+  activeAccount?: UserAccount | null;
+  onOpenAccountModal?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
   onSelectTab,
-  salonName = 'Peluquería Canina Luna'
+  salonName = 'Peluquería Canina Luna',
+  logoUrl,
+  urgentCount = 0,
+  currentLanguage = 'es-LA',
+  activeAccount,
+  onOpenAccountModal
 }) => {
+  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+
   return (
     <>
-      {/* DESKTOP & TABLET TOP NAVIGATION BAR (Visible on md and larger screens)
-          Completely hidden on mobile phones so it does not freeze or block the screen */}
+      {/* DESKTOP & TABLET TOP NAVIGATION BAR */}
       <header className="hidden md:block fixed top-0 left-0 right-0 z-40 bg-[#2e004e] text-white shadow-md">
         <div className="max-w-7xl mx-auto h-16 px-4 sm:px-6 lg:px-8 flex items-center justify-between gap-4">
           {/* Brand Identity */}
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center shadow-xs shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-white p-1 flex items-center justify-center shadow-xs shrink-0 overflow-hidden">
               <img
-                alt="AgendaCan Logo"
+                alt={`${salonName} Logo`}
                 className="w-full h-full object-contain"
-                src={HOTLINK_IMAGES.logo}
+                src={logoUrl || HOTLINK_IMAGES.logo}
               />
             </div>
 
@@ -50,7 +63,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">calendar_month</span>
-              <span>Agenda</span>
+              <span>{t.agenda}</span>
             </button>
 
             <button
@@ -63,7 +76,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">pets</span>
-              <span>Clientes</span>
+              <span>{t.clients}</span>
             </button>
 
             <button
@@ -76,10 +89,12 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">sync</span>
-              <span>Por Volver</span>
-              <span className="bg-[#2e004e] text-[#f9b900] text-[10px] px-1.5 rounded-full font-black">
-                3
-              </span>
+              <span>{t.retention}</span>
+              {urgentCount > 0 && (
+                <span className="bg-[#2e004e] text-[#f9b900] text-[10px] px-1.5 rounded-full font-black">
+                  {urgentCount}
+                </span>
+              )}
             </button>
 
             <button
@@ -92,7 +107,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">badge</span>
-              <span>Ficha Mascota</span>
+              <span>{t.petProfile}</span>
             </button>
 
             <button
@@ -105,14 +120,19 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">tune</span>
-              <span>Ajustes</span>
+              <span>{t.settings}</span>
             </button>
           </nav>
 
-          {/* Profile Badge (No unexpected redirects) */}
+          {/* Profile & Account Switcher Badge */}
           <div className="flex items-center gap-3 shrink-0">
-            <div className="flex items-center gap-2.5">
-              <div className="w-10 h-10 rounded-full overflow-hidden ring-2 ring-[#f9b900] shadow-md">
+            <button
+              type="button"
+              onClick={onOpenAccountModal}
+              title="Gestionar Cuentas y Sesión"
+              className="flex items-center gap-2.5 bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-2xl transition-all cursor-pointer border border-white/10 text-left active:scale-95"
+            >
+              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-[#f9b900] shadow-md shrink-0">
                 <img
                   alt="Profile"
                   className="w-full h-full object-cover"
@@ -120,13 +140,16 @@ export const Header: React.FC<HeaderProps> = ({
                 />
               </div>
               <div className="hidden lg:block text-left">
-                <span className="text-xs font-bold text-white block leading-tight">Admin Salón</span>
+                <span className="text-xs font-bold text-white block leading-tight truncate max-w-[130px]">
+                  {activeAccount?.name || 'Admin Salón'}
+                </span>
                 <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  En línea
+                  Cuenta Activa
                 </span>
               </div>
-            </div>
+              <span className="material-symbols-outlined text-white/70 text-base">expand_more</span>
+            </button>
           </div>
         </div>
       </header>

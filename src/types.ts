@@ -42,6 +42,25 @@ export interface Pet {
   recommendedIntervalWeeks: number | string;
 }
 
+export interface UserAccount {
+  id: string; // e.g. "usr_1001"
+  email: string;
+  name: string;
+  businessId: string;
+  createdAt: string;
+  lastLoginAt: string;
+}
+
+export interface BusinessAccountData {
+  businessId: string;
+  userId: string;
+  config: SalonConfig;
+  pets: Pet[];
+  appointments: Appointment[];
+  bookedRetentions: string[];
+  updatedAt: string;
+}
+
 export interface ClientReview {
   id: string;
   clientName: string;
@@ -102,8 +121,12 @@ export interface StaffMember {
 }
 
 export interface SalonConfig {
+  id?: string;
+  userId?: string;
   name: string;
   logoUrl: string;
+  country?: string;
+  language?: string;
   phonePrefix: string;
   phone: string;
   address: string;

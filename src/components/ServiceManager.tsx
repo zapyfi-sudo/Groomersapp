@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SalonService, ServicePricingBySize } from '../types';
+import { compressImage } from '../utils/storage';
 
 interface ServiceManagerProps {
   services: SalonService[];
@@ -29,6 +30,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
   });
   const [imageUrl, setImageUrl] = useState('');
   const [active, setActive] = useState(true);
+  const [formError, setFormError] = useState('');
 
   const resetForm = () => {
     setName('');
@@ -45,6 +47,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     setImageUrl('');
     setActive(true);
     setEditingServiceId(null);
+    setFormError('');
     setIsFormOpen(false);
   };
 
@@ -72,12 +75,19 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     }
     setImageUrl(svc.imageUrl || '');
     setActive(svc.active ?? true);
+    setFormError('');
     setIsFormOpen(true);
   };
 
-  const handleSave = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!name.trim()) return;
+  const handleSave = (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) {
+      e.preventDefault();
+      e.stopPropagation();
+    }
+    if (!name.trim()) {
+      setFormError('Por favor ingresa un nombre para el servicio.');
+      return;
+    }
 
     const basePrice = pricingType === 'unico' ? singlePrice : sizePrices.mediano;
 
@@ -89,8 +99,8 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 ...s,
                 name: name.trim(),
                 desc: desc.trim(),
-                durationMin: Number(durationMin),
-                price: Number(basePrice),
+                durationMin: Number(durationMin) || 60,
+                price: Number(basePrice) || 0,
                 pricingType,
                 priceBySize: pricingType === 'tamano' ? sizePrices : undefined,
                 imageUrl: imageUrl.trim() || undefined,
@@ -104,8 +114,8 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         id: 'svc-' + Date.now(),
         name: name.trim(),
         desc: desc.trim(),
-        durationMin: Number(durationMin),
-        price: Number(basePrice),
+        durationMin: Number(durationMin) || 60,
+        price: Number(basePrice) || 0,
         pricingType,
         priceBySize: pricingType === 'tamano' ? sizePrices : undefined,
         imageUrl: imageUrl.trim() || undefined,
@@ -130,16 +140,15 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     );
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setImageUrl(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 600, 0.82);
+        setImageUrl(compressed);
+      } catch (err) {
+        console.warn('Error uploading service image:', err);
+      }
     }
   };
 
@@ -169,9 +178,9 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         </button>
       </div>
 
-      {/* Service Creation / Edit Modal Form */}
+      {/* Service Creation / Edit Form (Rendered as div to avoid nested form redirection bugs) */}
       {isFormOpen && (
-        <form onSubmit={handleSave} className="bg-[#fcf8ff] rounded-2xl p-4 sm:p-5 border border-[#4b0878]/30 space-y-4 animate-in fade-in duration-200">
+        <div className="bg-[#fcf8ff] rounded-2xl p-4 sm:p-5 border border-[#4b0878]/30 space-y-4 animate-in fade-in duration-200">
           <div className="flex items-center justify-between pb-2 border-b border-[#cfc2d2]/30">
             <h4 className="font-extrabold text-sm text-[#2e004e] flex items-center gap-1.5">
               <span className="material-symbols-outlined text-base">
@@ -188,6 +197,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
             </button>
           </div>
 
+          {formError && (
+            <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-xl font-bold">
+              {formError}
+            </div>
+          )}
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Nombre del servicio */}
             <div>
@@ -198,8 +213,11 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 type="text"
                 required
                 value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Ej: Baño completo, Corte higiénico..."
+                onChange={(e) => {
+                  setName(e.target.value);
+                  if (formError) setFormError('');
+                }}
+                placeholder="Ej: Baño + Corte de Raza"
                 className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
               />
             </div>
@@ -207,163 +225,164 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
             {/* Duración */}
             <div>
               <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                Duración del servicio (en minutos) *
+                Duración promedio (minutos) *
               </label>
-              <div className="flex items-center gap-2">
-                <select
-                  value={durationMin}
-                  onChange={(e) => setDurationMin(Number(e.target.value))}
-                  className="bg-white text-xs font-bold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none flex-1 cursor-pointer"
-                >
-                  <option value={20}>20 minutos (Rápido / Uñas)</option>
-                  <option value={30}>30 minutos</option>
-                  <option value={45}>45 minutos</option>
-                  <option value={60}>60 minutos (1 hora - Estándar)</option>
-                  <option value={75}>75 minutos</option>
-                  <option value={90}>90 minutos (1h 30m - Corte y Spa)</option>
-                  <option value={120}>120 minutos (2 horas - Razas grandes)</option>
-                </select>
-              </div>
+              <select
+                value={durationMin}
+                onChange={(e) => setDurationMin(Number(e.target.value))}
+                className="w-full bg-white text-xs font-bold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none cursor-pointer"
+              >
+                <option value={20}>20 minutos (Corte de uñas / express)</option>
+                <option value={30}>30 minutos</option>
+                <option value={45}>45 minutos (Baño estándar)</option>
+                <option value={60}>60 minutos (1 hora)</option>
+                <option value={75}>75 minutos (Deslanado)</option>
+                <option value={90}>90 minutos (1h 30m - Baño y corte)</option>
+                <option value={120}>120 minutos (2 horas - Razas grandes o spa)</option>
+              </select>
             </div>
           </div>
 
           {/* Descripción */}
           <div>
             <label className="text-xs font-bold text-[#4c4451] block mb-1">
-              Descripción del servicio
+              Descripción detallada
             </label>
             <textarea
               rows={2}
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder="Detalla qué incluye el servicio (ej: corte higiénico, limpieza de oídos, secado...)"
-              className="w-full bg-white text-xs px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
+              placeholder="Detalla lo que incluye el servicio: corte higiénico, limpieza de oídos, champú especial, etc."
+              className="w-full bg-white text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] resize-none"
             />
           </div>
 
-          {/* Pricing Model: Único vs Por tamaño */}
-          <div className="space-y-2 bg-white rounded-xl p-3 border border-[#cfc2d2]/30">
-            <span className="text-xs font-bold text-[#1a1a26] block">
-              Modelo de precio:
-            </span>
-            <div className="flex items-center gap-4 text-xs">
-              <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-[#1a1a26]">
-                <input
-                  type="radio"
-                  name="pricingType"
-                  value="unico"
-                  checked={pricingType === 'unico'}
-                  onChange={() => setPricingType('unico')}
-                  className="text-[#2e004e]"
-                />
-                <span>Precio único</span>
-              </label>
-
-              <label className="flex items-center gap-1.5 cursor-pointer font-semibold text-[#1a1a26]">
-                <input
-                  type="radio"
-                  name="pricingType"
-                  value="tamano"
-                  checked={pricingType === 'tamano'}
-                  onChange={() => setPricingType('tamano')}
-                  className="text-[#2e004e]"
-                />
-                <span>Precio según tamaño</span>
-              </label>
+          {/* Modelo de precios */}
+          <div className="space-y-2">
+            <label className="text-xs font-bold text-[#4c4451] block">
+              Modelo de precios
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPricingType('unico')}
+                className={`py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  pricingType === 'unico'
+                    ? 'bg-[#2e004e] text-white shadow-xs'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
+                }`}
+              >
+                Precio único
+              </button>
+              <button
+                type="button"
+                onClick={() => setPricingType('tamano')}
+                className={`py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  pricingType === 'tamano'
+                    ? 'bg-[#2e004e] text-white shadow-xs'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
+                }`}
+              >
+                Precio según tamaño de la mascota
+              </button>
             </div>
 
             {pricingType === 'unico' ? (
-              <div className="pt-2 flex items-center gap-2 max-w-xs">
-                <span className="text-sm font-bold text-[#7e7482]">$</span>
+              <div className="pt-1 max-w-xs">
+                <label className="text-[11px] font-bold text-[#7e7482] block mb-1">
+                  Precio ({currency})
+                </label>
                 <input
                   type="number"
                   min="0"
-                  step="500"
+                  step="100"
                   value={singlePrice}
                   onChange={(e) => setSinglePrice(Number(e.target.value))}
-                  className="bg-[#f5f2ff] text-xs font-bold px-3 py-2 rounded-xl border border-[#cfc2d2]/30 outline-none w-full"
+                  className="w-full bg-white text-xs font-bold px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                 />
-                <span className="text-xs font-bold text-[#7e7482]">{currency}</span>
               </div>
             ) : (
-              <div className="pt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                 <div>
-                  <span className="text-[11px] font-bold text-[#7e7482] block">Pequeño</span>
+                  <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
+                    Pequeño (&lt;8kg)
+                  </label>
                   <input
                     type="number"
-                    min="0"
-                    step="500"
                     value={sizePrices.pequeno}
                     onChange={(e) =>
                       setSizePrices({ ...sizePrices, pequeno: Number(e.target.value) })
                     }
-                    className="w-full bg-[#f5f2ff] text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/30 outline-none mt-1"
+                    className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-[#7e7482] block">Mediano</span>
+                  <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
+                    Mediano (8-18kg)
+                  </label>
                   <input
                     type="number"
-                    min="0"
-                    step="500"
                     value={sizePrices.mediano}
                     onChange={(e) =>
                       setSizePrices({ ...sizePrices, mediano: Number(e.target.value) })
                     }
-                    className="w-full bg-[#f5f2ff] text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/30 outline-none mt-1"
+                    className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-[#7e7482] block">Grande</span>
+                  <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
+                    Grande (18-30kg)
+                  </label>
                   <input
                     type="number"
-                    min="0"
-                    step="500"
                     value={sizePrices.grande}
                     onChange={(e) =>
                       setSizePrices({ ...sizePrices, grande: Number(e.target.value) })
                     }
-                    className="w-full bg-[#f5f2ff] text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/30 outline-none mt-1"
+                    className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
                 <div>
-                  <span className="text-[11px] font-bold text-[#7e7482] block">Extra grande</span>
+                  <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
+                    Gigante (&gt;30kg)
+                  </label>
                   <input
                     type="number"
-                    min="0"
-                    step="500"
                     value={sizePrices.extraGrande}
                     onChange={(e) =>
                       setSizePrices({ ...sizePrices, extraGrande: Number(e.target.value) })
                     }
-                    className="w-full bg-[#f5f2ff] text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/30 outline-none mt-1"
+                    className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
               </div>
             )}
           </div>
 
-          {/* Estado & Imagen */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-1">
-            <label className="flex items-center gap-2 cursor-pointer text-xs font-bold text-[#1a1a26]">
-              <input
-                type="checkbox"
-                checked={active}
-                onChange={(e) => setActive(e.target.checked)}
-                className="w-4 h-4 text-[#2e004e] rounded"
-              />
-              <span>Servicio activo para reservas</span>
+          {/* Foto del servicio */}
+          <div>
+            <label className="text-xs font-bold text-[#4c4451] block mb-1">
+              Foto o imagen del servicio
             </label>
+            <div className="flex items-center gap-3">
+              {imageUrl ? (
+                <div className="w-14 h-14 rounded-xl overflow-hidden bg-gray-100 border border-[#cfc2d2]/40 shrink-0">
+                  <img src={imageUrl} alt="Preview" className="w-full h-full object-cover" />
+                </div>
+              ) : (
+                <div className="w-14 h-14 rounded-xl bg-[#f5f2ff] flex items-center justify-center text-[#7e7482] border border-dashed border-[#cfc2d2] shrink-0">
+                  <span className="material-symbols-outlined text-xl">content_cut</span>
+                </div>
+              )}
 
-            <div className="flex items-center gap-2">
-              <label className="px-3 py-1.5 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 shadow-xs cursor-pointer flex items-center gap-1">
+              <label className="py-2 px-3 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 cursor-pointer shadow-xs flex items-center gap-1.5 transition-all">
                 <span className="material-symbols-outlined text-sm">photo_camera</span>
-                <span>{imageUrl ? 'Cambiar foto' : 'Subir foto (opcional)'}</span>
+                <span>{imageUrl ? 'Cambiar foto' : 'Subir foto'}</span>
                 <input
                   type="file"
                   accept="image/*"
-                  className="hidden"
                   onChange={handleImageUpload}
+                  className="hidden"
                 />
               </label>
 
@@ -371,138 +390,123 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setImageUrl('')}
-                  className="text-xs text-[#ba1a1a] hover:underline"
+                  className="text-xs text-rose-600 font-bold hover:underline"
                 >
-                  Quitar
+                  Quitar foto
                 </button>
               )}
             </div>
           </div>
 
-          {/* Action buttons */}
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#cfc2d2]/30">
             <button
               type="button"
               onClick={resetForm}
-              className="px-4 py-2 rounded-xl bg-white hover:bg-gray-100 text-[#4c4451] text-xs font-bold cursor-pointer"
+              className="py-2 px-4 rounded-xl text-xs font-bold text-[#7e7482] hover:bg-gray-100 cursor-pointer"
             >
               Cancelar
             </button>
             <button
-              type="submit"
-              className="px-5 py-2.5 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-black shadow-md cursor-pointer active:scale-95 transition-all"
+              type="button"
+              onClick={handleSave}
+              className="py-2.5 px-5 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-black shadow-sm flex items-center gap-1.5 cursor-pointer"
             >
-              {editingServiceId ? 'Guardar cambios del servicio' : 'Crear servicio'}
+              <span className="material-symbols-outlined text-sm text-[#f9b900]">check_circle</span>
+              <span>{editingServiceId ? 'Guardar cambios' : 'Crear servicio'}</span>
             </button>
           </div>
-        </form>
+        </div>
       )}
 
-      {/* Services List Display */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-        {services.length === 0 ? (
-          <div className="col-span-full py-8 text-center text-[#7e7482] text-xs bg-[#fcf8ff] rounded-2xl border border-dashed border-[#cfc2d2]">
-            No tienes servicios configurados. Haz clic en "+ Añadir servicio" para crear el primero.
-          </div>
-        ) : (
-          services.map((svc) => (
+      {/* Services List */}
+      {services.length === 0 ? (
+        <div className="py-8 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-xs text-[#7e7482] text-center">
+          No hay servicios configurados. Haz clic en "+ Añadir servicio" para registrar tu primer servicio.
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {services.map((svc) => (
             <div
               key={svc.id}
-              className={`p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3 ${
-                svc.active
-                  ? 'bg-[#fcf8ff] border-[#cfc2d2]/40 hover:border-[#2e004e]/60 shadow-xs'
-                  : 'bg-gray-50 border-gray-200 opacity-60'
+              className={`bg-[#fcf8ff] rounded-2xl p-4 border transition-all flex flex-col justify-between gap-3 ${
+                svc.active ? 'border-[#cfc2d2]/40' : 'border-gray-200 opacity-60'
               }`}
             >
-              <div className="space-y-1.5">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-[#f2daff] text-[#2e004e] flex items-center justify-center font-bold shrink-0">
-                      <span className="material-symbols-outlined text-base">
-                        {svc.icon || 'content_cut'}
-                      </span>
-                    </div>
-                    <div>
-                      <h4 className="font-extrabold text-sm text-[#1a1a26] leading-snug">
-                        {svc.name}
-                      </h4>
-                      <span className="text-[11px] font-semibold text-[#7e7482] flex items-center gap-1">
-                        <span className="material-symbols-outlined text-xs">schedule</span>
-                        {svc.durationMin} minutos
-                      </span>
-                    </div>
-                  </div>
-
-                  <span
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                      svc.active
-                        ? 'bg-emerald-100 text-emerald-800'
-                        : 'bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    {svc.active ? 'Activo' : 'Inactivo'}
-                  </span>
+              <div className="flex items-start gap-3">
+                <div className="w-12 h-12 rounded-xl bg-white border border-[#cfc2d2]/30 overflow-hidden shrink-0 flex items-center justify-center">
+                  {svc.imageUrl ? (
+                    <img src={svc.imageUrl} alt={svc.name} className="w-full h-full object-cover" />
+                  ) : (
+                    <span className="material-symbols-outlined text-2xl text-[#2e004e]">
+                      {svc.icon || 'content_cut'}
+                    </span>
+                  )}
                 </div>
 
-                {svc.desc && (
-                  <p className="text-xs text-[#4c4451] line-clamp-2 leading-relaxed">
-                    {svc.desc}
-                  </p>
-                )}
-
-                {/* Price Display */}
-                <div className="pt-1">
-                  {svc.pricingType === 'tamano' && svc.priceBySize ? (
-                    <div className="text-[11px] text-[#4c4451] bg-white rounded-lg p-2 border border-[#cfc2d2]/30 space-y-0.5">
-                      <span className="font-bold text-[#2e004e] block">Por tamaño:</span>
-                      <div className="grid grid-cols-2 gap-1 text-[10px]">
-                        <span>P: ${svc.priceBySize.pequeno.toLocaleString()}</span>
-                        <span>M: ${svc.priceBySize.mediano.toLocaleString()}</span>
-                        <span>G: ${svc.priceBySize.grande.toLocaleString()}</span>
-                        <span>XG: ${svc.priceBySize.extraGrande.toLocaleString()}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-sm font-black text-[#2e004e]">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <h4 className="font-extrabold text-sm text-[#1a1a26] truncate">{svc.name}</h4>
+                    <span className="font-black text-xs text-[#2e004e] shrink-0">
                       ${svc.price.toLocaleString()} {currency}
-                    </div>
+                    </span>
+                  </div>
+
+                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7e7482]">
+                    <span className="flex items-center gap-0.5">
+                      <span className="material-symbols-outlined text-xs">schedule</span>
+                      {svc.durationMin} min
+                    </span>
+                    {svc.pricingType === 'tamano' && (
+                      <span className="px-1.5 py-0.2 rounded bg-[#f2daff] text-[#2e004e] font-bold text-[10px]">
+                        Por tamaño
+                      </span>
+                    )}
+                  </div>
+
+                  {svc.desc && (
+                    <p className="text-[11px] text-[#7e7482] line-clamp-2 mt-1 leading-tight">
+                      {svc.desc}
+                    </p>
                   )}
                 </div>
               </div>
 
-              {/* Action buttons */}
-              <div className="flex items-center justify-between pt-2 border-t border-[#cfc2d2]/30 text-xs">
+              <div className="flex items-center justify-between pt-2 border-t border-[#cfc2d2]/20 text-xs">
                 <button
                   type="button"
                   onClick={() => handleToggleActive(svc.id)}
-                  className="text-[11px] font-bold text-[#4b0878] hover:underline cursor-pointer"
+                  className={`text-[11px] font-bold px-2 py-0.5 rounded-full cursor-pointer transition-colors ${
+                    svc.active
+                      ? 'bg-emerald-100 text-emerald-800'
+                      : 'bg-gray-200 text-gray-700'
+                  }`}
                 >
-                  {svc.active ? 'Desactivar' : 'Activar'}
+                  {svc.active ? '✓ Activo' : 'Pausado'}
                 </button>
 
-                <div className="flex items-center gap-1.5">
+                <div className="flex items-center gap-1">
                   <button
                     type="button"
                     onClick={() => handleOpenEdit(svc)}
-                    className="p-1.5 rounded-lg text-[#2e004e] hover:bg-white transition-colors cursor-pointer"
+                    className="p-1 text-[#4b0878] hover:bg-white rounded-lg transition-colors cursor-pointer"
                     title="Editar servicio"
                   >
-                    <span className="material-symbols-outlined text-sm">edit</span>
+                    <span className="material-symbols-outlined text-base">edit</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => handleDelete(svc.id)}
-                    className="p-1.5 rounded-lg text-[#ba1a1a] hover:bg-white transition-colors cursor-pointer"
+                    className="p-1 text-[#ba1a1a] hover:bg-white rounded-lg transition-colors cursor-pointer"
                     title="Eliminar servicio"
                   >
-                    <span className="material-symbols-outlined text-sm">delete</span>
+                    <span className="material-symbols-outlined text-base">delete</span>
                   </button>
                 </div>
               </div>
             </div>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

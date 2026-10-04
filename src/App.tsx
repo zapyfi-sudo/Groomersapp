@@ -1,11 +1,22 @@
-import React, { useState } from 'react';
-import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview } from './types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData } from './types';
 import {
-  INITIAL_PETS,
-  INITIAL_SALON_CONFIG,
-  INITIAL_APPOINTMENTS,
-  INITIAL_RETENTION_PETS
-} from './mockData';
+  deriveRetentionPets,
+  loadLanguage,
+  saveLanguage
+} from './utils/storage';
+import {
+  initSaasDatabase,
+  getSyncActiveData,
+  getSyncActiveAccount,
+  getSyncAccountsList,
+  persistActiveConfig,
+  persistActivePets,
+  persistActiveAppointments,
+  persistActiveBookedRetentions,
+  getPublicBusinessProfile
+} from './utils/saasDb';
+import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { RetentionView } from './components/RetentionView';
@@ -14,23 +25,171 @@ import { AjustesView } from './components/AjustesView';
 import { AgendaView } from './components/AgendaView';
 import { PetListView } from './components/PetListView';
 import { NewAppointmentView } from './components/NewAppointmentView';
+import { AccountAuthModal } from './components/AccountAuthModal';
+import { LoginScreen } from './components/LoginScreen';
 
 export default function App() {
-  const [pets, setPets] = useState<Pet[]>(INITIAL_PETS);
-  const [selectedPetId, setSelectedPetId] = useState<string>('#PET-2849');
-  const [salonConfig, setSalonConfig] = useState<SalonConfig>(INITIAL_SALON_CONFIG);
-  const [appointments, setAppointments] = useState<Appointment[]>(INITIAL_APPOINTMENTS);
-  const [retentionPets, setRetentionPets] = useState<RetentionPet[]>(INITIAL_RETENTION_PETS);
-  
+  // Synchronous initial state from local persistent cache (zero flicker / immediate render)
+  const initialData = useMemo(() => getSyncActiveData(), []);
+  const initialAccount = useMemo(() => getSyncActiveAccount(), []);
+  const initialAccountsList = useMemo(() => getSyncAccountsList(), []);
+
+  // Multi-User SaaS Account State
+  const [activeAccount, setActiveAccount] = useState<UserAccount | null>(initialAccount);
+  const [accountsList, setAccountsList] = useState<UserAccount[]>(initialAccountsList);
+  const [isAccountModalOpen, setIsAccountModalOpen] = useState<boolean>(false);
+
+  // Business Data State
+  const [salonConfig, setSalonConfig] = useState<SalonConfig>(initialData.config);
+  const [pets, setPets] = useState<Pet[]>(initialData.pets);
+  const [appointments, setAppointments] = useState<Appointment[]>(initialData.appointments);
+  const [currentLanguage, setCurrentLanguage] = useState<AppLanguage>(() => loadLanguage());
+  const [bookedRetentions, setBookedRetentions] = useState<string[]>(initialData.bookedRetentions || []);
+
+  // Selected pet for profile view
+  const [selectedPetId, setSelectedPetId] = useState<string>(() => {
+    return initialData.pets[0]?.id || '#PET-2849';
+  });
+
   // Navigation tabs
   const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'mascotas'>('agenda');
   const [showClientFlowModal, setShowClientFlowModal] = useState<boolean>(false);
 
-  // Active selected pet (defaults to Toby)
-  const currentPet = pets.find((p) => p.id === selectedPetId) || pets[0];
+  // Public booking state
+  const [publicBookingConfig, setPublicBookingConfig] = useState<SalonConfig | null>(null);
+
+  // Initialize IndexedDB & multi-account database on startup (with automatic migration of legacy data)
+  useEffect(() => {
+    initSaasDatabase().then((res) => {
+      if (res.activeAccount) {
+        setActiveAccount(res.activeAccount);
+      }
+      if (res.accounts && res.accounts.length > 0) {
+        setAccountsList(res.accounts);
+      }
+      if (res.activeData) {
+        setSalonConfig(res.activeData.config);
+        setPets(res.activeData.pets);
+        setAppointments(res.activeData.appointments);
+        setBookedRetentions(res.activeData.bookedRetentions || []);
+        if (res.activeData.pets.length > 0) {
+          setSelectedPetId(res.activeData.pets[0].id);
+        }
+      }
+    }).catch((err) => {
+      console.warn('initSaasDatabase warning:', err);
+    });
+  }, []);
+
+  // Detect ?book=online or ?businessId in URL to open public booking portal directly
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const searchParams = new URLSearchParams(window.location.search);
+      const urlBizId = searchParams.get('businessId') || searchParams.get('bid') || searchParams.get('slug');
+      const isBookingParam = searchParams.get('book') === 'online' || window.location.hash === '#reservar' || !!urlBizId;
+
+      if (urlBizId) {
+        getPublicBusinessProfile(urlBizId).then((res) => {
+          if (res) {
+            setPublicBookingConfig(res.config);
+            setShowClientFlowModal(true);
+          }
+        });
+      } else if (isBookingParam) {
+        setShowClientFlowModal(true);
+      }
+    }
+  }, []);
+
+  // Immediate Persistent Auto-Save to IndexedDB and Mirror
+  useEffect(() => {
+    if (salonConfig) {
+      persistActiveConfig(salonConfig);
+    }
+  }, [salonConfig]);
+
+  useEffect(() => {
+    persistActivePets(pets);
+  }, [pets]);
+
+  useEffect(() => {
+    persistActiveAppointments(appointments);
+  }, [appointments]);
+
+  useEffect(() => {
+    saveLanguage(currentLanguage);
+  }, [currentLanguage]);
+
+  useEffect(() => {
+    persistActiveBookedRetentions(bookedRetentions);
+  }, [bookedRetentions]);
+
+  // Derived dynamic Retention Pets directly from real Pet state
+  const retentionPets: RetentionPet[] = useMemo(() => {
+    return deriveRetentionPets(pets, salonConfig.name, bookedRetentions);
+  }, [pets, salonConfig.name, bookedRetentions]);
+
+  // Active selected pet (fallback to first pet or clean default)
+  const currentPet: Pet = useMemo(() => {
+    return pets.find((p) => p.id === selectedPetId) || pets[0] || {
+      id: '#PET-1000',
+      name: 'Sin Mascota',
+      breed: 'Mestizo',
+      age: '1 año',
+      gender: 'Macho',
+      weightKg: 10,
+      isVip: false,
+      photoUrl: '',
+      tutor: { name: 'Tutor', phone: '', rawPhone: '' },
+      habitualMood: 'tranquilo',
+      healthAllergies: '',
+      handlingObservations: '',
+      lastVisit: {
+        id: 'v-0',
+        date: 'Hoy',
+        serviceName: 'Baño',
+        price: 20,
+        currency: salonConfig.currency,
+        mood: 'tranquilo',
+        paid: true,
+        photos: {}
+      },
+      visitHistory: [],
+      recommendedIntervalWeeks: 6
+    };
+  }, [pets, selectedPetId, salonConfig.currency]);
+
+  // Account switching / login handler
+  const handleAccountChanged = (newData: BusinessAccountData, newAccount: UserAccount) => {
+    setActiveAccount(newAccount);
+    setSalonConfig(newData.config);
+    setPets(newData.pets);
+    setAppointments(newData.appointments);
+    setBookedRetentions(newData.bookedRetentions || []);
+    if (newData.pets.length > 0) {
+      setSelectedPetId(newData.pets[0].id);
+    }
+
+    setAccountsList((prev) => {
+      const exists = prev.some((a) => a.id === newAccount.id);
+      if (!exists) return [...prev, newAccount];
+      return prev.map((a) => (a.id === newAccount.id ? newAccount : a));
+    });
+  };
+
+  // Logout handler (keeps data safely stored in IndexedDB without deleting it)
+  const handleLoggedOut = () => {
+    setActiveAccount(null);
+  };
 
   const handleUpdatePet = (updated: Pet) => {
-    setPets((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
+    setPets((prev) => {
+      const exists = prev.some((p) => p.id === updated.id);
+      if (exists) {
+        return prev.map((p) => (p.id === updated.id ? updated : p));
+      }
+      return [updated, ...prev];
+    });
   };
 
   const handleSelectPetForProfile = (petId: string) => {
@@ -44,16 +203,22 @@ export default function App() {
   };
 
   const handleMarkAsBooked = (retId: string) => {
-    setRetentionPets((prev) =>
-      prev.map((item) =>
-        item.id === retId ? { ...item, alreadyBooked: !item.alreadyBooked } : item
-      )
-    );
+    const cleanPetId = retId.replace('ret-', '').replace('#', '');
+    const matchedPet = pets.find((p) => p.id.replace('#', '') === cleanPetId);
+    const petKey = matchedPet ? matchedPet.id : retId;
+
+    setBookedRetentions((prev) => {
+      if (prev.includes(petKey)) {
+        return prev.filter((id) => id !== petKey);
+      }
+      return [...prev, petKey];
+    });
   };
 
   const handleOpenWhatsApp = (retPet: RetentionPet) => {
     const textEncoded = encodeURIComponent(retPet.suggestedMessage);
-    const waUrl = `https://wa.me/${retPet.rawPhone}?text=${textEncoded}`;
+    const cleanPhone = retPet.rawPhone || retPet.tutorPhone.replace(/\D/g, '');
+    const waUrl = `https://wa.me/${cleanPhone}?text=${textEncoded}`;
     window.open(waUrl, '_blank', 'noopener,noreferrer');
   };
 
@@ -63,31 +228,31 @@ export default function App() {
       id: newId,
       name: 'Nueva Mascota',
       breed: 'Mestizo',
-      age: '1 año',
+      age: '2 años',
       gender: 'Macho',
       weightKg: 10,
       isVip: false,
       photoUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
       tutor: {
         name: 'Tutor Responsable',
-        phone: '+54 9 11 0000-0000',
-        rawPhone: '5491100000000'
+        phone: `${salonConfig.phonePrefix} 11 0000-0000`,
+        rawPhone: `${salonConfig.phonePrefix.replace('+', '')}1100000000`
       },
       habitualMood: 'tranquilo',
       healthAllergies: 'Sin afecciones registradas.',
       handlingObservations: 'Manejo habitual sin restricciones.',
       lastVisit: {
-        id: 'v-new',
+        id: 'v-' + Date.now(),
         date: 'Hoy',
-        serviceName: 'Baño de inicio',
-        price: 20000,
+        serviceName: salonConfig.services[0]?.name || 'Baño + corte',
+        price: salonConfig.services[0]?.price || 25,
         currency: salonConfig.currency,
         mood: 'tranquilo',
         paid: true,
         photos: {}
       },
       visitHistory: [],
-      recommendedIntervalWeeks: 4
+      recommendedIntervalWeeks: 6
     };
 
     setPets((prev) => [newPet, ...prev]);
@@ -102,39 +267,106 @@ export default function App() {
     }));
   };
 
+  // Cross-Module Automation: When an appointment is created, automatically add/update Pet & Tutor
+  const handleAddNewAppointment = (newApt: Appointment, newPetData?: Partial<Pet>) => {
+    setAppointments((prev) => [newApt, ...prev]);
+
+    // Check if pet already exists in pets by ID or name
+    setPets((prevPets) => {
+      const existing = prevPets.find(
+        (p) => p.id === newApt.petId || (p.name.toLowerCase() === newApt.petName.toLowerCase() && p.tutor.name.toLowerCase() === newApt.tutorName.toLowerCase())
+      );
+
+      if (existing) {
+        return prevPets;
+      }
+
+      // Automatically create a real pet record in Clientes
+      const cleanPhone = newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`;
+      const createdPet: Pet = {
+        id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: newApt.petName,
+        breed: newApt.breed || 'Mestizo',
+        age: newPetData?.age || 'Adulto',
+        gender: newPetData?.gender || 'Macho',
+        weightKg: newPetData?.weightKg || 12,
+        isVip: false,
+        photoUrl: newPetData?.photoUrl || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
+        tutor: {
+          name: newApt.tutorName,
+          phone: cleanPhone,
+          rawPhone: cleanPhone.replace(/\D/g, '')
+        },
+        habitualMood: 'tranquilo',
+        healthAllergies: newApt.notes || 'Registrado por reserva.',
+        handlingObservations: 'Manejo habitual.',
+        lastVisit: {
+          id: 'v-' + Date.now(),
+          date: newApt.date || 'Hoy',
+          serviceName: newApt.serviceName,
+          price: newApt.price,
+          currency: newApt.currency,
+          mood: 'tranquilo',
+          paid: false,
+          photos: {}
+        },
+        visitHistory: [],
+        recommendedIntervalWeeks: 6
+      };
+
+      return [createdPet, ...prevPets];
+    });
+  };
+
   const urgentCount = retentionPets.filter(
     (p) => !p.alreadyBooked && (p.urgency === 'esta_semana' || p.urgency === 'urgente')
   ).length;
 
+  // If user is logged out, render the Login / Account Selection screen
+  if (!activeAccount) {
+    return (
+      <LoginScreen
+        accountsList={accountsList}
+        onLoginSuccess={handleAccountChanged}
+      />
+    );
+  }
+
+  const effectiveBookingConfig = publicBookingConfig || salonConfig;
+
   return (
     <div className="min-h-screen bg-[#f3f0f7] text-[#1a1a26] flex flex-col font-sans">
-      {/* Top Header (Clean desktop navbar; hidden on mobile to avoid frozen bar) */}
+      {/* Top Header */}
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         salonName={salonConfig.name}
+        logoUrl={salonConfig.logoUrl}
+        urgentCount={urgentCount}
+        currentLanguage={currentLanguage}
+        activeAccount={activeAccount}
+        onOpenAccountModal={() => setIsAccountModalOpen(true)}
       />
 
-      {/* Screen Mode Layout Container (Full Width Responsive for Desktop PC, Tablet & Mobile Phone) */}
+      {/* Screen Mode Layout Container */}
       <div className="flex-1 w-full flex justify-center md:pt-16">
         <main className="w-full bg-[#fcf8ff] min-h-screen transition-all shadow-sm">
-          {/* Screen: Agenda del Día (Turnos de Hoy + Mini Calendario + Capacidad) */}
+          {/* Screen: Agenda del Día */}
           {currentTab === 'agenda' && (
             <AgendaView
               appointments={appointments}
               pets={pets}
               onSelectPet={handleSelectPetFromList}
               onNavigateToRetention={() => setCurrentTab('retencion')}
-              onAddNewAppointment={(newApt) => setAppointments((prev) => [newApt, ...prev])}
-              salonName={salonConfig.name}
-              salonAddress={salonConfig.address}
-              salonPhone={salonConfig.phone}
-              bookingSlug={salonConfig.bookingSlug}
-              simultaneousCapacity={salonConfig.allowSimultaneousStaff === false ? 1 : salonConfig.simultaneousCapacity}
+              onAddNewAppointment={handleAddNewAppointment}
+              salonConfig={salonConfig}
+              urgentRetentionCount={urgentCount}
+              totalRetentionCount={retentionPets.filter((p) => !p.alreadyBooked).length}
+              currentLanguage={currentLanguage}
             />
           )}
 
-          {/* Screen: Ajustes y Negocio (Historial Clientes Excel + Configuración + Calificaciones) */}
+          {/* Screen: Ajustes y Negocio */}
           {currentTab === 'onboarding' && (
             <AjustesView
               config={salonConfig}
@@ -142,25 +374,31 @@ export default function App() {
               onPreviewClientFlow={() => setShowClientFlowModal(true)}
               appointments={appointments}
               onAddNewReview={handleAddNewReview}
+              currentLanguage={currentLanguage}
+              onUpdateLanguage={setCurrentLanguage}
+              activeAccount={activeAccount}
+              onOpenAccountModal={() => setIsAccountModalOpen(true)}
             />
           )}
 
-          {/* Screen: Por Volver (Módulo de Fidelización / Clientes por volver) */}
+          {/* Screen: Por Volver (Módulo de Fidelización derivado directamente de Clientes) */}
           {currentTab === 'retencion' && (
             <RetentionView
               retentionPets={retentionPets}
               onSelectPetForProfile={handleSelectPetForProfile}
               onMarkAsBooked={handleMarkAsBooked}
               onOpenWhatsApp={handleOpenWhatsApp}
+              currentLanguage={currentLanguage}
             />
           )}
 
-          {/* Screen: Ficha Mascota (Toby / Perfil completo con Fotos Antes/Después y Visita) */}
+          {/* Screen: Ficha Mascota */}
           {currentTab === 'ficha' && (
             <PetProfileView
               pet={currentPet}
               onUpdatePet={handleUpdatePet}
               onNavigateOnboarding={() => setCurrentTab('onboarding')}
+              salonConfig={salonConfig}
             />
           )}
 
@@ -176,21 +414,35 @@ export default function App() {
         </main>
       </div>
 
+      {/* Account Switcher & SaaS Management Modal */}
+      <AccountAuthModal
+        isOpen={isAccountModalOpen}
+        onClose={() => setIsAccountModalOpen(false)}
+        activeAccount={activeAccount}
+        accountsList={accountsList}
+        onAccountChanged={handleAccountChanged}
+        onLoggedOut={handleLoggedOut}
+      />
+
       {/* Modal: Client Booking Flow when clicking "Probar flujo como cliente" or from Shared Link */}
       {showClientFlowModal && (
         <NewAppointmentView
-          onClose={() => setShowClientFlowModal(false)}
-          onAppointmentCreated={(newApt) => {
-            setAppointments((prev) => [newApt, ...prev]);
+          onClose={() => {
             setShowClientFlowModal(false);
+            if (typeof window !== 'undefined' && window.location.search.includes('book=online')) {
+              window.history.replaceState({}, '', window.location.pathname);
+            }
           }}
-          salonName={salonConfig.name}
-          salonAddress={salonConfig.address}
-          salonPhone={salonConfig.phone}
-          simultaneousCapacity={salonConfig.allowSimultaneousStaff === false ? 1 : salonConfig.simultaneousCapacity}
+          onAppointmentCreated={(newApt, newPetData) => {
+            handleAddNewAppointment(newApt, newPetData);
+          }}
+          salonName={effectiveBookingConfig.name}
+          salonAddress={effectiveBookingConfig.address}
+          salonPhone={effectiveBookingConfig.phone}
+          simultaneousCapacity={effectiveBookingConfig.allowSimultaneousStaff === false ? 1 : effectiveBookingConfig.simultaneousCapacity}
           existingAppointments={appointments}
           isOnlineClientPortal={true}
-          salonConfig={salonConfig}
+          salonConfig={effectiveBookingConfig}
           onAddReview={handleAddNewReview}
         />
       )}
@@ -200,6 +452,7 @@ export default function App() {
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         urgentCount={urgentCount}
+        currentLanguage={currentLanguage}
       />
     </div>
   );

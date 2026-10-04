@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { HOTLINK_IMAGES } from '../mockData';
+import { compressImage } from '../utils/storage';
 
 interface PhotoUploadModalProps {
   isOpen: boolean;
@@ -46,17 +47,16 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
 
   if (!isOpen) return null;
 
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      const reader = new FileReader();
-      reader.onload = (event) => {
-        if (event.target?.result) {
-          setCustomFileUrl(event.target.result as string);
-          setSelectedPreset(event.target.result as string);
-        }
-      };
-      reader.readAsDataURL(file);
+      try {
+        const compressed = await compressImage(file, 800, 0.82);
+        setCustomFileUrl(compressed);
+        setSelectedPreset(compressed);
+      } catch (err) {
+        console.error('Error compressing image:', err);
+      }
     }
   };
 

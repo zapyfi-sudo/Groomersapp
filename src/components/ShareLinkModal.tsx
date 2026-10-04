@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 
 interface ShareLinkModalProps {
   isOpen: boolean;
   onClose: () => void;
   salonName: string;
-  bookingSlug: string;
+  bookingSlug?: string;
+  businessId?: string;
   onOpenClientPortal: () => void;
 }
 
@@ -13,17 +14,25 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
   onClose,
   salonName,
   bookingSlug,
+  businessId,
   onOpenClientPortal
 }) => {
   const [copiedType, setCopiedType] = useState<'link' | 'bio' | null>(null);
 
+  const realBookingUrl = useMemo(() => {
+    const bId = businessId || 'biz_main';
+    if (typeof window !== 'undefined') {
+      return `${window.location.origin}${window.location.pathname}?book=online&businessId=${encodeURIComponent(bId)}`;
+    }
+    return `https://agendacan.app/reservar?book=online&businessId=${encodeURIComponent(bId)}`;
+  }, [businessId]);
+
+  const socialBioText = `🐶✨ ¡Haz tu cita online acá! Reserva el turno de tu mascota en ${salonName} en menos de 2 minutos:\n👉 ${realBookingUrl}`;
+
   if (!isOpen) return null;
 
-  const fullUrl = `https://${bookingSlug}`;
-  const socialBioText = `🐶✨ ¡Haz tu cita online acá! Reserva el baño o corte de tu mascota en ${salonName} en menos de 2 minutos:\n👉 ${fullUrl}`;
-
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(fullUrl);
+    navigator.clipboard.writeText(realBookingUrl);
     setCopiedType('link');
     setTimeout(() => setCopiedType(null), 2500);
   };
@@ -40,7 +49,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-200">
       <div className="bg-[#fcf8ff] rounded-3xl w-full max-w-lg overflow-hidden shadow-2xl border border-[#cfc2d2]/40 flex flex-col max-h-[92vh]">
         {/* Header */}
         <div className="p-4 bg-gradient-to-r from-[#2e004e] to-[#4b0878] text-white flex items-center justify-between">
@@ -89,7 +98,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
             <div className="flex items-center justify-between bg-white rounded-2xl p-2 pl-3.5 border border-[#cfc2d2]/40 shadow-xs">
               <div className="flex items-center gap-2 min-w-0 text-xs font-mono font-bold text-[#2e004e]">
                 <span className="material-symbols-outlined text-base text-[#f9b900]">link</span>
-                <span className="truncate">{fullUrl}</span>
+                <span className="truncate">{realBookingUrl}</span>
               </div>
               <button
                 type="button"
@@ -104,63 +113,45 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
             </div>
           </div>
 
-          {/* Social Media Bio Ready-Made Copy */}
-          <div className="space-y-1.5">
+          {/* Bio copy text */}
+          <div className="bg-[#f5f2ff] rounded-2xl p-3.5 border border-[#cfc2d2]/30 space-y-2">
             <div className="flex items-center justify-between">
-              <label className="text-xs font-bold text-[#4c4451] uppercase tracking-wider">
-                Texto para Bio de Instagram / TikTok / Facebook
-              </label>
+              <span className="text-xs font-bold text-[#2e004e] flex items-center gap-1">
+                <span>📱</span> Texto sugerido para tu perfil de Instagram / TikTok:
+              </span>
               <button
                 type="button"
                 onClick={handleCopyBioText}
-                className="text-xs font-bold text-[#4b0878] hover:underline flex items-center gap-1"
+                className="text-xs text-[#4b0878] font-bold hover:underline cursor-pointer"
               >
-                <span className="material-symbols-outlined text-xs">
-                  {copiedType === 'bio' ? 'check' : 'content_copy'}
-                </span>
-                <span>{copiedType === 'bio' ? '¡Texto copiado!' : 'Copiar texto para bio'}</span>
+                {copiedType === 'bio' ? '✓ Copiado' : 'Copiar texto'}
               </button>
             </div>
-
-            <div className="p-3 bg-[#f5f2ff] rounded-2xl border border-[#cfc2d2]/30 text-xs text-[#1a1a26] leading-relaxed font-sans relative">
-              <p>{socialBioText}</p>
-            </div>
+            <p className="text-xs text-[#4c4451] bg-white p-2.5 rounded-xl border border-[#cfc2d2]/20 font-mono leading-relaxed whitespace-pre-line">
+              {socialBioText}
+            </p>
           </div>
 
-          {/* Quick Action Buttons */}
-          <div className="grid grid-cols-2 gap-2.5 pt-1">
+          {/* Action Buttons */}
+          <div className="space-y-2 pt-1">
             <button
               type="button"
               onClick={handleShareWhatsApp}
-              className="py-3 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+              className="w-full py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
             >
-              <span className="material-symbols-outlined text-base">send</span>
-              <span>Enviar por WhatsApp</span>
+              <span className="material-symbols-outlined text-base">chat</span>
+              <span>Compartir directo por WhatsApp</span>
             </button>
 
             <button
               type="button"
-              onClick={() => {
-                onClose();
-                onOpenClientPortal();
-              }}
-              className="py-3 px-3 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white font-bold text-xs flex items-center justify-center gap-1.5 shadow-sm active:scale-95 transition-all cursor-pointer"
+              onClick={onOpenClientPortal}
+              className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
             >
-              <span className="material-symbols-outlined text-base">open_in_new</span>
-              <span>Probar como cliente</span>
+              <span className="material-symbols-outlined text-base text-[#f9b900]">open_in_new</span>
+              <span>Probar flujo como cliente online</span>
             </button>
           </div>
-        </div>
-
-        {/* Footer */}
-        <div className="p-4 bg-white border-t border-[#cfc2d2]/30 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="py-2.5 px-5 rounded-xl border border-[#cfc2d2] text-[#4c4451] font-bold text-xs hover:bg-[#f5f2ff] cursor-pointer"
-          >
-            Cerrar
-          </button>
         </div>
       </div>
     </div>
