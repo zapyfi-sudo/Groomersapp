@@ -43,7 +43,7 @@ export interface Pet {
 }
 
 export interface UserAccount {
-  id: string; // e.g. "usr_1001"
+  id: string;
   email: string;
   name: string;
   businessId: string;
