@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { SalonConfig, SalonService, Appointment, Pet } from '../types';
+import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../types';
 import { fetchBusinessProfile, createPublicAppointment } from '../utils/api';
 import { formatDateSpanish } from '../utils/storage';
 
@@ -35,7 +35,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   const [whatsappPhone, setWhatsappPhone] = useState<string>('');
   const [petName, setPetName] = useState<string>('');
   const [breed, setBreed] = useState<string>('');
-  const [behavior, setBehavior] = useState<'tranquilo' | 'inquieto' | 'dificil' | 'sensible'>('tranquilo');
+  const [behavior, setBehavior] = useState<BehaviorMood>('tranquilo');
   const [healthNotes, setHealthNotes] = useState<string>('');
   const [handlingNotes, setHandlingNotes] = useState<string>('');
 
@@ -748,17 +748,16 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 <label className="text-xs font-bold text-[#4c4451] block mb-1">
                   Comportamiento habitual en peluquería
                 </label>
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <div className="grid grid-cols-3 gap-2">
                   {[
                     { id: 'tranquilo', label: '🟢 Tranquilo' },
                     { id: 'inquieto', label: '🟡 Inquieto' },
-                    { id: 'dificil', label: '🔴 Difícil' },
-                    { id: 'sensible', label: '🟣 Sensible' }
+                    { id: 'dificil', label: '🔴 Difícil' }
                   ].map((m) => (
                     <button
                       key={m.id}
                       type="button"
-                      onClick={() => setBehavior(m.id as any)}
+                      onClick={() => setBehavior(m.id as BehaviorMood)}
                       className={`py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
                         behavior === m.id
                           ? 'bg-[#2e004e] text-white shadow-xs'

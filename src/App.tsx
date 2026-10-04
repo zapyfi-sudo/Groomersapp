@@ -13,9 +13,9 @@ import {
   persistActiveConfig,
   persistActivePets,
   persistActiveAppointments,
-  persistActiveBookedRetentions,
-  getPublicBusinessProfile
+  persistActiveBookedRetentions
 } from './utils/saasDb';
+import { syncBusinessToServer } from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
@@ -24,11 +24,47 @@ import { PetProfileView } from './components/PetProfileView';
 import { AjustesView } from './components/AjustesView';
 import { AgendaView } from './components/AgendaView';
 import { PetListView } from './components/PetListView';
-import { NewAppointmentView } from './components/NewAppointmentView';
 import { AccountAuthModal } from './components/AccountAuthModal';
 import { LoginScreen } from './components/LoginScreen';
+import { PublicBookingPage } from './components/PublicBookingPage';
+
+function getPublicBookingIdentifierFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  // 1. Path routing: /book/:idOrSlug, /booking/:idOrSlug, /reservar/:idOrSlug
+  const path = window.location.pathname;
+  const pathMatch = path.match(/^\/(?:book|booking|reservar)\/([^\/?#]+)/i);
+  if (pathMatch && pathMatch[1]) {
+    return decodeURIComponent(pathMatch[1]);
+  }
+
+  // 2. Query params: businessId, bid, or slug
+  const searchParams = new URLSearchParams(window.location.search);
+  const explicitBiz = searchParams.get('businessId') || searchParams.get('bid') || searchParams.get('slug');
+  if (explicitBiz) {
+    return explicitBiz;
+  }
+
+  // 3. Hash routing: #reservar/:idOrSlug or #book/:idOrSlug
+  const hash = window.location.hash;
+  const hashMatch = hash.match(/^#(?:book|booking|reservar)(?:\/([^\/?#]+))?/i);
+  if (hashMatch && hashMatch[1]) {
+    return decodeURIComponent(hashMatch[1]);
+  }
+
+  // 4. ?book=online parameter without explicit id -> invalid identifier to show clean error
+  if (searchParams.get('book') === 'online' || hash === '#reservar') {
+    return explicitBiz || 'not_specified_business';
+  }
+
+  return null;
+}
 
 export default function App() {
+  // Check if current URL is a public booking page request
+  const [urlBookingId] = useState<string | null>(() => getPublicBookingIdentifierFromUrl());
+  const [previewBookingId, setPreviewBookingId] = useState<string | null>(null);
+
   // Synchronous initial state from local persistent cache (zero flicker / immediate render)
   const initialData = useMemo(() => getSyncActiveData(), []);
   const initialAccount = useMemo(() => getSyncActiveAccount(), []);
@@ -53,10 +89,6 @@ export default function App() {
 
   // Navigation tabs
   const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'mascotas'>('agenda');
-  const [showClientFlowModal, setShowClientFlowModal] = useState<boolean>(false);
-
-  // Public booking state
-  const [publicBookingConfig, setPublicBookingConfig] = useState<SalonConfig | null>(null);
 
   // Initialize IndexedDB & multi-account database on startup (with automatic migration of legacy data)
   useEffect(() => {
@@ -81,32 +113,13 @@ export default function App() {
     });
   }, []);
 
-  // Detect ?book=online or ?businessId in URL to open public booking portal directly
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const searchParams = new URLSearchParams(window.location.search);
-      const urlBizId = searchParams.get('businessId') || searchParams.get('bid') || searchParams.get('slug');
-      const isBookingParam = searchParams.get('book') === 'online' || window.location.hash === '#reservar' || !!urlBizId;
-
-      if (urlBizId) {
-        getPublicBusinessProfile(urlBizId).then((res) => {
-          if (res) {
-            setPublicBookingConfig(res.config);
-            setShowClientFlowModal(true);
-          }
-        });
-      } else if (isBookingParam) {
-        setShowClientFlowModal(true);
-      }
-    }
-  }, []);
-
-  // Immediate Persistent Auto-Save to IndexedDB and Mirror
+  // Immediate Persistent Auto-Save to IndexedDB, Mirror, and Server API
   useEffect(() => {
     if (salonConfig) {
       persistActiveConfig(salonConfig);
+      syncBusinessToServer(salonConfig.id || 'biz_main', salonConfig, pets, appointments, bookedRetentions);
     }
-  }, [salonConfig]);
+  }, [salonConfig, pets, appointments, bookedRetentions]);
 
   useEffect(() => {
     persistActivePets(pets);
@@ -278,51 +291,99 @@ export default function App() {
       );
 
       if (existing) {
-        return prevPets;
+        return prevPets.map((p) => {
+          if (p.id === existing.id) {
+            return {
+              ...p,
+              tutor: {
+                ...p.tutor,
+                phone: newApt.tutorPhone || p.tutor.phone
+              },
+              lastVisit: {
+                id: `v-${Date.now()}`,
+                date: newApt.date || 'Hoy',
+                serviceName: newApt.serviceName,
+                price: newApt.price,
+                currency: newApt.currency,
+                mood: 'tranquilo',
+                paid: newApt.paymentStatus === 'cobrado',
+                photos: {}
+              }
+            };
+          }
+          return p;
+        });
       }
 
-      // Automatically create a real pet record in Clientes
-      const cleanPhone = newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`;
+      // Create new Pet record from appointment data
       const createdPet: Pet = {
         id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
         name: newApt.petName,
         breed: newApt.breed || 'Mestizo',
-        age: newPetData?.age || 'Adulto',
+        age: '1 año',
         gender: newPetData?.gender || 'Macho',
-        weightKg: newPetData?.weightKg || 12,
+        weightKg: newPetData?.weightKg || 10,
         isVip: false,
-        photoUrl: newPetData?.photoUrl || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
+        photoUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
         tutor: {
           name: newApt.tutorName,
-          phone: cleanPhone,
-          rawPhone: cleanPhone.replace(/\D/g, '')
+          phone: newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`,
+          rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
         },
-        habitualMood: 'tranquilo',
-        healthAllergies: newApt.notes || 'Registrado por reserva.',
-        handlingObservations: 'Manejo habitual.',
+        habitualMood: newPetData?.habitualMood || 'tranquilo',
+        healthAllergies: newPetData?.healthAllergies || 'Ninguna registrada.',
+        handlingObservations: newPetData?.handlingObservations || 'Manejo habitual.',
         lastVisit: {
-          id: 'v-' + Date.now(),
+          id: `v-${Date.now()}`,
           date: newApt.date || 'Hoy',
           serviceName: newApt.serviceName,
           price: newApt.price,
           currency: newApt.currency,
           mood: 'tranquilo',
-          paid: false,
+          paid: newApt.paymentStatus === 'cobrado',
           photos: {}
         },
         visitHistory: [],
-        recommendedIntervalWeeks: 6
+        recommendedIntervalWeeks: 4
       };
 
       return [createdPet, ...prevPets];
     });
   };
 
-  const urgentCount = retentionPets.filter(
-    (p) => !p.alreadyBooked && (p.urgency === 'esta_semana' || p.urgency === 'urgente')
-  ).length;
+  const urgentCount = useMemo(() => {
+    return retentionPets.filter((p) => (p.urgency === 'esta_semana' || p.urgency === 'urgente') && !p.alreadyBooked).length;
+  }, [retentionPets]);
 
-  // If user is logged out, render the Login / Account Selection screen
+  // 1. PUBLIC BOOKING LINK FLOW (Requirement #10: COMPLETELY SEPARATE FROM THE ADMIN APP)
+  // When a customer visits via a shared booking link, ONLY show the Public Customer Booking page
+  if (urlBookingId) {
+    return (
+      <PublicBookingPage
+        businessIdOrSlug={urlBookingId}
+        isPreviewMode={false}
+        onAppointmentCreated={(newApt, newPetData) => {
+          handleAddNewAppointment(newApt, newPetData);
+        }}
+      />
+    );
+  }
+
+  // 2. ADMIN PREVIEW FLOW ("Probar flujo como cliente" inside Ajustes)
+  if (previewBookingId) {
+    return (
+      <PublicBookingPage
+        businessIdOrSlug={previewBookingId}
+        isPreviewMode={true}
+        onClosePreview={() => setPreviewBookingId(null)}
+        onAppointmentCreated={(newApt, newPetData) => {
+          handleAddNewAppointment(newApt, newPetData);
+        }}
+      />
+    );
+  }
+
+  // 3. LOGGED-OUT SCREEN: Multi-account login / creation
   if (!activeAccount) {
     return (
       <LoginScreen
@@ -332,11 +393,10 @@ export default function App() {
     );
   }
 
-  const effectiveBookingConfig = publicBookingConfig || salonConfig;
-
+  // 4. ADMIN SALON DASHBOARD
   return (
-    <div className="min-h-screen bg-[#f3f0f7] text-[#1a1a26] flex flex-col font-sans">
-      {/* Top Header */}
+    <div className="min-h-screen bg-[#fcf8ff] text-[#1a1a26] flex flex-col font-sans selection:bg-[#f9b900] selection:text-[#261900]">
+      {/* Top Application Header */}
       <Header
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
@@ -370,8 +430,13 @@ export default function App() {
           {currentTab === 'onboarding' && (
             <AjustesView
               config={salonConfig}
-              onUpdateConfig={setSalonConfig}
-              onPreviewClientFlow={() => setShowClientFlowModal(true)}
+              onUpdateConfig={(updated) => {
+                setSalonConfig(updated);
+                syncBusinessToServer(updated.id || 'biz_main', updated, pets, appointments, bookedRetentions);
+              }}
+              onPreviewClientFlow={() => {
+                setPreviewBookingId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');
+              }}
               appointments={appointments}
               onAddNewReview={handleAddNewReview}
               currentLanguage={currentLanguage}
@@ -423,29 +488,6 @@ export default function App() {
         onAccountChanged={handleAccountChanged}
         onLoggedOut={handleLoggedOut}
       />
-
-      {/* Modal: Client Booking Flow when clicking "Probar flujo como cliente" or from Shared Link */}
-      {showClientFlowModal && (
-        <NewAppointmentView
-          onClose={() => {
-            setShowClientFlowModal(false);
-            if (typeof window !== 'undefined' && window.location.search.includes('book=online')) {
-              window.history.replaceState({}, '', window.location.pathname);
-            }
-          }}
-          onAppointmentCreated={(newApt, newPetData) => {
-            handleAddNewAppointment(newApt, newPetData);
-          }}
-          salonName={effectiveBookingConfig.name}
-          salonAddress={effectiveBookingConfig.address}
-          salonPhone={effectiveBookingConfig.phone}
-          simultaneousCapacity={effectiveBookingConfig.allowSimultaneousStaff === false ? 1 : effectiveBookingConfig.simultaneousCapacity}
-          existingAppointments={appointments}
-          isOnlineClientPortal={true}
-          salonConfig={effectiveBookingConfig}
-          onAddReview={handleAddNewReview}
-        />
-      )}
 
       {/* Mobile Bottom Navigation Bar */}
       <BottomNav
