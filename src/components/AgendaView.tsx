@@ -12,6 +12,7 @@ interface AgendaViewProps {
   onSelectPet: (pet: Pet) => void;
   onNavigateToRetention: () => void;
   onAddNewAppointment: (newApt: Appointment) => void;
+  onUpdateAppointmentStatus?: (appointmentId: string, status: string, statusLabel: string) => void;
   salonConfig: SalonConfig;
   urgentRetentionCount?: number;
   totalRetentionCount?: number;
@@ -24,6 +25,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   onSelectPet,
   onNavigateToRetention,
   onAddNewAppointment,
+  onUpdateAppointmentStatus,
   salonConfig,
   urgentRetentionCount = 0,
   totalRetentionCount = 0,
@@ -32,7 +34,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isNewAptModalOpen, setIsNewAptModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<'todos' | 'en_salon' | 'confirmada' | 'completado'>('todos');
+  const [filterStatus, setFilterStatus] = useState<'todos' | 'por_confirmar' | 'en_salon' | 'confirmada' | 'completado'>('todos');
 
   const today = useMemo(() => new Date(), []);
   const todayFormatted = useMemo(() => formatDateSpanish(today), [today]);
@@ -87,13 +89,26 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     return appointments.filter((a) => a.date === selectedDateFormatted);
   }, [appointments, selectedDateFormatted]);
 
+  const pendingConfirmationCount = useMemo(() => {
+    return appointments.filter(
+      (a) => a.status === 'pendiente' || a.status === 'pendiente_confirmacion' || a.statusLabel === 'POR CONFIRMAR'
+    ).length;
+  }, [appointments]);
+
   const filteredAppointments = useMemo(() => {
     return selectedDayAppointments.filter((apt) => {
+      if (filterStatus === 'por_confirmar') {
+        return (
+          apt.status === 'pendiente' ||
+          apt.status === 'pendiente_confirmacion' ||
+          apt.statusLabel === 'POR CONFIRMAR'
+        );
+      }
       if (filterStatus === 'en_salon') {
         return apt.status === 'en_salon' || apt.status === 'en_corte';
       }
       if (filterStatus === 'confirmada') {
-        return apt.status === 'confirmada' || apt.status === 'pendiente';
+        return apt.status === 'confirmada';
       }
       if (filterStatus === 'completado') {
         return apt.status === 'completado';
@@ -318,6 +333,22 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
               </button>
               <button
                 type="button"
+                onClick={() => setFilterStatus('por_confirmar')}
+                className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+                  filterStatus === 'por_confirmar'
+                    ? 'bg-[#f9b900] text-[#261900] shadow-xs'
+                    : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
+                }`}
+              >
+                <span>Por Confirmar</span>
+                {pendingConfirmationCount > 0 && (
+                  <span className="w-5 h-5 rounded-full bg-[#2e004e] text-white text-[10px] flex items-center justify-center font-black">
+                    {pendingConfirmationCount}
+                  </span>
+                )}
+              </button>
+              <button
+                type="button"
                 onClick={() => setFilterStatus('en_salon')}
                 className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   filterStatus === 'en_salon'
@@ -336,7 +367,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Confirmadas ({selectedDayAppointments.filter((a) => a.status === 'confirmada' || a.status === 'pendiente').length})
+                Confirmadas ({selectedDayAppointments.filter((a) => a.status === 'confirmada').length})
               </button>
               <button
                 type="button"
@@ -406,11 +437,30 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                           ? 'bg-emerald-100 text-emerald-800'
                           : apt.status === 'en_salon' || apt.status === 'en_corte'
                           ? 'bg-[#f9b900] text-[#261900]'
+                          : apt.status === 'pendiente' || apt.status === 'pendiente_confirmacion' || apt.statusLabel === 'POR CONFIRMAR'
+                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
                           : 'bg-[#efecfd] text-[#2e004e]'
                       }`}
                     >
-                      {apt.statusLabel || apt.status}
+                      {apt.statusLabel || (apt.status === 'pendiente' ? 'POR CONFIRMAR' : apt.status)}
                     </span>
+
+                    {/* Quick Confirm Action for Public Appointments (Requirement #13) */}
+                    {(apt.status === 'pendiente' || apt.status === 'pendiente_confirmacion' || apt.statusLabel === 'POR CONFIRMAR') && onUpdateAppointmentStatus && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
+                          setToastMessage(`¡Cita de ${apt.petName} confirmada exitosamente!`);
+                          setTimeout(() => setToastMessage(null), 3000);
+                        }}
+                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black shadow-xs active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+                      >
+                        <span className="material-symbols-outlined text-xs">check</span>
+                        <span>Confirmar cita</span>
+                      </button>
+                    )}
 
                     <span className="text-[11px] text-[#7e7482] font-semibold flex items-center gap-1 group-hover:text-[#4b0878]">
                       <span>Ver ficha</span>
@@ -448,7 +498,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         onClose={() => setIsShareModalOpen(false)}
         salonName={salonConfig.name}
         bookingSlug={salonConfig.bookingSlug}
-        businessId={salonConfig.id || 'biz_main'}
+        businessId={salonConfig.id && salonConfig.id !== 'biz_main' && salonConfig.id !== 'biz_default' ? salonConfig.id : salonConfig.bookingSlug}
+        salonConfig={salonConfig}
         onOpenClientPortal={() => {
           setIsShareModalOpen(false);
           setIsNewAptModalOpen(true);

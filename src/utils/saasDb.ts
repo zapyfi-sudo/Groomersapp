@@ -1,5 +1,6 @@
 import { UserAccount, BusinessAccountData, SalonConfig, Pet, Appointment, SalonService } from '../types';
 import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressImage } from './storage';
+import { generateStableBusinessId, slugify } from './slugUtils';
 
 const DB_NAME = 'agendacan_saas_db';
 const DB_VERSION = 3;
@@ -279,7 +280,11 @@ export async function initSaasDatabase(): Promise<{
     const legacy = checkLegacyLocalStorageData();
 
     const primaryUserId = 'usr_owner';
-    const primaryBizId = 'biz_main';
+    const legacyName = legacy.config?.name || 'Mi Peluquería Canina';
+    const primaryBizId = legacy.config?.id && legacy.config.id !== 'biz_main' && legacy.config.id !== 'biz_default'
+      ? legacy.config.id
+      : generateStableBusinessId(legacyName);
+
     const initialConfig: SalonConfig = legacy.config || {
       ...DEFAULT_SALON_CONFIG,
       id: primaryBizId,
@@ -288,6 +293,9 @@ export async function initSaasDatabase(): Promise<{
 
     initialConfig.id = primaryBizId;
     initialConfig.userId = primaryUserId;
+    if (!initialConfig.bookingSlug) {
+      initialConfig.bookingSlug = slugify(initialConfig.name);
+    }
 
     const initialPets: Pet[] = legacy.pets && legacy.pets.length > 0 ? legacy.pets : getDefaultPets();
     const initialAppointments: Appointment[] = legacy.appointments && legacy.appointments.length > 0 ? legacy.appointments : getDefaultAppointments();
@@ -592,13 +600,8 @@ export async function getPublicBusinessProfile(businessIdOrSlug: string): Promis
     console.error('Error fetching public business profile:', err);
   }
 
-  // Fallback to active business if available
-  const active = getSyncActiveData();
-  return {
-    businessId: active.businessId,
-    config: active.config,
-    services: (active.config.services || []).filter((s: SalonService) => s.active !== false)
-  };
+  // Never return demo business fallback when requested business cannot be found
+  return null;
 }
 
 // Convert any image URL or file to a persistent, compressed data URL (Requirement #13)

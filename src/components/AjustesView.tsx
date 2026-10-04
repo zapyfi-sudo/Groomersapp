@@ -17,6 +17,7 @@ import { StaffShiftScheduleManager } from './StaffShiftScheduleManager';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
+import { slugify, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -100,14 +101,34 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     config.medicationProducts || []
   );
 
-  // Real shareable booking URL
+  // Custom booking slug state
+  const [customSlug, setCustomSlug] = useState<string>(() => {
+    return config.bookingSlug ? slugify(config.bookingSlug) : slugify(config.name || 'salon');
+  });
+
+  // Real shareable booking URL with embedded public profile token for 100% cross-device guarantee
   const realBookingUrl = useMemo(() => {
-    const bId = config.id || 'biz_main';
-    if (typeof window !== 'undefined') {
-      return `${window.location.origin}${window.location.pathname}?book=online&businessId=${encodeURIComponent(bId)}`;
-    }
-    return `https://${config.bookingSlug || 'agendacan.app/reservar'}?book=online&businessId=${encodeURIComponent(bId)}`;
-  }, [config.bookingSlug, config.id]);
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
+    const bId = config.id && config.id !== 'biz_main' && config.id !== 'biz_default'
+      ? config.id
+      : generateStableBusinessId(config.name);
+    const slug = slugify(customSlug || config.bookingSlug || config.name);
+    
+    return buildPublicBookingUrl(origin, bId, slug, {
+      ...config,
+      name: businessName,
+      logoUrl,
+      phone: phoneNumber,
+      phonePrefix,
+      address,
+      currency: selectedCurrency,
+      bookingSlug: slug,
+      services: servicesList,
+      medicationProducts,
+      activeDays,
+      workingDays: `${activeDays.join(', ')}`
+    });
+  }, [config, customSlug, businessName, logoUrl, phoneNumber, phonePrefix, address, selectedCurrency, servicesList, medicationProducts, activeDays]);
 
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -282,8 +303,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     }
     setIsSaving(true);
 
+    const stableId = config.id && config.id !== 'biz_main' && config.id !== 'biz_default'
+      ? config.id
+      : generateStableBusinessId(businessName);
+    const safeSlug = slugify(customSlug || config.bookingSlug || businessName);
+
     const updatedConfig: SalonConfig = {
       ...config,
+      id: stableId,
+      bookingSlug: safeSlug,
       name: businessName,
       logoUrl,
       country: selectedCountry,
@@ -485,56 +513,109 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
             </div>
           </div>
 
-          {/* DEDICATED SECTION 4: COMPARTE TU AGENDA PARA REDES */}
+          {/* DEDICATED SECTION 4: ENLACE PÚBLICO DE RESERVAS */}
           {selectedSection === 'enlace' && (
             <div className="max-w-3xl space-y-6">
-              <div className="bg-[#2e004e] text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-5">
+              <div className="bg-[#2e004e] text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#f9b900] tracking-wider uppercase">
                     <span className="material-symbols-outlined text-base">public</span>
-                    <span>{t.online247}</span>
+                    <span>Enlace público de reservas</span>
                   </div>
                   <span className="px-3 py-1 rounded-full bg-emerald-400 text-[#1a1a26] text-xs font-black">
-                    Activo
+                    Activo 24/7
                   </span>
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-black text-white">{t.shareLinkTitle}</h2>
+                  <h2 className="text-2xl font-black text-white">Tu enlace para clientes</h2>
                   <p className="text-sm text-[#e3e0f1] mt-1.5 leading-relaxed">
-                    {t.shareLinkSubtitle}
+                    Personaliza el enlace que compartirás con tus clientes en Instagram, TikTok, WhatsApp y Facebook.
                   </p>
                 </div>
 
-                <div className="bg-black/30 rounded-2xl p-3 sm:p-4 border border-white/10 space-y-3">
+                {/* Custom Slug Editor Box (Requirement #5) */}
+                <div className="bg-black/30 rounded-2xl p-4 sm:p-5 border border-white/10 space-y-3">
+                  <label className="text-xs font-bold text-[#ffdea1] uppercase tracking-wider block">
+                    Personaliza el enlace que compartirás con tus clientes:
+                  </label>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                    <div className="flex-1 flex items-center bg-white/10 rounded-xl px-3 py-2 border border-white/20 focus-within:border-[#f9b900]">
+                      <span className="text-xs sm:text-sm text-[#e3e0f1] font-mono select-none">
+                        {(typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app')}/reservas/
+                      </span>
+                      <input
+                        type="text"
+                        value={customSlug}
+                        onChange={(e) => setCustomSlug(slugify(e.target.value))}
+                        placeholder={slugify(businessName || 'mipeluqueria')}
+                        className="flex-1 bg-transparent text-white font-mono font-bold text-xs sm:text-sm outline-none px-1"
+                      />
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveAll}
+                      className="px-4 py-2 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
+                    >
+                      Guardar slug
+                    </button>
+                  </div>
+
+                  <p className="text-[11px] text-[#f2daff]">
+                    Este slug se asocia de forma permanente al identificador único de tu negocio.
+                  </p>
+                </div>
+
+                {/* Live booking link card */}
+                <div className="bg-black/40 rounded-2xl p-4 border border-white/10 space-y-3">
+                  <span className="text-xs font-bold text-white/80 uppercase tracking-wider block">
+                    Tu enlace de reservas
+                  </span>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-2 min-w-0 text-xs sm:text-sm font-mono text-white/95">
                       <span className="material-symbols-outlined text-lg text-[#f9b900] shrink-0">link</span>
                       <span className="truncate">{realBookingUrl}</span>
                     </div>
 
-                    <button
-                      type="button"
-                      onClick={handleCopyLink}
-                      className="px-4 py-2.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer shrink-0"
-                    >
-                      <span className="material-symbols-outlined text-sm font-bold">
-                        {isCopied ? 'check' : 'content_copy'}
-                      </span>
-                      <span>{isCopied ? '¡Enlace copiado!' : t.copyLink}</span>
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={handleCopyLink}
+                        className="px-4 py-2.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-sm font-bold">
+                          {isCopied ? 'check' : 'content_copy'}
+                        </span>
+                        <span>{isCopied ? '¡Copiado!' : 'Copiar enlace'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={onPreviewClientFlow}
+                        className="px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-sm text-[#f9b900]">open_in_new</span>
+                        <span>Probar enlace</span>
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={onPreviewClientFlow}
-                    className="w-full py-3.5 px-5 rounded-2xl bg-white/15 hover:bg-white/25 text-white font-bold text-sm flex items-center justify-center gap-2 border border-white/20 transition-all cursor-pointer active:scale-95"
+                {/* WhatsApp Direct Share Button */}
+                <div className="pt-1">
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(
+                      `🐶✨ ¡Haz tu cita online acá! Reserva el turno de tu mascota en ${businessName} en menos de 2 minutos:\n👉 ${realBookingUrl}`
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full py-3.5 px-5 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
-                    <span className="material-symbols-outlined text-base text-[#f9b900]">open_in_new</span>
-                    <span>{t.testClientFlow}</span>
-                  </button>
+                    <span className="material-symbols-outlined text-lg">chat</span>
+                    <span>Compartir directo por WhatsApp</span>
+                  </a>
                 </div>
               </div>
             </div>

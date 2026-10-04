@@ -416,10 +416,13 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
             <div>
               <h2 className="text-2xl sm:text-3xl font-black text-[#1a1a26]">
-                ¡Cita reservada con éxito!
+                ¡Gracias por agendar!
               </h2>
               <p className="text-sm text-[#7e7482] mt-1.5 font-medium">
-                Hemos registrado tu solicitud de cita con <strong className="text-[#2e004e]">{config.name}</strong>.
+                Tu solicitud de cita ha sido registrada correctamente con <strong className="text-[#2e004e]">{config.name}</strong>.
+              </p>
+              <p className="text-xs text-[#2e004e] font-bold mt-1">
+                Te confirmaremos la cita próximamente por WhatsApp.
               </p>
             </div>
 
@@ -490,7 +493,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 onClick={handleResetForm}
                 className="py-3 px-6 rounded-2xl bg-[#2e004e] text-white font-bold text-xs hover:bg-[#4b0878] active:scale-95 transition-all cursor-pointer shadow-xs"
               >
-                Solicitar otro turno para otra mascota
+                Agendar otra cita
               </button>
             </div>
           </div>

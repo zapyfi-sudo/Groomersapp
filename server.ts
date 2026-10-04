@@ -80,14 +80,14 @@ function findBusiness(idOrSlug: string, db: Record<string, StoredBusiness>): Sto
   // 3. Check bookingSlug
   const matchSlug = all.find((b) => {
     const slug = cleanString(b.config?.bookingSlug);
-    return slug && (slug === targetClean || targetClean.endsWith(slug) || slug.endsWith(targetClean));
+    return slug && slug === targetClean;
   });
   if (matchSlug) return matchSlug;
 
-  // 4. Check name match
+  // 4. Exact clean name match (exact match only, never loose substring)
   const matchName = all.find((b) => {
     const nameClean = cleanString(b.config?.name);
-    return nameClean && (nameClean === targetClean || targetClean.includes(nameClean) || nameClean.includes(targetClean));
+    return nameClean && nameClean === targetClean;
   });
   if (matchName) return matchName;
 

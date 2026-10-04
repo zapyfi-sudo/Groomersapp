@@ -1,4 +1,6 @@
 import React, { useState, useMemo } from 'react';
+import { SalonConfig } from '../types';
+import { slugify, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
 
 interface ShareLinkModalProps {
   isOpen: boolean;
@@ -6,6 +8,7 @@ interface ShareLinkModalProps {
   salonName: string;
   bookingSlug?: string;
   businessId?: string;
+  salonConfig?: SalonConfig;
   onOpenClientPortal: () => void;
 }
 
@@ -15,17 +18,19 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
   salonName,
   bookingSlug,
   businessId,
+  salonConfig,
   onOpenClientPortal
 }) => {
   const [copiedType, setCopiedType] = useState<'link' | 'bio' | null>(null);
 
   const realBookingUrl = useMemo(() => {
-    const bId = businessId || 'biz_main';
-    if (typeof window !== 'undefined') {
-      return `${window.location.origin}${window.location.pathname}?book=online&businessId=${encodeURIComponent(bId)}`;
-    }
-    return `https://agendacan.app/reservar?book=online&businessId=${encodeURIComponent(bId)}`;
-  }, [businessId]);
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
+    const bId = businessId && businessId !== 'biz_main' && businessId !== 'biz_default'
+      ? businessId
+      : (salonConfig?.id || generateStableBusinessId(salonName));
+    const slug = slugify(bookingSlug || salonConfig?.bookingSlug || salonName);
+    return buildPublicBookingUrl(origin, bId, slug, salonConfig);
+  }, [businessId, bookingSlug, salonName, salonConfig]);
 
   const socialBioText = `🐶✨ ¡Haz tu cita online acá! Reserva el turno de tu mascota en ${salonName} en menos de 2 minutos:\n👉 ${realBookingUrl}`;
 

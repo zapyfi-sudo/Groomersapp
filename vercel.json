@@ -5,6 +5,22 @@
   "outputDirectory": "dist",
   "rewrites": [
     {
+      "source": "/reservas/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/book/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/booking/(.*)",
+      "destination": "/index.html"
+    },
+    {
+      "source": "/reservar/(.*)",
+      "destination": "/index.html"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }

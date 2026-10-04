@@ -28,32 +28,42 @@ import { AccountAuthModal } from './components/AccountAuthModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PublicBookingPage } from './components/PublicBookingPage';
 
+import { decodePublicProfileToken } from './utils/slugUtils';
+
 function getPublicBookingIdentifierFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
 
-  // 1. Path routing: /book/:idOrSlug, /booking/:idOrSlug, /reservar/:idOrSlug
+  // 1. Path routing: /reservas/:idOrSlug, /book/:idOrSlug, /booking/:idOrSlug, /reservar/:idOrSlug
   const path = window.location.pathname;
-  const pathMatch = path.match(/^\/(?:book|booking|reservar)\/([^\/?#]+)/i);
+  const pathMatch = path.match(/^\/(?:book|booking|reservar|reservas)\/([^\/?#]+)/i);
   if (pathMatch && pathMatch[1]) {
     return decodeURIComponent(pathMatch[1]);
   }
 
-  // 2. Query params: businessId, bid, or slug
+  // 2. Query params: businessId, bid, slug, or embedded token p
   const searchParams = new URLSearchParams(window.location.search);
   const explicitBiz = searchParams.get('businessId') || searchParams.get('bid') || searchParams.get('slug');
   if (explicitBiz) {
     return explicitBiz;
   }
 
-  // 3. Hash routing: #reservar/:idOrSlug or #book/:idOrSlug
+  const token = searchParams.get('p') || searchParams.get('token');
+  if (token) {
+    const decoded = decodePublicProfileToken(token);
+    if (decoded && decoded.businessId) {
+      return decoded.businessId;
+    }
+  }
+
+  // 3. Hash routing: #reservas/:idOrSlug, #reservar/:idOrSlug or #book/:idOrSlug
   const hash = window.location.hash;
-  const hashMatch = hash.match(/^#(?:book|booking|reservar)(?:\/([^\/?#]+))?/i);
+  const hashMatch = hash.match(/^#(?:book|booking|reservar|reservas)(?:\/([^\/?#]+))?/i);
   if (hashMatch && hashMatch[1]) {
     return decodeURIComponent(hashMatch[1]);
   }
 
   // 4. ?book=online parameter without explicit id -> invalid identifier to show clean error
-  if (searchParams.get('book') === 'online' || hash === '#reservar') {
+  if (searchParams.get('book') === 'online' || hash === '#reservar' || hash === '#reservas' || path === '/reservas' || path === '/book') {
     return explicitBiz || 'not_specified_business';
   }
 
@@ -351,6 +361,12 @@ export default function App() {
     });
   };
 
+  const handleUpdateAppointmentStatus = (appointmentId: string, status: string, statusLabel: string) => {
+    setAppointments((prev) =>
+      prev.map((a) => (a.id === appointmentId ? { ...a, status: status as any, statusLabel } : a))
+    );
+  };
+
   const urgentCount = useMemo(() => {
     return retentionPets.filter((p) => (p.urgency === 'esta_semana' || p.urgency === 'urgente') && !p.alreadyBooked).length;
   }, [retentionPets]);
@@ -419,6 +435,7 @@ export default function App() {
               onSelectPet={handleSelectPetFromList}
               onNavigateToRetention={() => setCurrentTab('retencion')}
               onAddNewAppointment={handleAddNewAppointment}
+              onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
               salonConfig={salonConfig}
               urgentRetentionCount={urgentCount}
               totalRetentionCount={retentionPets.filter((p) => !p.alreadyBooked).length}
