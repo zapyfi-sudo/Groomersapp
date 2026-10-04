@@ -59,35 +59,49 @@ function writeDb(data: Record<string, StoredBusiness>): void {
   }
 }
 
+function extractSlug(str?: string): string {
+  if (!str) return '';
+  const clean = str.trim().split('?')[0].split('#')[0];
+  const parts = clean.split('/').filter(Boolean);
+  return parts[parts.length - 1] || '';
+}
+
 // Find business by exact businessId, config.id, bookingSlug, or name
 function findBusiness(idOrSlug: string, db: Record<string, StoredBusiness>): StoredBusiness | null {
   if (!idOrSlug) return null;
-  const targetClean = cleanString(idOrSlug);
+  const rawClean = cleanString(idOrSlug);
+  const targetClean = cleanString(extractSlug(idOrSlug)) || rawClean;
 
   // 1. Direct ID match
   if (db[idOrSlug]) {
     return db[idOrSlug];
+  }
+  if (db[targetClean]) {
+    return db[targetClean];
   }
 
   const all = Object.values(db);
 
   // 2. Check businessId or config.id exact match
   const matchId = all.find(
-    (b) => b.businessId === idOrSlug || b.config?.id === idOrSlug
+    (b) => b.businessId === idOrSlug || b.config?.id === idOrSlug || cleanString(b.businessId) === targetClean
   );
   if (matchId) return matchId;
 
-  // 3. Check bookingSlug
+  // 3. Check bookingSlug (matching raw or extracted slug)
   const matchSlug = all.find((b) => {
-    const slug = cleanString(b.config?.bookingSlug);
-    return slug && slug === targetClean;
+    const raw = b.config?.bookingSlug;
+    if (!raw) return false;
+    const cleanRaw = cleanString(raw);
+    const cleanExtracted = cleanString(extractSlug(raw));
+    return cleanRaw === rawClean || cleanExtracted === targetClean || cleanExtracted === rawClean;
   });
   if (matchSlug) return matchSlug;
 
   // 4. Exact clean name match (exact match only, never loose substring)
   const matchName = all.find((b) => {
     const nameClean = cleanString(b.config?.name);
-    return nameClean && nameClean === targetClean;
+    return nameClean && (nameClean === rawClean || nameClean === targetClean);
   });
   if (matchName) return matchName;
 

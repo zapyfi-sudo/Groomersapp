@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   SalonConfig,
   StaffMember,
@@ -17,7 +17,8 @@ import { StaffShiftScheduleManager } from './StaffShiftScheduleManager';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
-import { slugify, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
+import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
+import { syncBusinessToServer } from '../utils/api';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -101,34 +102,31 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     config.medicationProducts || []
   );
 
-  // Custom booking slug state
+  // Custom booking slug state (allows pure editing of only the slug)
   const [customSlug, setCustomSlug] = useState<string>(() => {
-    return config.bookingSlug ? slugify(config.bookingSlug) : slugify(config.name || 'salon');
+    return extractSlugOnly(config.bookingSlug) || slugify(config.name || 'salon', 'salon');
   });
 
-  // Real shareable booking URL with embedded public profile token for 100% cross-device guarantee
+  useEffect(() => {
+    if (config.bookingSlug) {
+      setCustomSlug(extractSlugOnly(config.bookingSlug));
+    }
+  }, [config.bookingSlug]);
+
+  // Clean, short shareable booking URL (Architecture: URL -> slug/id -> persistent data -> public booking)
   const realBookingUrl = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
     const bId = config.id && config.id !== 'biz_main' && config.id !== 'biz_default'
       ? config.id
       : generateStableBusinessId(config.name);
-    const slug = slugify(customSlug || config.bookingSlug || config.name);
+    const slug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
     
     return buildPublicBookingUrl(origin, bId, slug, {
       ...config,
       name: businessName,
-      logoUrl,
-      phone: phoneNumber,
-      phonePrefix,
-      address,
-      currency: selectedCurrency,
-      bookingSlug: slug,
-      services: servicesList,
-      medicationProducts,
-      activeDays,
-      workingDays: `${activeDays.join(', ')}`
+      bookingSlug: slug
     });
-  }, [config, customSlug, businessName, logoUrl, phoneNumber, phonePrefix, address, selectedCurrency, servicesList, medicationProducts, activeDays]);
+  }, [config, customSlug, businessName]);
 
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -306,7 +304,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const stableId = config.id && config.id !== 'biz_main' && config.id !== 'biz_default'
       ? config.id
       : generateStableBusinessId(businessName);
-    const safeSlug = slugify(customSlug || config.bookingSlug || businessName);
+    const safeSlug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
 
     const updatedConfig: SalonConfig = {
       ...config,
@@ -340,6 +338,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     };
 
     onUpdateConfig(updatedConfig);
+    syncBusinessToServer(updatedConfig.id || 'biz_main', updatedConfig, undefined, appointments);
     if (selectedLanguage !== currentLanguage) {
       onUpdateLanguage(selectedLanguage);
     }
@@ -548,9 +547,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       <input
                         type="text"
                         value={customSlug}
-                        onChange={(e) => setCustomSlug(slugify(e.target.value))}
-                        placeholder={slugify(businessName || 'mipeluqueria')}
+                        onChange={(e) => setCustomSlug(cleanSlugInput(e.target.value))}
+                        placeholder={slugify(businessName || 'mipeluqueria', 'mipeluqueria')}
                         className="flex-1 bg-transparent text-white font-mono font-bold text-xs sm:text-sm outline-none px-1"
+                        autoComplete="off"
+                        spellCheck={false}
                       />
                     </div>
 

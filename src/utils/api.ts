@@ -1,5 +1,5 @@
 import { SalonConfig, SalonService, Appointment, Pet } from '../types';
-import { decodePublicProfileToken } from './slugUtils';
+import { decodePublicProfileToken, extractSlugOnly } from './slugUtils';
 
 export interface PublicBusinessResult {
   businessId: string;
@@ -10,15 +10,73 @@ export interface PublicBusinessResult {
 
 /**
  * Universal resolution of a business profile for public booking:
- * 1. URL encoded payload token (&p=...) - guarantees instant cross-device loading in ANY browser/incognito/Vercel
- * 2. Cache in session/localStorage for the specific business ID
- * 3. Server API (/api/businesses/:idOrSlug)
- * 4. NEVER falls back to demo data or fake business!
+ * 1. Query Server API (/api/businesses/:cleanSlugOrId)
+ * 2. If query param businessId is also present, try that as well
+ * 3. Backward-compat: decode legacy URL token (&p=...) if present
+ * 4. Cache in session/localStorage for the specific business ID
+ * 5. NEVER falls back to demo data or fake business!
  */
 export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusinessResult | null> {
   if (!idOrSlug) return null;
+  const cleanTarget = extractSlugOnly(idOrSlug) || idOrSlug.trim();
 
-  // 1. Check for embedded profile payload in URL (&p=...)
+  // 1. Query Server API (/api/businesses/:idOrSlug)
+  try {
+    const res = await fetch(`/api/businesses/${encodeURIComponent(cleanTarget)}`);
+    const contentType = res.headers.get('content-type') || '';
+    
+    // Ensure the response is valid JSON and not an HTML fallback page from static routing
+    if (res.ok && contentType.includes('application/json')) {
+      const data = await res.json();
+      if (data && data.businessId && data.config) {
+        const result: PublicBusinessResult = {
+          businessId: data.businessId,
+          config: data.config,
+          services: data.services || data.config.services || [],
+          appointments: data.appointments || []
+        };
+
+        // Cache successful response for offline/session reuse
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
+            if (data.config.bookingSlug) {
+              localStorage.setItem(`agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`, JSON.stringify(result));
+            }
+          } catch {}
+        }
+
+        return result;
+      }
+    }
+  } catch (err) {
+    console.warn('Network error fetching business from server:', err);
+  }
+
+  // 2. Check if a query param ?businessId= or ?bid= exists and try that against the server
+  if (typeof window !== 'undefined') {
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const queryBizId = searchParams.get('businessId') || searchParams.get('bid');
+      if (queryBizId && queryBizId !== cleanTarget) {
+        const resQuery = await fetch(`/api/businesses/${encodeURIComponent(queryBizId)}`);
+        const qContentType = resQuery.headers.get('content-type') || '';
+        if (resQuery.ok && qContentType.includes('application/json')) {
+          const data = await resQuery.json();
+          if (data && data.businessId && data.config) {
+            return {
+              businessId: data.businessId,
+              config: data.config,
+              services: data.services || data.config.services || [],
+              appointments: data.appointments || []
+            };
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // 3. Backward-compatibility: Check for embedded profile payload in URL (&p=...)
   if (typeof window !== 'undefined') {
     try {
       const searchParams = new URLSearchParams(window.location.search);
@@ -26,14 +84,6 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
       if (token) {
         const decoded = decodePublicProfileToken(token);
         if (decoded && decoded.config) {
-          // Cache in local storage for subsequent navigation/refresh
-          try {
-            localStorage.setItem(`agendacan_public_biz_${decoded.businessId}`, JSON.stringify(decoded));
-            if (decoded.config.bookingSlug) {
-              localStorage.setItem(`agendacan_public_biz_${decoded.config.bookingSlug}`, JSON.stringify(decoded));
-            }
-          } catch {}
-
           return {
             businessId: decoded.businessId,
             config: decoded.config,
@@ -47,10 +97,10 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
   }
 
-  // 2. Check cached profile for this specific ID/slug
+  // 4. Check cached profile for this specific ID/slug
   if (typeof window !== 'undefined') {
     try {
-      const cached = localStorage.getItem(`agendacan_public_biz_${idOrSlug}`);
+      const cached = localStorage.getItem(`agendacan_public_biz_${cleanTarget}`);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (parsed && parsed.businessId && parsed.config) {
@@ -65,49 +115,19 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     } catch {}
   }
 
-  // 3. Query Server API (/api/businesses/:idOrSlug)
-  try {
-    const res = await fetch(`/api/businesses/${encodeURIComponent(idOrSlug)}`);
-    const contentType = res.headers.get('content-type') || '';
-    
-    // Ensure the response is valid JSON and not an HTML fallback page from static routing
-    if (res.ok && contentType.includes('application/json')) {
-      const data = await res.json();
-      if (data && data.businessId && data.config) {
-        const result: PublicBusinessResult = {
-          businessId: data.businessId,
-          config: data.config,
-          services: data.services || data.config.services || [],
-          appointments: data.appointments || []
-        };
-
-        // Cache successful response
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
-          } catch {}
-        }
-
-        return result;
-      }
-    }
-  } catch (err) {
-    console.warn('Network error fetching business from server:', err);
-  }
-
-  // 4. Check active salon configuration in local storage IF AND ONLY IF the ID or slug strictly matches
+  // 5. Check active salon configuration in local storage IF AND ONLY IF the ID or slug strictly matches
   try {
     const localRaw = typeof window !== 'undefined' ? localStorage.getItem('agendacan_salon_config_v2') : null;
     if (localRaw) {
       const localCfg: SalonConfig = JSON.parse(localRaw);
-      const cleanTarget = idOrSlug.toLowerCase().replace(/[^a-z0-9]/g, '');
+      const cleanCompare = cleanTarget.toLowerCase().replace(/[^a-z0-9]/g, '');
       const idClean = (localCfg.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const slugClean = (localCfg.bookingSlug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+      const slugClean = (extractSlugOnly(localCfg.bookingSlug) || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 
       // Strict match only — NEVER match if ID is different!
-      if (idClean && (idClean === cleanTarget || slugClean === cleanTarget)) {
+      if (idClean && (idClean === cleanCompare || slugClean === cleanCompare)) {
         return {
-          businessId: localCfg.id || idOrSlug,
+          businessId: localCfg.id || cleanTarget,
           config: localCfg,
           services: (localCfg.services || []).filter((s) => s.active !== false),
           appointments: []
@@ -118,7 +138,7 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     console.warn('Local storage check failed:', e);
   }
 
-  // 5. Zero demo fallback: If not found, return null so the proper Spanish error is displayed
+  // 6. Zero demo fallback: If not found, return null so the proper Spanish error is displayed
   return null;
 }
 

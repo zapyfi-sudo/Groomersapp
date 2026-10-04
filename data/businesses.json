@@ -1,0 +1,432 @@
+{
+  "biz_main": {
+    "businessId": "biz_main",
+    "config": {
+      "name": "Peluquería Canina Luna",
+      "logoUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCgNdH5Hthy5Yi-fglcEX4qyy4-SEvVu9xcHv_WWfZ35c1EUd2VD0DrJuG9wAleNXW-bzR2vh9V6ET_9gV6vu71YIH_hwdXOlNwRfXAQXgczXcJRVANXrqeuHKQ6kIkUDcUVxkayIIwkFSpKTw3x6CPOgteHP_fPA2WtPu2oCARFuOhxuBRVEstwPARhMQCimBPElnj6HqxDzP1F4o_YHz7YSdnDgJk6MmbEmeSZykQaKqRT0Pv5BvxHQ",
+      "phonePrefix": "+54",
+      "phone": "11 5489 3210",
+      "address": "Av. Corrientes 4520, Almagro, CABA",
+      "googleMapsPlaceName": "Peluquería Canina Luna - Almagro, CABA",
+      "googleMapsUrl": "https://maps.google.com/?q=-34.603722,-58.423145",
+      "coordinates": "-34.603722, -58.423145",
+      "allowSimultaneousStaff": true,
+      "maxSimultaneousAppointments": 2,
+      "workingDays": "Lunes a Sábado",
+      "openTime": "08:00",
+      "closeTime": "19:30",
+      "currency": "ARS",
+      "simultaneousCapacity": 2,
+      "staffMembers": [
+        {
+          "id": "st-1",
+          "name": "Carlos Morales",
+          "role": "Estilista Principal (Corte & Spa)",
+          "active": true,
+          "shiftAvailability": "todo_el_dia"
+        },
+        {
+          "id": "st-2",
+          "name": "Mariana V.",
+          "role": "Especialista en Baño y Deslanado",
+          "active": true,
+          "shiftAvailability": "todo_el_dia"
+        },
+        {
+          "id": "st-3",
+          "name": "Roberto Díaz",
+          "role": "Ayudante y Secado",
+          "active": true,
+          "shiftAvailability": "solo_tarde"
+        }
+      ],
+      "morningOpen": "08:00",
+      "morningClose": "12:30",
+      "afternoonOpen": "14:00",
+      "afternoonClose": "19:30",
+      "hasDoubleShift": true,
+      "bookingSlug": "peluqueria-luna",
+      "activeDays": [
+        "L",
+        "M",
+        "X",
+        "J",
+        "V",
+        "S"
+      ],
+      "staffScheduleConfig": {
+        "allDay": {
+          "start": "08:00",
+          "end": "18:00"
+        },
+        "morning": {
+          "start": "08:00",
+          "end": "13:00"
+        },
+        "afternoon": {
+          "start": "14:00",
+          "end": "19:30"
+        }
+      },
+      "hasMedicationProductsEnabled": true,
+      "medicationProducts": [
+        {
+          "id": "med-1",
+          "name": "Tratamiento antipulgas y garrapatas",
+          "type": "Gotas",
+          "purpose": "Pipeta tópica para control y eliminación de pulgas y garrapatas externas.",
+          "price": 4500,
+          "photoUrl": "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&auto=format&fit=crop&q=80",
+          "active": true
+        },
+        {
+          "id": "med-2",
+          "name": "Antiparasitario interno en comprimido",
+          "type": "Pastilla",
+          "purpose": "Comprimido masticable con premio para desparasitación gastrointestinal completa.",
+          "price": 3500,
+          "photoUrl": "https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=300&auto=format&fit=crop&q=80",
+          "active": true
+        },
+        {
+          "id": "med-3",
+          "name": "Loción dérmica calmante / antialérgica",
+          "type": "Tratamiento tópico",
+          "purpose": "Spray hidratante con aloe y avena para aliviar picazón y dermatitis tras el baño.",
+          "price": 2800,
+          "photoUrl": "https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?w=300&auto=format&fit=crop&q=80",
+          "active": true
+        }
+      ],
+      "medicationFee": 3500,
+      "reviews": [
+        {
+          "id": "rev-1",
+          "clientName": "Ana Gómez",
+          "petName": "Toby",
+          "serviceName": "Baño + corte",
+          "stars": 5,
+          "comment": "¡Increíble atención! Toby quedó súper suave y con un aroma riquísimo.",
+          "date": "4 de octubre de 2026",
+          "verified": true
+        }
+      ],
+      "services": [
+        {
+          "id": "s-1",
+          "name": "Baño + corte",
+          "durationMin": 90,
+          "price": 25000,
+          "pricingType": "tamano",
+          "priceBySize": {
+            "pequeno": 20000,
+            "mediano": 25000,
+            "grande": 30000,
+            "extraGrande": 35000
+          },
+          "desc": "Corte higiénico, estética de raza, corte de uñas y limpieza de oídos.",
+          "badge": "Popular",
+          "icon": "content_cut",
+          "active": true,
+          "rating": 5,
+          "reviewCount": 64
+        },
+        {
+          "id": "s-2",
+          "name": "Baño completo",
+          "durationMin": 45,
+          "price": 18000,
+          "pricingType": "unico",
+          "desc": "Higiene profunda con champú hipoalergénico, secado y perfume.",
+          "icon": "bathtub",
+          "active": true,
+          "rating": 4.9,
+          "reviewCount": 42
+        },
+        {
+          "id": "s-3",
+          "name": "Deslanado premium",
+          "durationMin": 75,
+          "price": 22000,
+          "pricingType": "unico",
+          "desc": "Eliminación exhaustiva de manto muerto con cardina y cepillado profundo.",
+          "icon": "pets",
+          "active": true,
+          "rating": 4.9,
+          "reviewCount": 28
+        },
+        {
+          "id": "s-4",
+          "name": "Corte de uñas y almohadillas",
+          "durationMin": 20,
+          "price": 8000,
+          "pricingType": "unico",
+          "desc": "Corte y limado de uñas, despeje de pelo interdigital.",
+          "icon": "spa",
+          "active": true,
+          "rating": 4.8,
+          "reviewCount": 19
+        }
+      ],
+      "id": "biz_main",
+      "userId": "usr_owner"
+    },
+    "pets": [
+      {
+        "id": "#PET-2849",
+        "name": "Toby",
+        "breed": "Golden Retriever",
+        "age": "3 años",
+        "gender": "Macho",
+        "weightKg": 28,
+        "isVip": true,
+        "photoUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCbPwXivES3s1XXu5GJ8HPkkjvMRgpkyZYV140yOb0oqYSoSw4b3n1xHVJcaCbW41QYIAH53sPPNRqYbwkPf2U6vWEn96Caom9nhpLAmrFzcY0mWkTQqkYy1_kgSf7oA01ienp5hL6u-rlxIMp8FdYqTDJ-tCVJtbcRfUcKTtgs2O4xQ1iVThHgTYW6SoMAk9GYSmgG4sYpj2MnVz_eJNLzE2n5FgsWqA4xzYjM6ranHW49Iwrx7LHD2Q",
+        "tutor": {
+          "name": "Ana Gómez",
+          "phone": "+54 9 11 5566-7788",
+          "rawPhone": "5491155667788"
+        },
+        "habitualMood": "inquieto",
+        "healthAllergies": "Piel atópica / sensible en el lomo. Usar champú hipoalergénico de avena.",
+        "handlingObservations": "No le gusta el secador cerca de la cara. Usar toalla primero.",
+        "lastVisit": {
+          "id": "v-1",
+          "date": "23 de agosto de 2026",
+          "serviceName": "Baño + corte",
+          "price": 25000,
+          "currency": "ARS",
+          "mood": "inquieto",
+          "paid": true,
+          "notes": "",
+          "photos": {
+            "beforeUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuC2SmMdNV1jhnTOt269pMt1DuiDf2BDM_QWlRAr6f8YJYHcAgHzUjemSsf-1SteykfCO9Q6Ijl7nht-5Y3TuC4VlfBuIIzawKyMv-cvBXUwvasnRS1fieVOvfDK9L-WQN7exnrH_pWyXPm8J-ZT0et-OEvDrurb9XdDpiLXfWUAkMtOkKXoQ5M8zvUnR1fDrfPeLYeOuOUO7ow7dW46Z1J6UCD66_IaAFrNZYNkDXwxtT4_7-8Xowa2tw",
+            "afterUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCDyj5Inla6NWud3DifwfKG8-kGus7JBUWu2vM0UsrCJ0hwJN57NF7H0Lk4MKPYcDXVlyo6h8lDrSGESVYakH1ETd1exUmquXAJtZJphfsF_5aEiYCQblc1WoRe18hAAZmXR9cyuqg_Esj97bgTXb4-7I1ulUjTo7Sga5ugAUXkj8HA7q2jRuapakr2NtH8E1RA2qicdWByAG7dKU1n1iLepqUDkCiVjzbEZV2UWNqUK8t001ZmWEinWQ"
+          },
+          "nextRecommendedWeeks": 6
+        },
+        "visitHistory": [
+          {
+            "id": "v-1",
+            "date": "23 de agosto de 2026",
+            "serviceName": "Baño + corte",
+            "price": 25000,
+            "currency": "ARS",
+            "mood": "inquieto",
+            "paid": true,
+            "notes": "",
+            "photos": {
+              "beforeUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuC2SmMdNV1jhnTOt269pMt1DuiDf2BDM_QWlRAr6f8YJYHcAgHzUjemSsf-1SteykfCO9Q6Ijl7nht-5Y3TuC4VlfBuIIzawKyMv-cvBXUwvasnRS1fieVOvfDK9L-WQN7exnrH_pWyXPm8J-ZT0et-OEvDrurb9XdDpiLXfWUAkMtOkKXoQ5M8zvUnR1fDrfPeLYeOuOUO7ow7dW46Z1J6UCD66_IaAFrNZYNkDXwxtT4_7-8Xowa2tw",
+              "afterUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCDyj5Inla6NWud3DifwfKG8-kGus7JBUWu2vM0UsrCJ0hwJN57NF7H0Lk4MKPYcDXVlyo6h8lDrSGESVYakH1ETd1exUmquXAJtZJphfsF_5aEiYCQblc1WoRe18hAAZmXR9cyuqg_Esj97bgTXb4-7I1ulUjTo7Sga5ugAUXkj8HA7q2jRuapakr2NtH8E1RA2qicdWByAG7dKU1n1iLepqUDkCiVjzbEZV2UWNqUK8t001ZmWEinWQ"
+            },
+            "nextRecommendedWeeks": 6
+          }
+        ],
+        "recommendedIntervalWeeks": 6
+      },
+      {
+        "id": "#PET-1920",
+        "name": "Luna",
+        "breed": "Caniche Toy",
+        "age": "2 años",
+        "gender": "Hembra",
+        "weightKg": 4.5,
+        "isVip": false,
+        "photoUrl": "https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=400&auto=format&fit=crop&q=80",
+        "tutor": {
+          "name": "Carlos Benítez",
+          "phone": "+54 9 11 3344-9988",
+          "rawPhone": "5491133449988"
+        },
+        "habitualMood": "tranquilo",
+        "healthAllergies": "Piel normal.",
+        "handlingObservations": "Muy dócil. Disfruta el masaje capilar y el secado tibio.",
+        "lastVisit": {
+          "id": "v-2",
+          "date": "6 de septiembre de 2026",
+          "serviceName": "Baño completo",
+          "price": 18000,
+          "currency": "ARS",
+          "mood": "tranquilo",
+          "paid": true,
+          "photos": {},
+          "nextRecommendedWeeks": 4
+        },
+        "visitHistory": [
+          {
+            "id": "v-2",
+            "date": "6 de septiembre de 2026",
+            "serviceName": "Baño completo",
+            "price": 18000,
+            "currency": "ARS",
+            "mood": "tranquilo",
+            "paid": true,
+            "photos": {},
+            "nextRecommendedWeeks": 4
+          }
+        ],
+        "recommendedIntervalWeeks": 4
+      },
+      {
+        "id": "#PET-3012",
+        "name": "Rocky",
+        "breed": "Bulldog Francés",
+        "age": "4 años",
+        "gender": "Macho",
+        "weightKg": 13,
+        "isVip": true,
+        "photoUrl": "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=400&auto=format&fit=crop&q=80",
+        "tutor": {
+          "name": "Mariana Silva",
+          "phone": "+54 9 11 4455-6677",
+          "rawPhone": "5491144556677"
+        },
+        "habitualMood": "dificil",
+        "healthAllergies": "Pliegues faciales con tendencia a hongos.",
+        "handlingObservations": "Respiración braquicéfala; no exponer a calor excesivo.",
+        "lastVisit": {
+          "id": "v-3",
+          "date": "20 de septiembre de 2026",
+          "serviceName": "Deslanado premium",
+          "price": 22000,
+          "currency": "ARS",
+          "mood": "dificil",
+          "paid": true,
+          "photos": {},
+          "nextRecommendedWeeks": 3
+        },
+        "visitHistory": [
+          {
+            "id": "v-3",
+            "date": "20 de septiembre de 2026",
+            "serviceName": "Deslanado premium",
+            "price": 22000,
+            "currency": "ARS",
+            "mood": "dificil",
+            "paid": true,
+            "photos": {},
+            "nextRecommendedWeeks": 3
+          }
+        ],
+        "recommendedIntervalWeeks": 3
+      }
+    ],
+    "appointments": [
+      {
+        "id": "apt-1",
+        "petId": "#PET-2849",
+        "petName": "Toby",
+        "breed": "Golden Retriever",
+        "tutorName": "Ana Gómez",
+        "tutorPhone": "+54 9 11 5566-7788",
+        "serviceName": "Baño + corte",
+        "time": "09:00",
+        "date": "4 de octubre de 2026",
+        "status": "completado",
+        "statusLabel": "COMPLETADO",
+        "groomer": "Carlos Morales",
+        "price": 25000,
+        "currency": "ARS",
+        "paymentStatus": "cobrado",
+        "paymentStatusLabel": "Cobrado",
+        "subStatus": "Finalizó con éxito",
+        "subStatusType": "time",
+        "hasMedication": true,
+        "rating": 5,
+        "reviewComment": "Excelente corte a tijera"
+      },
+      {
+        "id": "apt-2",
+        "petId": "#PET-1920",
+        "petName": "Luna",
+        "breed": "Caniche Toy",
+        "tutorName": "Carlos Benítez",
+        "tutorPhone": "+54 9 11 3344-9988",
+        "serviceName": "Baño completo",
+        "time": "11:00",
+        "date": "4 de octubre de 2026",
+        "status": "en_salon",
+        "statusLabel": "EN SALÓN",
+        "groomer": "Mariana V.",
+        "price": 18000,
+        "currency": "ARS",
+        "paymentStatus": "en_proceso",
+        "paymentStatusLabel": "En proceso",
+        "subStatus": "En secado",
+        "subStatusType": "action_pill",
+        "hasMedication": false
+      }
+    ],
+    "bookedRetentions": [],
+    "updatedAt": "2026-10-04T20:11:46.129Z"
+  },
+  "robocat_k9x2m4": {
+    "businessId": "robocat_k9x2m4",
+    "config": {
+      "id": "robocat_k9x2m4",
+      "name": "RoboCat",
+      "address": "Calle de los Gatos 123",
+      "bookingSlug": "robocat",
+      "phone": "99887766",
+      "phonePrefix": "+593",
+      "services": [
+        {
+          "id": "s-1",
+          "name": "Corte Robotico",
+          "price": 35,
+          "durationMin": 60,
+          "active": true
+        }
+      ]
+    },
+    "pets": [
+      {
+        "id": "#PET-1111",
+        "name": "Michi",
+        "breed": "Siames",
+        "gender": "Macho",
+        "weightKg": 10,
+        "age": "1 año",
+        "isVip": false,
+        "photoUrl": "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80",
+        "tutor": {
+          "name": "Laura M.",
+          "phone": "+593 99 123 4567",
+          "rawPhone": "+593 99 123 4567"
+        },
+        "habitualMood": "tranquilo",
+        "healthAllergies": "",
+        "handlingObservations": "",
+        "lastVisit": {
+          "id": "v_1791146423049",
+          "date": "5 de octubre de 2026",
+          "serviceName": "Corte Robotico",
+          "price": 35,
+          "currency": "USD",
+          "mood": "tranquilo",
+          "paid": false,
+          "photos": {}
+        },
+        "visitHistory": [],
+        "recommendedIntervalWeeks": 4
+      }
+    ],
+    "appointments": [
+      {
+        "id": "apt_test_1",
+        "petId": "#PET-1111",
+        "petName": "Michi",
+        "breed": "Siames",
+        "tutorName": "Laura M.",
+        "tutorPhone": "+593 99 123 4567",
+        "serviceName": "Corte Robotico",
+        "time": "10:00 hs",
+        "date": "5 de octubre de 2026",
+        "status": "pendiente",
+        "price": 35,
+        "currency": "USD"
+      }
+    ],
+    "bookedRetentions": [],
+    "updatedAt": "2026-10-04T20:40:23.049Z"
+  }
+}

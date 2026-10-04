@@ -28,7 +28,7 @@ import { AccountAuthModal } from './components/AccountAuthModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PublicBookingPage } from './components/PublicBookingPage';
 
-import { decodePublicProfileToken } from './utils/slugUtils';
+import { decodePublicProfileToken, extractSlugOnly } from './utils/slugUtils';
 
 function getPublicBookingIdentifierFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
@@ -37,14 +37,14 @@ function getPublicBookingIdentifierFromUrl(): string | null {
   const path = window.location.pathname;
   const pathMatch = path.match(/^\/(?:book|booking|reservar|reservas)\/([^\/?#]+)/i);
   if (pathMatch && pathMatch[1]) {
-    return decodeURIComponent(pathMatch[1]);
+    return extractSlugOnly(decodeURIComponent(pathMatch[1]));
   }
 
   // 2. Query params: businessId, bid, slug, or embedded token p
   const searchParams = new URLSearchParams(window.location.search);
   const explicitBiz = searchParams.get('businessId') || searchParams.get('bid') || searchParams.get('slug');
   if (explicitBiz) {
-    return explicitBiz;
+    return extractSlugOnly(explicitBiz) || explicitBiz;
   }
 
   const token = searchParams.get('p') || searchParams.get('token');
@@ -59,7 +59,7 @@ function getPublicBookingIdentifierFromUrl(): string | null {
   const hash = window.location.hash;
   const hashMatch = hash.match(/^#(?:book|booking|reservar|reservas)(?:\/([^\/?#]+))?/i);
   if (hashMatch && hashMatch[1]) {
-    return decodeURIComponent(hashMatch[1]);
+    return extractSlugOnly(decodeURIComponent(hashMatch[1]));
   }
 
   // 4. ?book=online parameter without explicit id -> invalid identifier to show clean error

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { SalonConfig } from '../types';
-import { slugify, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
+import { slugify, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
 
 interface ShareLinkModalProps {
   isOpen: boolean;
@@ -28,7 +28,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
     const bId = businessId && businessId !== 'biz_main' && businessId !== 'biz_default'
       ? businessId
       : (salonConfig?.id || generateStableBusinessId(salonName));
-    const slug = slugify(bookingSlug || salonConfig?.bookingSlug || salonName);
+    const slug = extractSlugOnly(bookingSlug || salonConfig?.bookingSlug) || slugify(salonName, 'salon');
     return buildPublicBookingUrl(origin, bId, slug, salonConfig);
   }, [businessId, bookingSlug, salonName, salonConfig]);
 

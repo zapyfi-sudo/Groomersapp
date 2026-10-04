@@ -1,23 +1,61 @@
 import { SalonConfig, SalonService, ServicePricingBySize } from '../types';
 
 /**
+ * Real-time input cleaner for the slug text field.
+ * Allows empty string "" so backspace/delete works cleanly without forcing any character.
+ * Converts to lowercase, strips accents and unsupported characters.
+ */
+export function cleanSlugInput(text?: string): string {
+  if (!text) return '';
+  return text
+    .toString()
+    .toLowerCase()
+    .normalize('NFD') // Decompose accented characters
+    .replace(/[\u0300-\u036f]/g, '') // Remove accent diacritics (á -> a, ñ -> n)
+    .replace(/ñ/g, 'n')
+    .replace(/ü/g, 'u')
+    .replace(/[^a-z0-9-]/g, '') // Keep lowercase alphanumeric and hyphens
+    .replace(/-+/g, '-'); // Replace multiple hyphens with single hyphen
+}
+
+/**
+ * Extracts ONLY the slug from a string, stripping any URL, path, or domain prefix.
+ * Example: "agendacan.app/peluquerialuna" -> "peluquerialuna"
+ * Example: "https://groomers-app.vercel.app/reservas/catt" -> "catt"
+ * Example: "peluqueria-luna" -> "peluqueria-luna"
+ */
+export function extractSlugOnly(raw?: string): string {
+  if (!raw) return '';
+  let str = raw.trim();
+  // Strip query params or hash if present
+  str = str.split('?')[0].split('#')[0];
+  // If it contains slashes, take the last non-empty segment
+  if (str.includes('/')) {
+    const parts = str.split('/').filter(Boolean);
+    str = parts[parts.length - 1] || '';
+  }
+  return cleanSlugInput(str);
+}
+
+/**
  * Normalizes Spanish text safely into a URL-friendly slug.
  * Example: "Peluquería Canina Niño Feliz" -> "peluqueria-canina-nino-feliz"
  */
-export function slugify(text?: string): string {
-  if (!text) return 'salon';
-  return text
+export function slugify(text?: string, fallback = ''): string {
+  if (!text) return fallback;
+  const cleaned = text
     .toString()
     .toLowerCase()
     .trim()
     .normalize('NFD') // Decompose accented characters
-    .replace(/[\u0300-\u036f]/g, '') // Remove accent diacritics (á -> a, ñ -> n)
+    .replace(/[\u0300-\u036f]/g, '') // Remove accent diacritics
     .replace(/ñ/g, 'n')
     .replace(/ü/g, 'u')
     .replace(/[^a-z0-9\s-]/g, '') // Remove non-alphanumeric except space and hyphen
     .replace(/\s+/g, '-') // Replace spaces with hyphen
     .replace(/-+/g, '-') // Remove consecutive hyphens
-    .replace(/^-+|-+$/g, ''); // Trim hyphens
+    .replace(/^-+|-+$/g, ''); // Trim leading/trailing hyphens
+  return cleaned || fallback;
 }
 
 /**
@@ -25,7 +63,7 @@ export function slugify(text?: string): string {
  * Example: "robocat_k9x2m4"
  */
 export function generateStableBusinessId(name?: string): string {
-  const base = slugify(name || 'salon').slice(0, 16) || 'salon';
+  const base = slugify(name || 'salon', 'salon').slice(0, 16) || 'salon';
   const randomSuffix = Math.random().toString(36).substring(2, 8);
   return `${base}_${randomSuffix}`;
 }
@@ -71,9 +109,8 @@ export interface CompactPublicPayload {
 }
 
 /**
- * Encodes public business information into a compact, URL-safe base64 token.
- * This guarantees 100% cross-device, cross-browser, incognito availability
- * with ZERO dependence on external servers or local cookies.
+ * Backward compatibility: Encodes public business information into a base64 token.
+ * Retained so any existing links containing &p= can still be decoded without breaking.
  */
 export function encodePublicProfileToken(
   businessId: string,
@@ -108,7 +145,7 @@ export function encodePublicProfileToken(
 
     const payload: CompactPublicPayload = {
       bid: businessId,
-      slug: config.bookingSlug ? slugify(config.bookingSlug) : slugify(config.name),
+      slug: extractSlugOnly(config.bookingSlug) || slugify(config.name),
       name: config.name || 'Peluquería Canina',
       logo: config.logoUrl,
       addr: config.address,
@@ -130,7 +167,6 @@ export function encodePublicProfileToken(
     };
 
     const jsonStr = JSON.stringify(payload);
-    // URL-safe base64 encoding (works in all browsers & Node)
     const base64 = btoa(unescape(encodeURIComponent(jsonStr)))
       .replace(/\+/g, '-')
       .replace(/\//g, '_')
@@ -144,7 +180,7 @@ export function encodePublicProfileToken(
 }
 
 /**
- * Decodes a public profile token from the URL.
+ * Backward compatibility: Decodes legacy &p= token from URL if present.
  */
 export function decodePublicProfileToken(token: string): {
   businessId: string;
@@ -154,7 +190,6 @@ export function decodePublicProfileToken(token: string): {
   if (!token || typeof token !== 'string') return null;
 
   try {
-    // Restore standard base64 from URL-safe
     let base64 = token.replace(/-/g, '+').replace(/_/g, '/');
     while (base64.length % 4 !== 0) {
       base64 += '=';
@@ -222,9 +257,13 @@ export function decodePublicProfileToken(token: string): {
 }
 
 /**
- * Builds the complete public booking link with dual resolution:
- * 1. Clean route (/reservas/:slug?businessId=:id)
- * 2. Embedded payload token (&p=:token) for 100% cross-device guarantee
+ * Builds the clean, short public booking link:
+ * https://groomers-app.vercel.app/reservas/[slug]
+ * 
+ * Architecture:
+ * PUBLIC URL → BUSINESS IDENTIFIER / SLUG → PERSISTED BUSINESS DATA → PUBLIC BOOKING PAGE
+ * 
+ * NEVER encodes the whole business object, logo, services, opening hours, or &p= in the URL.
  */
 export function buildPublicBookingUrl(
   origin: string,
@@ -232,12 +271,11 @@ export function buildPublicBookingUrl(
   slug?: string,
   config?: SalonConfig
 ): string {
-  const safeSlug = slug ? slugify(slug) : (config ? slugify(config.name) : 'reservas');
-  const token = config ? encodePublicProfileToken(businessId, config) : '';
+  const extracted = extractSlugOnly(slug || config?.bookingSlug);
+  const safeSlug = extracted || slugify(config?.name || businessId || 'reservas', 'reservas');
 
   // Clean base origin (strip trailing slash)
-  const base = origin.replace(/\/+$/, '');
+  const base = (origin || 'https://groomers-app.vercel.app').replace(/\/+$/, '');
   
-  const tokenParam = token ? `&p=${encodeURIComponent(token)}` : '';
-  return `${base}/reservas/${safeSlug}?businessId=${encodeURIComponent(businessId)}${tokenParam}`;
+  return `${base}/reservas/${safeSlug}`;
 }

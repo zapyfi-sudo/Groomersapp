@@ -61,7 +61,7 @@ export const DEFAULT_SALON_CONFIG: SalonConfig = {
   afternoonOpen: '14:00',
   afternoonClose: '19:30',
   hasDoubleShift: true,
-  bookingSlug: 'agendacan.app/peluquerialuna',
+  bookingSlug: 'peluqueria-luna',
   activeDays: ['L', 'M', 'X', 'J', 'V', 'S'],
   staffScheduleConfig: {
     allDay: { start: '08:00', end: '18:00' },

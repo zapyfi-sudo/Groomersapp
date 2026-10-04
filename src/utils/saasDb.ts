@@ -1,6 +1,6 @@
 import { UserAccount, BusinessAccountData, SalonConfig, Pet, Appointment, SalonService } from '../types';
 import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressImage } from './storage';
-import { generateStableBusinessId, slugify } from './slugUtils';
+import { generateStableBusinessId, slugify, extractSlugOnly } from './slugUtils';
 
 const DB_NAME = 'agendacan_saas_db';
 const DB_VERSION = 3;
@@ -293,9 +293,7 @@ export async function initSaasDatabase(): Promise<{
 
     initialConfig.id = primaryBizId;
     initialConfig.userId = primaryUserId;
-    if (!initialConfig.bookingSlug) {
-      initialConfig.bookingSlug = slugify(initialConfig.name);
-    }
+    initialConfig.bookingSlug = extractSlugOnly(initialConfig.bookingSlug) || slugify(initialConfig.name);
 
     const initialPets: Pet[] = legacy.pets && legacy.pets.length > 0 ? legacy.pets : getDefaultPets();
     const initialAppointments: Appointment[] = legacy.appointments && legacy.appointments.length > 0 ? legacy.appointments : getDefaultAppointments();
@@ -358,7 +356,7 @@ export async function createNewBusinessAccount(params: {
   phone?: string;
 }): Promise<{ account: UserAccount; data: BusinessAccountData }> {
   const newUserId = `usr_${Date.now()}`;
-  const newBizId = `biz_${Date.now()}`;
+  const newBizId = generateStableBusinessId(params.businessName);
   const now = new Date().toISOString();
 
   // Fresh, clean business config for new user (no fake customers or fake appointments)
@@ -372,7 +370,7 @@ export async function createNewBusinessAccount(params: {
     phonePrefix: params.phonePrefix || '+593',
     phone: params.phone || '',
     address: 'Dirección del Salón',
-    bookingSlug: `agendacan.app/${(params.businessName || 'mipeluqueria').toLowerCase().replace(/\s+/g, '')}`,
+    bookingSlug: slugify(params.businessName || 'mipeluqueria', 'mipeluqueria'),
     simultaneousCapacity: 2,
     // Clean starting services as editable defaults
     services: [
