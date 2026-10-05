@@ -1,0 +1,60 @@
+{
+  "entities": {
+    "Business": {
+      "title": "Business",
+      "description": "A pet grooming business profile and settings",
+      "type": "object",
+      "properties": {
+        "businessId": { "type": "string" },
+        "name": { "type": "string" },
+        "bookingSlug": { "type": "string" },
+        "config": { "type": "object" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["businessId", "name", "bookingSlug"]
+    },
+    "SlugMapping": {
+      "title": "SlugMapping",
+      "description": "Mapping from public booking slug to business ID",
+      "type": "object",
+      "properties": {
+        "slug": { "type": "string" },
+        "businessId": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["slug", "businessId"]
+    },
+    "Appointment": {
+      "title": "Appointment",
+      "description": "A grooming appointment booked by a customer or admin",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "businessId": { "type": "string" },
+        "petName": { "type": "string" },
+        "tutorName": { "type": "string" },
+        "tutorPhone": { "type": "string" },
+        "serviceName": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "status": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "businessId", "petName", "serviceName", "date", "time"]
+    }
+  },
+  "firestore": {
+    "/businesses/{businessId}": {
+      "schema": "Business",
+      "description": "Collection of grooming businesses"
+    },
+    "/slugs/{slug}": {
+      "schema": "SlugMapping",
+      "description": "Public slug index mapping to business IDs"
+    },
+    "/businesses/{businessId}/appointments/{appointmentId}": {
+      "schema": "Appointment",
+      "description": "Appointments for a specific business"
+    }
+  }
+}

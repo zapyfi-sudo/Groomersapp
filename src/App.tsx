@@ -15,7 +15,7 @@ import {
   persistActiveAppointments,
   persistActiveBookedRetentions
 } from './utils/saasDb';
-import { syncBusinessToServer } from './utils/api';
+import { syncBusinessToServer, fetchBusinessProfile } from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
@@ -126,23 +126,24 @@ export default function App() {
           setSelectedPetId(res.activeData.pets[0].id);
         }
 
-        // Fetch from persistent server database to ensure latest slug and public appointments
+        // Fetch from persistent cloud database (Firestore / Server API) to ensure latest slug and public appointments
         const bizId = res.activeData.config?.id || res.activeData.businessId || 'biz_main';
-        fetch(`/api/businesses/${encodeURIComponent(bizId)}`)
-          .then((r) => (r.ok ? r.json() : null))
-          .then((serverData) => {
-            if (serverData && serverData.config) {
+        fetchBusinessProfile(bizId)
+          .then((profile) => {
+            if (profile && profile.config) {
               setSalonConfig((prev) => ({
                 ...prev,
-                ...serverData.config,
-                bookingSlug: serverData.config.bookingSlug || prev.bookingSlug
+                ...profile.config,
+                bookingSlug: profile.config.bookingSlug || prev.bookingSlug
               }));
-              if (serverData.appointments && serverData.appointments.length > 0) {
-                setAppointments(serverData.appointments);
+              if (profile.appointments && profile.appointments.length > 0) {
+                setAppointments(profile.appointments);
               }
             }
           })
-          .catch(() => {});
+          .catch((err) => {
+            console.warn('Initial cloud sync warning:', err);
+          });
       }
     }).catch((err) => {
       console.warn('initSaasDatabase warning:', err);

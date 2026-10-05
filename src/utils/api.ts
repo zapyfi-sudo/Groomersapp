@@ -1,5 +1,10 @@
 import { SalonConfig, SalonService, Appointment, Pet } from '../types';
 import { decodePublicProfileToken, extractSlugOnly } from './slugUtils';
+import {
+  getBusinessFromFirestore,
+  saveBusinessToFirestore,
+  addAppointmentToFirestore
+} from './firebase';
 
 export interface PublicBusinessResult {
   businessId: string;
@@ -10,21 +15,50 @@ export interface PublicBusinessResult {
 
 /**
  * Universal resolution of a business profile for public booking:
- * 1. Query Server API (/api/businesses/:cleanSlugOrId)
- * 2. If query param businessId is also present, try that as well
+ * 1. Query Cloud Firestore (shared cloud database across all devices, Vercel, browsers)
+ * 2. Query Server API (/api/businesses/:cleanSlugOrId)
  * 3. Backward-compat: decode legacy URL token (&p=...) if present
- * 4. Cache in session/localStorage for the specific business ID
- * 5. NEVER falls back to demo data or fake business!
+ * 4. NEVER falls back to demo data or fake business!
  */
 export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusinessResult | null> {
   if (!idOrSlug) return null;
   const cleanTarget = extractSlugOnly(idOrSlug) || idOrSlug.trim();
 
-  // 1. Query Server API (/api/businesses/:idOrSlug)
+  // 1. Primary: Query Cloud Firestore
+  try {
+    const firestoreResult = await getBusinessFromFirestore(cleanTarget);
+    if (firestoreResult && firestoreResult.businessId && firestoreResult.config) {
+      const result: PublicBusinessResult = {
+        businessId: firestoreResult.businessId,
+        config: firestoreResult.config,
+        services: firestoreResult.services || firestoreResult.config.services || [],
+        appointments: firestoreResult.appointments || []
+      };
+
+      // Cache locally for fast offline revisit
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(`agendacan_public_biz_${result.businessId}`, JSON.stringify(result));
+          if (result.config.bookingSlug) {
+            localStorage.setItem(
+              `agendacan_public_biz_${extractSlugOnly(result.config.bookingSlug)}`,
+              JSON.stringify(result)
+            );
+          }
+        } catch {}
+      }
+
+      return result;
+    }
+  } catch (err) {
+    console.warn('[FIRESTORE PROFILE FETCH ERROR]', err);
+  }
+
+  // 2. Secondary: Query Server API (/api/businesses/:idOrSlug)
   try {
     const res = await fetch(`/api/businesses/${encodeURIComponent(cleanTarget)}`);
     const contentType = res.headers.get('content-type') || '';
-    
+
     // Ensure the response is valid JSON and not an HTML fallback page from static routing
     if (res.ok && contentType.includes('application/json')) {
       const data = await res.json();
@@ -36,12 +70,14 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
           appointments: data.appointments || []
         };
 
-        // Cache successful response for offline/session reuse
         if (typeof window !== 'undefined') {
           try {
             localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
             if (data.config.bookingSlug) {
-              localStorage.setItem(`agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`, JSON.stringify(result));
+              localStorage.setItem(
+                `agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`,
+                JSON.stringify(result)
+              );
             }
           } catch {}
         }
@@ -50,15 +86,27 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
       }
     }
   } catch (err) {
-    console.warn('Network error fetching business from server:', err);
+    console.warn('Network error fetching business from server API:', err);
   }
 
-  // 2. Check if a query param ?businessId= or ?bid= exists and try that against the server
+  // 3. Query params check ?businessId= or ?bid=
   if (typeof window !== 'undefined') {
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const queryBizId = searchParams.get('businessId') || searchParams.get('bid');
       if (queryBizId && queryBizId !== cleanTarget) {
+        // Try Firestore with queryBizId
+        const fbResult = await getBusinessFromFirestore(queryBizId);
+        if (fbResult && fbResult.config) {
+          return {
+            businessId: fbResult.businessId,
+            config: fbResult.config,
+            services: fbResult.services || fbResult.config.services || [],
+            appointments: fbResult.appointments || []
+          };
+        }
+
+        // Try API with queryBizId
         const resQuery = await fetch(`/api/businesses/${encodeURIComponent(queryBizId)}`);
         const qContentType = resQuery.headers.get('content-type') || '';
         if (resQuery.ok && qContentType.includes('application/json')) {
@@ -76,7 +124,7 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     } catch {}
   }
 
-  // 3. Backward-compatibility: Check for embedded profile payload in URL (&p=...)
+  // 4. Backward-compatibility: Check for legacy URL token (&p=...)
   if (typeof window !== 'undefined') {
     try {
       const searchParams = new URLSearchParams(window.location.search);
@@ -97,51 +145,13 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
   }
 
-  // 4. Check cached profile for this specific ID/slug
-  if (typeof window !== 'undefined') {
-    try {
-      const cached = localStorage.getItem(`agendacan_public_biz_${cleanTarget}`);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.businessId && parsed.config) {
-          return {
-            businessId: parsed.businessId,
-            config: parsed.config,
-            services: parsed.services || parsed.config.services || [],
-            appointments: parsed.appointments || []
-          };
-        }
-      }
-    } catch {}
-  }
-
-  // 5. Check active salon configuration in local storage IF AND ONLY IF the ID or slug strictly matches
-  try {
-    const localRaw = typeof window !== 'undefined' ? localStorage.getItem('agendacan_salon_config_v2') : null;
-    if (localRaw) {
-      const localCfg: SalonConfig = JSON.parse(localRaw);
-      const cleanCompare = cleanTarget.toLowerCase().replace(/[^a-z0-9]/g, '');
-      const idClean = (localCfg.id || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-      const slugClean = (extractSlugOnly(localCfg.bookingSlug) || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-
-      // Strict match only — NEVER match if ID is different!
-      if (idClean && (idClean === cleanCompare || slugClean === cleanCompare)) {
-        return {
-          businessId: localCfg.id || cleanTarget,
-          config: localCfg,
-          services: (localCfg.services || []).filter((s) => s.active !== false),
-          appointments: []
-        };
-      }
-    }
-  } catch (e) {
-    console.warn('Local storage check failed:', e);
-  }
-
-  // 6. Zero demo fallback: If not found, return null so the proper Spanish error is displayed
+  // 5. Zero demo fallback: If not found, return null so the proper Spanish error is displayed
   return null;
 }
 
+/**
+ * Persists the business configuration to Cloud Firestore (primary) and Server API (mirror).
+ */
 export async function syncBusinessToServer(
   businessId: string,
   config: SalonConfig,
@@ -149,6 +159,17 @@ export async function syncBusinessToServer(
   appointments?: Appointment[],
   bookedRetentions?: string[]
 ): Promise<boolean> {
+  let firestoreSuccess = false;
+  let serverSuccess = false;
+
+  // 1. Primary: Save to Cloud Firestore (guarantees cross-device / Vercel persistence)
+  try {
+    firestoreSuccess = await saveBusinessToFirestore(businessId, config, appointments, pets);
+  } catch (fbErr) {
+    console.warn('[FIRESTORE SYNC ERROR]', fbErr);
+  }
+
+  // 2. Secondary: Mirror to Server API if available
   try {
     const res = await fetch('/api/businesses', {
       method: 'POST',
@@ -161,26 +182,64 @@ export async function syncBusinessToServer(
         bookedRetentions
       })
     });
-    return res.ok;
+    serverSuccess = res.ok;
   } catch (err) {
-    console.warn('Could not sync business to server:', err);
-    return false;
+    console.warn('Server API sync not reachable (standard on static CDNs/Vercel):', err);
   }
+
+  // Operation succeeds if either the cloud database or the server accepted it
+  return firestoreSuccess || serverSuccess;
 }
 
+/**
+ * Submits a new public appointment directly to Firestore and the server API.
+ */
 export async function createPublicAppointment(
   businessIdOrSlug: string,
   appointment: Appointment,
   petData?: Partial<Pet>
 ): Promise<boolean> {
-  // Always mark appointment as public booking request pending confirmation
   const appointmentToSave: Appointment = {
     ...appointment,
     status: 'pendiente',
     statusLabel: 'POR CONFIRMAR'
   };
 
-  // 1. Store in local browser cache for public appointments
+  // 1. Resolve business ID
+  let targetBizId = businessIdOrSlug;
+  try {
+    const biz = await getBusinessFromFirestore(businessIdOrSlug);
+    if (biz && biz.businessId) {
+      targetBizId = biz.businessId;
+    }
+  } catch {}
+
+  let firestoreSuccess = false;
+  let serverSuccess = false;
+
+  // 2. Primary: Save to Cloud Firestore
+  try {
+    firestoreSuccess = await addAppointmentToFirestore(targetBizId, appointmentToSave);
+  } catch (err) {
+    console.warn('[FIRESTORE APPOINTMENT ERROR]', err);
+  }
+
+  // 3. Secondary: Submit to Server API
+  try {
+    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appointment: appointmentToSave,
+        petData
+      })
+    });
+    serverSuccess = res.ok;
+  } catch (err) {
+    console.warn('Could not post appointment to server API:', err);
+  }
+
+  // 4. Update local cache
   if (typeof window !== 'undefined') {
     try {
       const key = `agendacan_public_apts_${businessIdOrSlug}`;
@@ -191,19 +250,5 @@ export async function createPublicAppointment(
     } catch {}
   }
 
-  // 2. Persist to backend server API
-  try {
-    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        appointment: appointmentToSave,
-        petData
-      })
-    });
-    return res.ok;
-  } catch (err) {
-    console.warn('Could not post appointment to server:', err);
-    return false;
-  }
+  return firestoreSuccess || serverSuccess;
 }

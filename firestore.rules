@@ -1,0 +1,43 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isValidBusiness(data) {
+      return data.businessId is string &&
+             data.businessId.size() > 0 &&
+             data.name is string &&
+             data.name.size() > 0;
+    }
+
+    function isValidSlugMapping(data) {
+      return data.slug is string &&
+             data.slug.size() > 0 &&
+             data.businessId is string &&
+             data.businessId.size() > 0;
+    }
+
+    function isValidAppointment(data) {
+      return data.id is string &&
+             data.serviceName is string &&
+             data.date is string;
+    }
+
+    match /businesses/{businessId} {
+      allow read: if true;
+      allow create, update: if isValidBusiness(request.resource.data);
+      allow delete: if false;
+
+      match /appointments/{appointmentId} {
+        allow read: if true;
+        allow create: if isValidAppointment(request.resource.data);
+        allow update, delete: if true;
+      }
+    }
+
+    match /slugs/{slug} {
+      allow read: if true;
+      allow create, update: if isValidSlugMapping(request.resource.data);
+      allow delete: if false;
+    }
+  }
+}

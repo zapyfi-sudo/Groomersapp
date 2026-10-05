@@ -20,6 +20,7 @@ import { compressImage } from '../utils/storage';
 import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
 import { syncBusinessToServer } from '../utils/api';
 import { persistActiveConfig } from '../utils/saasDb';
+import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -297,16 +298,32 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     setIsSavingSlug(true);
 
     const persistentBizId = config.id || 'biz_main';
-    const normalizedSlug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
+    const targetSlug = cleanSlugInput(customSlug);
 
-    const updatedConfig: SalonConfig = {
-      ...config,
-      id: persistentBizId,
-      name: businessName,
-      bookingSlug: normalizedSlug
-    };
+    if (!targetSlug) {
+      setSlugSaveError('Por favor ingresa un slug válido (ejemplo: pelo).');
+      setIsSavingSlug(false);
+      return;
+    }
 
     try {
+      // 1. Check if slug is already taken by another business
+      const check = await checkSlugAvailabilityInFirestore(targetSlug, persistentBizId);
+      if (!check.available) {
+        setSlugSaveError(
+          `El slug "${targetSlug}" ya está registrado por ${check.conflictBusinessName || 'otro negocio'}. Elige uno diferente.`
+        );
+        setIsSavingSlug(false);
+        return;
+      }
+
+      const updatedConfig: SalonConfig = {
+        ...config,
+        id: persistentBizId,
+        name: businessName,
+        bookingSlug: targetSlug
+      };
+
       const success = await syncBusinessToServer(
         persistentBizId,
         updatedConfig,
@@ -315,18 +332,19 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       );
 
       if (!success) {
-        throw new Error('Server returned false');
+        throw new Error('No se pudo guardar el enlace en el servidor');
       }
 
       await persistActiveConfig(updatedConfig);
       onUpdateConfig(updatedConfig);
-      setCustomSlug(normalizedSlug);
+      setCustomSlug(targetSlug);
 
-      setSavedToast('¡Enlace guardado correctamente!');
+      setSavedToast('Enlace actualizado correctamente.');
       setTimeout(() => setSavedToast(null), 3500);
     } catch (err) {
       console.error('[SLUG SAVE ERROR]', err);
-      setSlugSaveError('Error al guardar el enlace en el servidor. Por favor intenta de nuevo.');
+      const msg = err instanceof Error ? err.message : 'Error al guardar el enlace en el servidor. Por favor intenta de nuevo.';
+      setSlugSaveError(msg);
       setTimeout(() => setSlugSaveError(null), 5000);
     } finally {
       setIsSavingSlug(false);
@@ -582,23 +600,28 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   </p>
                 </div>
 
-                {/* Custom Slug Editor Box (Requirement #5) */}
-                <div className="bg-black/30 rounded-2xl p-4 sm:p-5 border border-white/10 space-y-3">
-                  <label className="text-xs font-bold text-[#ffdea1] uppercase tracking-wider block">
-                    Personaliza el enlace que compartirás con tus clientes:
-                  </label>
+                {/* Custom Slug Editor Box (Responsive & Mobile-optimized) */}
+                <div className="bg-black/30 rounded-2xl p-4 sm:p-5 border border-white/10 space-y-3.5">
+                  <div>
+                    <label className="text-xs font-bold text-[#ffdea1] uppercase tracking-wider block mb-1">
+                      Personaliza el enlace que compartirás con tus clientes:
+                    </label>
+                    <p className="text-xs text-[#e3e0f1]/90">
+                      Escribe únicamente la palabra o identificador de tu negocio (ejemplo: <span className="font-mono text-[#f9b900] font-bold">pelo</span>).
+                    </p>
+                  </div>
 
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
-                    <div className="flex-1 flex items-center bg-white/10 rounded-xl px-3 py-2 border border-white/20 focus-within:border-[#f9b900]">
-                      <span className="text-xs sm:text-sm text-[#e3e0f1] font-mono select-none">
-                        {(typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app')}/reservas/
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                    <div className="flex-1 flex items-center bg-white/10 rounded-xl px-3.5 py-2.5 border border-white/20 focus-within:border-[#f9b900] focus-within:ring-1 focus-within:ring-[#f9b900] transition-all">
+                      <span className="text-xs sm:text-sm text-[#ffdea1]/90 font-mono font-bold select-none shrink-0 pr-1.5 border-r border-white/20 mr-2">
+                        /reservas/
                       </span>
                       <input
                         type="text"
                         value={customSlug}
                         onChange={(e) => setCustomSlug(cleanSlugInput(e.target.value))}
-                        placeholder={slugify(businessName || 'mipeluqueria', 'mipeluqueria')}
-                        className="flex-1 bg-transparent text-white font-mono font-bold text-xs sm:text-sm outline-none px-1"
+                        placeholder={slugify(businessName || 'pelo', 'pelo')}
+                        className="w-full bg-transparent text-white font-mono font-bold text-sm outline-none px-1 placeholder:text-white/40"
                         autoComplete="off"
                         spellCheck={false}
                       />
@@ -608,7 +631,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       type="button"
                       onClick={handleSaveSlug}
                       disabled={isSavingSlug}
-                      className="px-4 py-2 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-60 flex items-center gap-1.5"
+                      className="px-5 py-3 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-60 flex items-center justify-center gap-1.5"
                     >
                       {isSavingSlug ? (
                         <>
@@ -616,19 +639,29 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           <span>Guardando...</span>
                         </>
                       ) : (
-                        <span>Guardar slug</span>
+                        <>
+                          <span className="material-symbols-outlined text-sm font-bold">save</span>
+                          <span>Guardar slug</span>
+                        </>
                       )}
                     </button>
                   </div>
 
+                  {/* Live preview banner of full URL */}
+                  <div className="flex items-center gap-2 text-xs bg-white/5 rounded-xl px-3 py-2 border border-white/10 font-mono break-all text-[#e3e0f1]">
+                    <span className="material-symbols-outlined text-sm text-[#f9b900] shrink-0">link</span>
+                    <span className="text-white/60 select-none">Enlace:</span>
+                    <span className="text-white font-bold truncate">{realBookingUrl}</span>
+                  </div>
+
                   {slugSaveError && (
-                    <div className="p-2.5 bg-rose-500/20 border border-rose-400/40 rounded-xl text-rose-200 text-xs font-bold flex items-center gap-2">
-                      <span className="material-symbols-outlined text-sm">error</span>
+                    <div className="p-3 bg-rose-500/20 border border-rose-400/40 rounded-xl text-rose-200 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                      <span className="material-symbols-outlined text-sm shrink-0">error</span>
                       <span>{slugSaveError}</span>
                     </div>
                   )}
 
-                  <p className="text-[11px] text-[#f2daff]">
+                  <p className="text-[11px] text-[#f2daff]/80">
                     Este slug se asocia de forma permanente al identificador único de tu negocio.
                   </p>
                 </div>
