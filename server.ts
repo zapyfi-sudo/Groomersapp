@@ -142,7 +142,7 @@ businessId: ${business ? business.businessId : 'null'}`);
     return;
   }
 
-  // Return public business profile with its own services and appointments for capacity calculation
+  // Return public business profile with its own services, appointments, and pets
   const publicConfig = {
     ...business.config,
     id: business.businessId,
@@ -153,7 +153,8 @@ businessId: ${business ? business.businessId : 'null'}`);
     businessId: business.businessId,
     config: publicConfig,
     services: publicConfig.services,
-    appointments: business.appointments || []
+    appointments: business.appointments || [],
+    pets: business.pets || []
   });
 });
 
@@ -220,13 +221,44 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
   }
 
   const apts = business.appointments || [];
-  apts.unshift(appointment);
+  const existingAptIdx = apts.findIndex((a: any) => a.id === appointment.id);
+  if (existingAptIdx >= 0) {
+    apts[existingAptIdx] = { ...apts[existingAptIdx], ...appointment };
+  } else {
+    apts.unshift(appointment);
+  }
   business.appointments = apts;
 
   if (petData && petData.name) {
     const pets = business.pets || [];
-    const exists = pets.some((p: any) => p.name?.toLowerCase() === petData.name?.toLowerCase());
-    if (!exists) {
+    const existingPetIdx = pets.findIndex(
+      (p: any) =>
+        p.id === appointment.petId ||
+        p.name?.toLowerCase() === petData.name?.toLowerCase()
+    );
+
+    const visitEntry = {
+      id: `v_${Date.now()}`,
+      date: appointment.date || 'Hoy',
+      serviceName: appointment.serviceName,
+      price: appointment.price,
+      currency: appointment.currency,
+      mood: 'tranquilo',
+      paid: appointment.paymentStatus === 'cobrado',
+      photos: {}
+    };
+
+    if (existingPetIdx >= 0) {
+      const p = pets[existingPetIdx];
+      p.tutor = {
+        name: appointment.tutorName || p.tutor?.name || 'Cliente Online',
+        phone: appointment.tutorPhone || p.tutor?.phone || '',
+        rawPhone: appointment.tutorPhone || p.tutor?.rawPhone || ''
+      };
+      p.lastVisit = visitEntry;
+      p.visitHistory = [visitEntry, ...(p.visitHistory || [])];
+      pets[existingPetIdx] = p;
+    } else {
       pets.push({
         id: appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
         name: petData.name,
@@ -244,21 +276,12 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
         habitualMood: petData.habitualMood || 'tranquilo',
         healthAllergies: petData.healthAllergies || '',
         handlingObservations: petData.handlingObservations || '',
-        lastVisit: {
-          id: `v_${Date.now()}`,
-          date: appointment.date || 'Hoy',
-          serviceName: appointment.serviceName,
-          price: appointment.price,
-          currency: appointment.currency,
-          mood: 'tranquilo',
-          paid: false,
-          photos: {}
-        },
-        visitHistory: [],
+        lastVisit: visitEntry,
+        visitHistory: [visitEntry],
         recommendedIntervalWeeks: 4
       });
-      business.pets = pets;
     }
+    business.pets = pets;
   }
 
   business.updatedAt = new Date().toISOString();
@@ -278,7 +301,65 @@ app.get('/api/businesses/:idOrSlug/appointments', (req, res) => {
     return;
   }
 
-  res.json({ appointments: business.appointments || [] });
+  res.json({
+    appointments: business.appointments || [],
+    pets: business.pets || []
+  });
+});
+
+app.patch('/api/businesses/:idOrSlug/appointments/:appointmentId', (req, res) => {
+  const { idOrSlug, appointmentId } = req.params;
+  const patchData = req.body;
+
+  const db = readDb();
+  const business = findBusiness(idOrSlug, db);
+
+  if (!business) {
+    res.status(404).json({ error: 'Business not found' });
+    return;
+  }
+
+  const apts = business.appointments || [];
+  const idx = apts.findIndex((a: any) => a.id === appointmentId);
+
+  if (idx === -1) {
+    res.status(404).json({ error: 'Appointment not found' });
+    return;
+  }
+
+  apts[idx] = {
+    ...apts[idx],
+    ...patchData,
+    updatedAt: new Date().toISOString()
+  };
+
+  business.appointments = apts;
+  business.updatedAt = new Date().toISOString();
+  db[business.businessId] = business;
+  writeDb(db);
+
+  console.log(`[APPOINTMENT UPDATE] Appointment ${appointmentId} updated:`, patchData);
+  res.json({ success: true, appointment: apts[idx] });
+});
+
+app.delete('/api/businesses/:idOrSlug/appointments/:appointmentId', (req, res) => {
+  const { idOrSlug, appointmentId } = req.params;
+
+  const db = readDb();
+  const business = findBusiness(idOrSlug, db);
+
+  if (!business) {
+    res.status(404).json({ error: 'Business not found' });
+    return;
+  }
+
+  const apts = business.appointments || [];
+  business.appointments = apts.filter((a: any) => a.id !== appointmentId);
+  business.updatedAt = new Date().toISOString();
+  db[business.businessId] = business;
+  writeDb(db);
+
+  res.json({ success: true, message: 'Appointment deleted' });
 });
 
 // Full-stack Vite / Static integration

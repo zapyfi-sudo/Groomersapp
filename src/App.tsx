@@ -15,7 +15,14 @@ import {
   persistActiveAppointments,
   persistActiveBookedRetentions
 } from './utils/saasDb';
-import { syncBusinessToServer, fetchBusinessProfile } from './utils/api';
+import {
+  syncBusinessToServer,
+  fetchBusinessProfile,
+  subscribeToBusinessAppointments,
+  subscribeToBusinessPets,
+  updateAppointmentStatusOnServer,
+  fetchLatestAppointmentsAndPets
+} from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
@@ -105,6 +112,9 @@ export default function App() {
     return initialData.pets[0]?.id || '#PET-2849';
   });
 
+  // Real-time notification for incoming public bookings
+  const [newBookingNotification, setNewBookingNotification] = useState<string | null>(null);
+
   // Navigation tabs
   const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'mascotas'>('agenda');
 
@@ -126,7 +136,7 @@ export default function App() {
           setSelectedPetId(res.activeData.pets[0].id);
         }
 
-        // Fetch from persistent cloud database (Firestore / Server API) to ensure latest slug and public appointments
+        // Fetch from persistent cloud database (Firestore / Server API) to ensure latest slug, appointments, and pets
         const bizId = res.activeData.config?.id || res.activeData.businessId || 'biz_main';
         fetchBusinessProfile(bizId)
           .then((profile) => {
@@ -136,8 +146,28 @@ export default function App() {
                 ...profile.config,
                 bookingSlug: profile.config.bookingSlug || prev.bookingSlug
               }));
+
               if (profile.appointments && profile.appointments.length > 0) {
-                setAppointments(profile.appointments);
+                setAppointments((prev) => {
+                  const map = new Map<string, Appointment>();
+                  for (const a of prev) if (a?.id) map.set(a.id, a);
+                  for (const a of profile.appointments) if (a?.id) map.set(a.id, a);
+                  const merged = Array.from(map.values());
+                  merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+                  persistActiveAppointments(merged);
+                  return merged;
+                });
+              }
+
+              if (profile.pets && profile.pets.length > 0) {
+                setPets((prev) => {
+                  const map = new Map<string, Pet>();
+                  for (const p of prev) if (p?.id) map.set(p.id, p);
+                  for (const p of profile.pets!) if (p?.id) map.set(p.id, p);
+                  const merged = Array.from(map.values());
+                  persistActivePets(merged);
+                  return merged;
+                });
               }
             }
           })
@@ -150,13 +180,136 @@ export default function App() {
     });
   }, []);
 
+  // Real-time synchronization of public appointments & pets from Cloud Firestore + Server Polling
+  useEffect(() => {
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+    if (!currentBizId) return;
+
+    // 1. Subscribe to real-time incoming public appointments via Firestore
+    const unsubApts = subscribeToBusinessAppointments(currentBizId, (incomingApts) => {
+      if (!incomingApts) return;
+
+      setAppointments((prev) => {
+        const prevIds = new Set(prev.map((a) => a.id));
+        const brandNew = incomingApts.filter(
+          (a) => !prevIds.has(a.id) && (a.status === 'pendiente' || a.statusLabel === 'POR CONFIRMAR')
+        );
+
+        if (brandNew.length > 0) {
+          const latest = brandNew[0];
+          setNewBookingNotification(
+            `¡Nueva reserva online de ${latest.tutorName} para ${latest.petName} (${latest.serviceName})!`
+          );
+          setTimeout(() => setNewBookingNotification(null), 8000);
+        }
+
+        const map = new Map<string, Appointment>();
+        for (const a of prev) if (a?.id) map.set(a.id, a);
+        for (const a of incomingApts) if (a?.id) map.set(a.id, a);
+        const merged = Array.from(map.values());
+        merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+        persistActiveAppointments(merged);
+        return merged;
+      });
+    });
+
+    // 2. Subscribe to real-time incoming pets via Firestore
+    const unsubPets = subscribeToBusinessPets(currentBizId, (incomingPets) => {
+      if (!incomingPets) return;
+
+      setPets((prev) => {
+        const map = new Map<string, Pet>();
+        for (const p of prev) if (p?.id) map.set(p.id, p);
+        for (const p of incomingPets) if (p?.id) map.set(p.id, p);
+        const merged = Array.from(map.values());
+        persistActivePets(merged);
+        return merged;
+      });
+    });
+
+    // 3. Periodic server polling (every 8 seconds + window focus) to ensure zero desync across all environments
+    const pollServerSync = async () => {
+      try {
+        const latest = await fetchLatestAppointmentsAndPets(currentBizId);
+        if (latest) {
+          if (latest.appointments && latest.appointments.length > 0) {
+            setAppointments((prev) => {
+              const prevMap = new Map<string, Appointment>();
+              for (const a of prev) if (a?.id) prevMap.set(a.id, a);
+
+              const brandNew = latest.appointments.filter(
+                (a) => !prevMap.has(a.id) && (a.status === 'pendiente' || a.statusLabel === 'POR CONFIRMAR')
+              );
+
+              if (brandNew.length > 0) {
+                const newest = brandNew[0];
+                setNewBookingNotification(
+                  `¡Nueva reserva online de ${newest.tutorName} para ${newest.petName} (${newest.serviceName})!`
+                );
+                setTimeout(() => setNewBookingNotification(null), 8000);
+              }
+
+              for (const a of latest.appointments) {
+                if (a?.id) {
+                  const existing = prevMap.get(a.id);
+                  if (!existing) {
+                    prevMap.set(a.id, a);
+                  } else {
+                    // Retain local status if updated locally
+                    prevMap.set(a.id, {
+                      ...a,
+                      status: existing.status || a.status,
+                      statusLabel: existing.statusLabel || a.statusLabel
+                    });
+                  }
+                }
+              }
+
+              const merged = Array.from(prevMap.values());
+              merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+              persistActiveAppointments(merged);
+              return merged;
+            });
+          }
+
+          if (latest.pets && latest.pets.length > 0) {
+            setPets((prev) => {
+              const map = new Map<string, Pet>();
+              for (const p of prev) if (p?.id) map.set(p.id, p);
+              for (const p of latest.pets) if (p?.id && !map.has(p.id)) map.set(p.id, p);
+              const merged = Array.from(map.values());
+              persistActivePets(merged);
+              return merged;
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Background server polling error:', err);
+      }
+    };
+
+    pollServerSync();
+    const pollInterval = setInterval(pollServerSync, 8000);
+
+    const onFocus = () => pollServerSync();
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onFocus);
+
+    return () => {
+      unsubApts();
+      unsubPets();
+      clearInterval(pollInterval);
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onFocus);
+    };
+  }, [activeAccount?.businessId, salonConfig?.id]);
+
   // Immediate Persistent Auto-Save to IndexedDB, Mirror, and Server API
   useEffect(() => {
     if (salonConfig) {
       persistActiveConfig(salonConfig);
-      syncBusinessToServer(salonConfig.id || 'biz_main', salonConfig, pets, appointments, bookedRetentions);
     }
-  }, [salonConfig, pets, appointments, bookedRetentions]);
+  }, [salonConfig]);
 
   useEffect(() => {
     persistActivePets(pets);
@@ -389,9 +542,20 @@ export default function App() {
   };
 
   const handleUpdateAppointmentStatus = (appointmentId: string, status: string, statusLabel: string) => {
-    setAppointments((prev) =>
-      prev.map((a) => (a.id === appointmentId ? { ...a, status: status as any, statusLabel } : a))
-    );
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+
+    setAppointments((prev) => {
+      const updated = prev.map((a) =>
+        a.id === appointmentId ? { ...a, status: status as any, statusLabel } : a
+      );
+      persistActiveAppointments(updated);
+      return updated;
+    });
+
+    // Synchronize to Server API and Cloud Firestore
+    updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel).catch((err) => {
+      console.warn('Error syncing appointment status update:', err);
+    });
   };
 
   const urgentCount = useMemo(() => {
@@ -450,6 +614,36 @@ export default function App() {
         activeAccount={activeAccount}
         onOpenAccountModal={() => setIsAccountModalOpen(true)}
       />
+
+      {/* Floating Real-Time New Booking Notification Banner */}
+      {newBookingNotification && (
+        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 bg-[#2e004e] text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border-2 border-[#f9b900] animate-in fade-in slide-in-from-top-4 duration-300 max-w-lg mx-4">
+          <div className="w-8 h-8 rounded-full bg-[#f9b900] text-[#261900] flex items-center justify-center shrink-0 font-bold">
+            <span className="material-symbols-outlined text-lg">notifications_active</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-black text-[#f9b900]">¡Nueva Solicitud de Cita Online!</p>
+            <p className="text-xs text-white truncate">{newBookingNotification}</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              setCurrentTab('agenda');
+              setNewBookingNotification(null);
+            }}
+            className="px-3 py-1 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-lg transition-colors shrink-0 cursor-pointer"
+          >
+            Ver en Agenda
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewBookingNotification(null)}
+            className="text-white/60 hover:text-white cursor-pointer ml-1"
+          >
+            <span className="material-symbols-outlined text-base">close</span>
+          </button>
+        </div>
+      )}
 
       {/* Screen Mode Layout Container */}
       <div className="flex-1 w-full flex justify-center md:pt-16">

@@ -66,64 +66,29 @@
         },
         "afternoon": {
           "start": "14:00",
-          "end": "19:00"
+          "end": "19:30"
         }
       },
       "services": [
         {
-          "id": "srv-1",
-          "name": "Baño y Secado Relajante",
-          "durationMin": 45,
-          "price": 18000,
-          "pricingType": "por_tamano",
-          "priceBySize": {
-            "pequeno": 15000,
-            "mediano": 18000,
-            "grande": 22000,
-            "gigante": 27000
-          },
-          "desc": "Champú neutro / hipoalergénico, acondicionador desenredante y secado antiestrés.",
-          "badge": "Popular",
-          "active": true
-        },
-        {
-          "id": "srv-2",
-          "name": "Corte de Raza / Estilo Tijera",
-          "durationMin": 60,
+          "id": "s-1",
+          "name": "Baño + corte",
           "price": 25000,
-          "pricingType": "por_tamano",
-          "priceBySize": {
-            "pequeno": 21000,
-            "mediano": 25000,
-            "grande": 30000,
-            "gigante": 36000
-          },
-          "desc": "Corte higiénico, perfilado a mano y arreglo específico de raza.",
-          "badge": "Estrella",
+          "durationMin": 90,
           "active": true
         },
         {
-          "id": "srv-3",
-          "name": "Deslanado Especial / Muda",
-          "durationMin": 50,
+          "id": "s-2",
+          "name": "Baño completo",
+          "price": 18000,
+          "durationMin": 45,
+          "active": true
+        },
+        {
+          "id": "s-3",
+          "name": "Deslanado premium",
           "price": 22000,
-          "pricingType": "por_tamano",
-          "priceBySize": {
-            "pequeno": 18000,
-            "mediano": 22000,
-            "grande": 26000,
-            "gigante": 31000
-          },
-          "desc": "Remoción de subpelo muerto y oxigenación folicular para mantos dobles.",
-          "active": true
-        },
-        {
-          "id": "srv-4",
-          "name": "Corte de Uñas & Limpieza Ótica",
-          "durationMin": 20,
-          "price": 7000,
-          "pricingType": "unico",
-          "desc": "Recorte de uñas con lima y despeje higiénico de oídos.",
+          "durationMin": 75,
           "active": true
         }
       ],
@@ -131,22 +96,46 @@
       "medicationProducts": [
         {
           "id": "med-1",
-          "name": "Champú Clorhexidina 3% (Piel Alérgica)",
-          "type": "Champu",
-          "purpose": "Tratamiento coadyuvante en piodermas y dermatitis atópica",
+          "name": "Tratamiento antipulgas y garrapatas",
+          "type": "Gotas",
+          "purpose": "Pipeta tópica para control y eliminación de pulgas y garrapatas externas.",
           "price": 4500,
+          "photoUrl": "https://images.unsplash.com/photo-1584308666744-24d5c474f2ae?w=300&auto=format&fit=crop&q=80",
           "active": true
         },
         {
           "id": "med-2",
-          "name": "Limpiador Otico Enzimático",
-          "type": "Gotas",
-          "purpose": "Higiene y prevención de otitis externa recurrente",
-          "price": 3800,
+          "name": "Antiparasitario interno en comprimido",
+          "type": "Pastilla",
+          "purpose": "Comprimido masticable con premio para desparasitación gastrointestinal completa.",
+          "price": 3500,
+          "photoUrl": "https://images.unsplash.com/photo-1471864190281-a93a3070b6de?w=300&auto=format&fit=crop&q=80",
+          "active": true
+        },
+        {
+          "id": "med-3",
+          "name": "Loción dérmica calmante / antialérgica",
+          "type": "Tratamiento tópico",
+          "purpose": "Spray hidratante con aloe y avena para aliviar picazón y dermatitis tras el baño.",
+          "price": 2800,
+          "photoUrl": "https://images.unsplash.com/photo-1608571423902-eed4a5ad8108?w=300&auto=format&fit=crop&q=80",
           "active": true
         }
       ],
-      "medicationFee": 4000
+      "medicationFee": 3500,
+      "reviews": [
+        {
+          "id": "rev-1",
+          "clientName": "Ana Gómez",
+          "petName": "Toby",
+          "serviceName": "Baño + corte",
+          "stars": 5,
+          "comment": "¡Increíble atención! Toby quedó súper suave y con un aroma riquísimo.",
+          "date": "4 de octubre de 2026",
+          "verified": true
+        }
+      ],
+      "userId": "usr_owner"
     },
     "pets": [
       {
@@ -285,9 +274,112 @@
           }
         ],
         "recommendedIntervalWeeks": 3
+      },
+      {
+        "id": "#PET-8888",
+        "name": "Boby",
+        "breed": "Poodle",
+        "gender": "Macho",
+        "weightKg": 8,
+        "age": "1 año",
+        "isVip": false,
+        "photoUrl": "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80",
+        "tutor": {
+          "name": "Carlos Mendoza",
+          "phone": "+54 9 11 1234-5678",
+          "rawPhone": "+54 9 11 1234-5678"
+        },
+        "habitualMood": "tranquilo",
+        "healthAllergies": "Ninguna",
+        "handlingObservations": "Muy cariñoso",
+        "lastVisit": {
+          "id": "v_1791237905279",
+          "date": "7 de octubre de 2026",
+          "serviceName": "Baño + corte",
+          "price": 25000,
+          "currency": "ARS",
+          "mood": "tranquilo",
+          "paid": false,
+          "photos": {}
+        },
+        "visitHistory": [],
+        "recommendedIntervalWeeks": 4
+      },
+      {
+        "id": "#PET-7777",
+        "name": "Rocky Balboa",
+        "breed": "Bulldog",
+        "gender": "Macho",
+        "weightKg": 15,
+        "age": "1 año",
+        "isVip": false,
+        "photoUrl": "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80",
+        "tutor": {
+          "name": "Silvestre S.",
+          "phone": "+54 9 11 8877-6655",
+          "rawPhone": "+54 9 11 8877-6655"
+        },
+        "habitualMood": "tranquilo",
+        "healthAllergies": "Piel sensible",
+        "handlingObservations": "No mojar orejas",
+        "lastVisit": {
+          "id": "v_1791238153546",
+          "date": "8 de octubre de 2026",
+          "serviceName": "Baño completo",
+          "price": 22000,
+          "currency": "ARS",
+          "mood": "tranquilo",
+          "paid": false,
+          "photos": {}
+        },
+        "visitHistory": [
+          {
+            "id": "v_1791238153546",
+            "date": "8 de octubre de 2026",
+            "serviceName": "Baño completo",
+            "price": 22000,
+            "currency": "ARS",
+            "mood": "tranquilo",
+            "paid": false,
+            "photos": {}
+          }
+        ],
+        "recommendedIntervalWeeks": 4
       }
     ],
     "appointments": [
+      {
+        "id": "apt_test_verify_1791238153431",
+        "petId": "#PET-7777",
+        "petName": "Rocky Balboa",
+        "breed": "Bulldog",
+        "tutorName": "Silvestre S.",
+        "tutorPhone": "+54 9 11 8877-6655",
+        "serviceName": "Baño completo",
+        "time": "16:00 hs",
+        "date": "8 de octubre de 2026",
+        "status": "confirmada",
+        "statusLabel": "CONFIRMADA",
+        "price": 22000,
+        "currency": "ARS",
+        "updatedAt": "2026-10-05T22:09:13.564Z"
+      },
+      {
+        "id": "apt_test_live_1",
+        "petId": "#PET-8888",
+        "petName": "Boby",
+        "breed": "Poodle",
+        "tutorName": "Carlos Mendoza",
+        "tutorPhone": "+54 9 11 1234-5678",
+        "serviceName": "Baño + corte",
+        "time": "15:00 hs",
+        "date": "7 de octubre de 2026",
+        "status": "confirmada",
+        "statusLabel": "CONFIRMADA",
+        "price": 25000,
+        "currency": "ARS",
+        "updatedAt": "2026-10-05T22:06:09.632Z"
+      },
       {
         "id": "apt_pelo_100",
         "petId": "#PET-9999",
@@ -348,7 +440,7 @@
       }
     ],
     "bookedRetentions": [],
-    "updatedAt": "2026-10-05T21:15:54.189Z"
+    "updatedAt": "2026-10-05T22:09:13.564Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

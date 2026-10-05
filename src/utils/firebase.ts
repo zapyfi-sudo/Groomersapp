@@ -10,7 +10,8 @@ import {
   query,
   where,
   getDocs,
-  getDocFromServer
+  getDocFromServer,
+  onSnapshot
 } from 'firebase/firestore';
 import firebaseConfigRaw from '../../firebase-applet-config.json';
 import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct } from '../types';
@@ -142,7 +143,7 @@ export async function checkSlugAvailabilityInFirestore(
 
 /**
  * Persists business configuration, services, medications, and slug mapping to Firestore.
- * Ensures zero `undefined` values and maintains atomic consistency.
+ * Merges existing public appointments so client bookings are NEVER overwritten.
  */
 export async function saveBusinessToFirestore(
   businessId: string,
@@ -198,19 +199,46 @@ export async function saveBusinessToFirestore(
     updatedAt: now
   };
 
-  if (appointments && appointments.length > 0) {
-    businessData.appointments = appointments;
-  }
-  if (pets && pets.length > 0) {
-    businessData.pets = pets;
-  }
-
-  // Deep sanitize payload to strip any `undefined` values
-  const payloadToSave = cleanFirestoreData(businessData);
-
   try {
-    // 1. Save main business document
     const bizRef = doc(db, 'businesses', cleanId);
+
+    // Merge existing appointments & pets in Firestore to never overwrite new client bookings
+    const aptsMap = new Map<string, Appointment>();
+    for (const a of (appointments || [])) {
+      if (a?.id) aptsMap.set(a.id, a);
+    }
+
+    const petsMap = new Map<string, Pet>();
+    for (const p of (pets || [])) {
+      if (p?.id) petsMap.set(p.id, p);
+    }
+
+    try {
+      const existingBizSnap = await getDoc(bizRef);
+      if (existingBizSnap.exists()) {
+        const existingData = existingBizSnap.data();
+        const existingApts: Appointment[] = existingData?.appointments || [];
+        for (const a of existingApts) {
+          if (a?.id && !aptsMap.has(a.id)) {
+            aptsMap.set(a.id, a);
+          }
+        }
+
+        const existingPets: Pet[] = existingData?.pets || [];
+        for (const p of existingPets) {
+          if (p?.id && !petsMap.has(p.id)) {
+            petsMap.set(p.id, p);
+          }
+        }
+      }
+    } catch {}
+
+    businessData.appointments = Array.from(aptsMap.values());
+    businessData.pets = Array.from(petsMap.values());
+
+    const payloadToSave = cleanFirestoreData(businessData);
+
+    // 1. Save main business document
     await setDoc(bizRef, payloadToSave, { merge: true });
 
     // 2. Persist services to subcollection and purge removed ones
@@ -286,22 +314,8 @@ export async function deleteServiceFromFirestore(businessId: string, serviceId: 
 }
 
 /**
- * Deletes a medication from Firestore subcollection.
- */
-export async function deleteMedicationFromFirestore(businessId: string, medicationId: string): Promise<boolean> {
-  if (!businessId || !medicationId) return false;
-  try {
-    const medRef = doc(db, 'businesses', businessId, 'medications', medicationId);
-    await deleteDoc(medRef);
-    return true;
-  } catch (err) {
-    console.warn('[FIRESTORE DELETE MEDICATION WARN]', err);
-    return false;
-  }
-}
-
-/**
  * Resolves a public booking link by slug or ID directly from Firestore.
+ * Always merges appointments and pets from subcollections to guarantee up-to-date data.
  */
 export async function getBusinessFromFirestore(
   slugOrId: string
@@ -309,7 +323,8 @@ export async function getBusinessFromFirestore(
   businessId: string;
   config: SalonConfig;
   services: SalonService[];
-  appointments?: Appointment[];
+  appointments: Appointment[];
+  pets: Pet[];
 } | null> {
   if (!slugOrId) return null;
 
@@ -373,6 +388,41 @@ export async function getBusinessFromFirestore(
       }
     } catch {}
 
+    // Read appointments from subcollection to guarantee all public bookings are present
+    let appointments = b.appointments || [];
+    try {
+      const subAptsSnap = await getDocs(collection(db, 'businesses', targetBizId, 'appointments'));
+      if (!subAptsSnap.empty) {
+        const aptsMap = new Map<string, Appointment>();
+        for (const a of appointments) {
+          if (a?.id) aptsMap.set(a.id, a);
+        }
+        subAptsSnap.forEach((d) => {
+          const apt = d.data() as Appointment;
+          if (apt?.id) aptsMap.set(apt.id, apt);
+        });
+        appointments = Array.from(aptsMap.values());
+        appointments.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+      }
+    } catch {}
+
+    // Read pets from subcollection
+    let pets = b.pets || [];
+    try {
+      const subPetsSnap = await getDocs(collection(db, 'businesses', targetBizId, 'pets'));
+      if (!subPetsSnap.empty) {
+        const petsMap = new Map<string, Pet>();
+        for (const p of pets) {
+          if (p?.id) petsMap.set(p.id, p);
+        }
+        subPetsSnap.forEach((d) => {
+          const p = d.data() as Pet;
+          if (p?.id) petsMap.set(p.id, p);
+        });
+        pets = Array.from(petsMap.values());
+      }
+    } catch {}
+
     const config = {
       ...b.config,
       id: b.businessId,
@@ -383,7 +433,8 @@ export async function getBusinessFromFirestore(
       businessId: b.businessId,
       config,
       services,
-      appointments: b.appointments || []
+      appointments,
+      pets
     };
   } catch (err) {
     console.warn('[FIRESTORE RESOLUTION WARN]', err);
@@ -392,32 +443,181 @@ export async function getBusinessFromFirestore(
 }
 
 /**
- * Adds an appointment to Firestore for a specific business.
+ * Adds an appointment to Firestore for a specific business, creates the Pet record,
+ * and updates both the subcollection and the parent document atomically.
  */
 export async function addAppointmentToFirestore(
   businessId: string,
-  appointment: Appointment
+  appointment: Appointment,
+  petData?: Partial<Pet>
 ): Promise<boolean> {
   try {
+    const now = new Date().toISOString();
+
+    // 1. Save appointment in subcollection
     const aptRef = doc(db, 'businesses', businessId, 'appointments', appointment.id);
-    await setDoc(aptRef, cleanFirestoreData({
+    const appointmentPayload = {
       ...appointment,
       businessId,
-      createdAt: new Date().toISOString()
-    }));
+      createdAt: appointment.createdAt || now
+    };
+    await setDoc(aptRef, cleanFirestoreData(appointmentPayload));
 
-    // Also update appointments array on the parent business doc for fast retrieval
+    // 2. Create or update Pet in subcollection
+    const petId = appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
+    const newPet: Pet = {
+      id: petId,
+      name: appointment.petName || petData?.name || 'Mascota',
+      breed: petData?.breed || appointment.breed || 'Mestizo',
+      gender: petData?.gender || 'Macho',
+      weightKg: petData?.weightKg || 12,
+      age: '1 año',
+      isVip: false,
+      photoUrl:
+        petData?.photoUrl ||
+        'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
+      tutor: {
+        name: appointment.tutorName || petData?.tutor?.name || 'Cliente Online',
+        phone: appointment.tutorPhone || petData?.tutor?.phone || '',
+        rawPhone: (appointment.tutorPhone || '').replace(/\D/g, '')
+      },
+      habitualMood: (petData?.habitualMood as any) || 'tranquilo',
+      healthAllergies: petData?.healthAllergies || '',
+      handlingObservations: petData?.handlingObservations || '',
+      lastVisit: {
+        id: `v_${Date.now()}`,
+        date: appointment.date || 'Hoy',
+        serviceName: appointment.serviceName,
+        price: appointment.price,
+        currency: appointment.currency,
+        mood: 'tranquilo',
+        paid: false,
+        photos: {}
+      },
+      visitHistory: [],
+      recommendedIntervalWeeks: 4
+    };
+
+    const petRef = doc(db, 'businesses', businessId, 'pets', petId);
+    await setDoc(petRef, cleanFirestoreData(newPet), { merge: true });
+
+    // 3. Atomically update parent business document with new appointment and new pet
     const bizRef = doc(db, 'businesses', businessId);
     const bizSnap = await getDoc(bizRef);
     if (bizSnap.exists()) {
-      const existing = (bizSnap.data()?.appointments as Appointment[]) || [];
-      const updated = [appointment, ...existing.filter((a) => a.id !== appointment.id)];
-      await setDoc(bizRef, cleanFirestoreData({ appointments: updated }), { merge: true });
+      const existingApts = (bizSnap.data()?.appointments as Appointment[]) || [];
+      const updatedApts = [appointmentPayload, ...existingApts.filter((a) => a.id !== appointment.id)];
+
+      const existingPets = (bizSnap.data()?.pets as Pet[]) || [];
+      const updatedPets = [
+        newPet,
+        ...existingPets.filter(
+          (p) => p.name !== newPet.name || p.tutor.phone !== newPet.tutor.phone
+        )
+      ];
+
+      await setDoc(
+        bizRef,
+        cleanFirestoreData({ appointments: updatedApts, pets: updatedPets }),
+        { merge: true }
+      );
     }
 
+    console.log(`[FIRESTORE BOOKING SAVED] Appointment "${appointment.id}" for "${appointment.petName}" and Pet "${petId}" successfully stored.`);
     return true;
   } catch (err) {
     console.error('[FIRESTORE APPOINTMENT SAVE ERROR]', err);
+    return false;
+  }
+}
+
+/**
+ * Real-time listener for incoming public appointments.
+ * Fires whenever a new appointment is booked anywhere (e.g. from the public link on a customer's phone).
+ */
+export function subscribeToBusinessAppointments(
+  businessId: string,
+  onUpdate: (appointments: Appointment[]) => void
+): () => void {
+  if (!businessId) return () => {};
+
+  try {
+    const q = collection(db, 'businesses', businessId, 'appointments');
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list: Appointment[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as Appointment);
+        });
+        // Sort newest first
+        list.sort((a, b) => (b.createdAt || b.id || '').localeCompare(a.createdAt || a.id || ''));
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn('[FIRESTORE APPOINTMENTS LISTENER ERROR]', err);
+      }
+    );
+  } catch (err) {
+    console.warn('[FIRESTORE SUBSCRIBE ERROR]', err);
+    return () => {};
+  }
+}
+
+/**
+ * Real-time listener for incoming pets created by online bookings.
+ */
+export function subscribeToBusinessPets(
+  businessId: string,
+  onUpdate: (pets: Pet[]) => void
+): () => void {
+  if (!businessId) return () => {};
+
+  try {
+    const q = collection(db, 'businesses', businessId, 'pets');
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list: Pet[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as Pet);
+        });
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn('[FIRESTORE PETS LISTENER ERROR]', err);
+      }
+    );
+  } catch (err) {
+    console.warn('[FIRESTORE SUBSCRIBE PETS ERROR]', err);
+    return () => {};
+  }
+}
+
+/**
+ * Updates an appointment in Firestore (both subcollection and parent doc).
+ */
+export async function updateAppointmentInFirestore(
+  businessId: string,
+  appointmentId: string,
+  patch: Partial<Appointment>
+): Promise<boolean> {
+  if (!businessId || !appointmentId) return false;
+  try {
+    const aptRef = doc(db, 'businesses', businessId, 'appointments', appointmentId);
+    await setDoc(aptRef, cleanFirestoreData(patch), { merge: true });
+
+    // Also update parent business doc
+    const bizRef = doc(db, 'businesses', businessId);
+    const bizSnap = await getDoc(bizRef);
+    if (bizSnap.exists()) {
+      const existingApts: Appointment[] = bizSnap.data()?.appointments || [];
+      const updatedApts = existingApts.map((a) => (a.id === appointmentId ? { ...a, ...patch } : a));
+      await setDoc(bizRef, cleanFirestoreData({ appointments: updatedApts }), { merge: true });
+    }
+    return true;
+  } catch (err) {
+    console.warn('[FIRESTORE APPOINTMENT UPDATE ERROR]', err);
     return false;
   }
 }

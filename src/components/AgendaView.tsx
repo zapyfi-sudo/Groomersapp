@@ -35,6 +35,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   const [isNewAptModalOpen, setIsNewAptModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [filterStatus, setFilterStatus] = useState<'todos' | 'por_confirmar' | 'en_salon' | 'confirmada' | 'completado'>('todos');
+  const [weekOffset, setWeekOffset] = useState<number>(0);
 
   const today = useMemo(() => new Date(), []);
   const todayFormatted = useMemo(() => formatDateSpanish(today), [today]);
@@ -43,11 +44,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
 
   const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
 
-  // Generate the current week days dynamically from real system date
+  // Generate week days dynamically from real system date with offset support
   const weekDays = useMemo(() => {
     const list = [];
     const curr = new Date(today);
-    // Start from Monday of this week
+    // Apply week offset
+    curr.setDate(curr.getDate() + weekOffset * 7);
     const dayOfWeek = curr.getDay(); // 0 is Sunday
     const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
     const monday = new Date(curr);
@@ -60,18 +62,23 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       d.setDate(monday.getDate() + i);
       const isToday = d.toDateString() === today.toDateString();
       const formatted = formatDateSpanish(d);
-      const countForDay = appointments.filter((a) => a.date === formatted).length;
+      const dayApts = appointments.filter((a) => a.date === formatted);
+      const countForDay = dayApts.length;
+      const pendingCount = dayApts.filter(
+        (a) => a.status === 'pendiente' || a.status === 'pendiente_confirmacion' || a.statusLabel === 'POR CONFIRMAR'
+      ).length;
 
       list.push({
         dayName: dayLetters[i],
         dayNum: d.getDate(),
         formatted,
         isToday,
-        count: countForDay
+        count: countForDay,
+        pendingCount
       });
     }
     return list;
-  }, [today, appointments]);
+  }, [today, appointments, weekOffset]);
 
   // Today's specific appointments
   const todayAppointments = useMemo(() => {
@@ -89,21 +96,25 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     return appointments.filter((a) => a.date === selectedDateFormatted);
   }, [appointments, selectedDateFormatted]);
 
-  const pendingConfirmationCount = useMemo(() => {
+  // All pending confirmation appointments across any date (Requirement #10 & #13)
+  const allPendingAppointments = useMemo(() => {
     return appointments.filter(
-      (a) => a.status === 'pendiente' || a.status === 'pendiente_confirmacion' || a.statusLabel === 'POR CONFIRMAR'
-    ).length;
+      (a) =>
+        a.status === 'pendiente' ||
+        a.status === 'pendiente_confirmacion' ||
+        a.statusLabel === 'POR CONFIRMAR'
+    );
   }, [appointments]);
 
+  const pendingConfirmationCount = allPendingAppointments.length;
+
+  // Filtered appointments list: When "Por Confirmar" is selected, ALWAYS show all pending reservations across any date!
   const filteredAppointments = useMemo(() => {
+    if (filterStatus === 'por_confirmar') {
+      return allPendingAppointments;
+    }
+
     return selectedDayAppointments.filter((apt) => {
-      if (filterStatus === 'por_confirmar') {
-        return (
-          apt.status === 'pendiente' ||
-          apt.status === 'pendiente_confirmacion' ||
-          apt.statusLabel === 'POR CONFIRMAR'
-        );
-      }
       if (filterStatus === 'en_salon') {
         return apt.status === 'en_salon' || apt.status === 'en_corte';
       }
@@ -115,12 +126,40 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       }
       return true;
     });
-  }, [selectedDayAppointments, filterStatus]);
+  }, [selectedDayAppointments, allPendingAppointments, filterStatus]);
 
   const handleAppointmentCreated = (newApt: Appointment) => {
     onAddNewAppointment(newApt);
     setToastMessage(`¡Turno de ${newApt.petName} agendado con éxito!`);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleConfirmViaWhatsApp = (apt: Appointment) => {
+    if (onUpdateAppointmentStatus) {
+      onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
+    }
+    const cleanPhone = (apt.tutorPhone || '').replace(/\D/g, '');
+    const message = `¡Hola ${apt.tutorName}! Te confirmamos la cita de ${apt.petName} para ${apt.serviceName} el día ${apt.date} a las ${apt.time} en ${salonConfig.name}. ¡Muchas gracias por agendar con nosotros!`;
+    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
+    window.open(waUrl, '_blank', 'noopener,noreferrer');
+    setToastMessage(`¡Cita de ${apt.petName} confirmada y WhatsApp abierto!`);
+    setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  const handleConfirmSystemOnly = (apt: Appointment) => {
+    if (onUpdateAppointmentStatus) {
+      onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
+      setToastMessage(`¡Cita de ${apt.petName} confirmada exitosamente!`);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
+  };
+
+  const handleDeclineAppointment = (apt: Appointment) => {
+    if (onUpdateAppointmentStatus) {
+      onUpdateAppointmentStatus(apt.id, 'cancelada', 'CANCELADA');
+      setToastMessage(`Solicitud de ${apt.petName} cancelada`);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
   };
 
   const handlePetCardClick = (apt: Appointment) => {
@@ -255,9 +294,36 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                 <span className="material-symbols-outlined text-sm text-[#4b0878]">calendar_today</span>
                 <span>{selectedDateFormatted === todayFormatted ? 'Hoy en tu salón' : selectedDateFormatted}</span>
               </span>
-              <span className="text-[11px] font-bold text-[#4b0878]">
-                {selectedDayAppointments.length} citas
-              </span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  title="Semana anterior"
+                  onClick={() => setWeekOffset((prev) => prev - 1)}
+                  className="w-7 h-7 rounded-lg bg-[#f5f2ff] hover:bg-[#efecfd] text-[#2e004e] flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-base">chevron_left</span>
+                </button>
+                {weekOffset !== 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setWeekOffset(0);
+                      setSelectedDateFormatted(todayFormatted);
+                    }}
+                    className="px-2 py-0.5 rounded-lg bg-[#f5f2ff] hover:bg-[#efecfd] text-[#2e004e] text-[10px] font-black cursor-pointer"
+                  >
+                    Esta semana
+                  </button>
+                )}
+                <button
+                  type="button"
+                  title="Semana siguiente"
+                  onClick={() => setWeekOffset((prev) => prev + 1)}
+                  className="w-7 h-7 rounded-lg bg-[#f5f2ff] hover:bg-[#efecfd] text-[#2e004e] flex items-center justify-center text-xs font-bold transition-colors cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-base">chevron_right</span>
+                </button>
+              </div>
             </div>
 
             {/* Quick days row generated dynamically */}
@@ -269,7 +335,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     key={d.formatted}
                     type="button"
                     onClick={() => setSelectedDateFormatted(d.formatted)}
-                    className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer ${
+                    className={`py-2 px-1 rounded-xl flex flex-col items-center justify-center transition-all cursor-pointer relative ${
                       isSelected
                         ? 'bg-[#2e004e] text-white shadow-sm'
                         : 'bg-[#f5f2ff] hover:bg-[#efecfd] text-[#1a1a26]'
@@ -279,9 +345,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                       {d.dayName}
                     </span>
                     <span className="text-sm font-extrabold">{d.dayNum}</span>
-                    {d.count > 0 ? (
-                      <span className="w-1.5 h-1.5 rounded-full bg-[#f9b900] mt-0.5"></span>
-                    ) : null}
+                    <div className="flex items-center gap-1 mt-0.5">
+                      {d.count > 0 && (
+                        <span className={`w-1.5 h-1.5 rounded-full ${isSelected ? 'bg-[#f9b900]' : 'bg-[#2e004e]'}`}></span>
+                      )}
+                      {d.pendingCount > 0 && (
+                        <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" title={`${d.pendingCount} reserva(s) por confirmar`}></span>
+                      )}
+                    </div>
                   </button>
                 );
               })}
@@ -317,6 +388,42 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
 
         {/* RIGHT COLUMN: Appointments List */}
         <div className="lg:col-span-7 space-y-4">
+          {/* Incoming Online Reservations Alert Banner */}
+          {pendingConfirmationCount > 0 && (
+            <div className="bg-amber-50 border-2 border-amber-300 rounded-3xl p-4 sm:p-5 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-3 animate-in fade-in duration-300">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-2xl bg-amber-500 text-white flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                  <span className="material-symbols-outlined text-xl">notifications_active</span>
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-2 py-0.5 rounded-full bg-amber-500 text-white text-[10px] font-black uppercase tracking-wider">
+                      Reservas Online
+                    </span>
+                    <span className="text-xs font-black text-amber-950">
+                      {pendingConfirmationCount} {pendingConfirmationCount === 1 ? 'solicitud pendiente' : 'solicitudes pendientes'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-amber-900 mt-1 font-medium leading-relaxed">
+                    Clientes han solicitado turno desde tu enlace público. Revisa los detalles y confirma para notificarles por WhatsApp.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilterStatus('por_confirmar')}
+                className={`px-4 py-2 rounded-xl font-black text-xs transition-all shadow-xs shrink-0 flex items-center gap-1.5 cursor-pointer ${
+                  filterStatus === 'por_confirmar'
+                    ? 'bg-[#2e004e] text-white'
+                    : 'bg-amber-500 hover:bg-amber-600 text-white active:scale-95'
+                }`}
+              >
+                <span className="material-symbols-outlined text-sm">visibility</span>
+                <span>{filterStatus === 'por_confirmar' ? 'Viendo pendientes' : `Ver solicitudes (${pendingConfirmationCount})`}</span>
+              </button>
+            </div>
+          )}
+
           {/* Filter Chips Bar */}
           <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1">
             <div className="flex items-center gap-2">
@@ -383,92 +490,181 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
           </div>
 
-          {/* List of Appointments for the selected day */}
+          {/* Banner when viewing Por Confirmar across all dates */}
+          {filterStatus === 'por_confirmar' && (
+            <div className="bg-[#f5f2ff] rounded-2xl px-4 py-2.5 text-xs text-[#2e004e] font-semibold flex items-center justify-between border border-[#cfc2d2]/40">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-sm text-[#f9b900]">info</span>
+                <span>Mostrando todas las solicitudes pendientes recibidas de clientes ({allPendingAppointments.length})</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFilterStatus('todos')}
+                className="text-[11px] font-bold text-[#4b0878] hover:underline cursor-pointer"
+              >
+                Volver al día actual
+              </button>
+            </div>
+          )}
+
+          {/* List of Appointments */}
           {filteredAppointments.length === 0 ? (
             <div className="bg-white rounded-3xl p-10 text-center border border-dashed border-gray-300 space-y-3 shadow-xs">
               <div className="w-14 h-14 rounded-full bg-[#f5f2ff] text-[#4b0878] flex items-center justify-center mx-auto text-2xl font-bold">
                 <span className="material-symbols-outlined text-3xl">event_busy</span>
               </div>
-              <h3 className="text-sm font-bold text-[#1a1a26]">{t.noAppointmentsToday}</h3>
+              <h3 className="text-sm font-bold text-[#1a1a26]">
+                {filterStatus === 'por_confirmar'
+                  ? '¡No hay reservas pendientes!'
+                  : t.noAppointmentsToday}
+              </h3>
               <p className="text-xs text-[#7e7482] max-w-sm mx-auto">
-                No hay turnos registrados con este filtro para {selectedDateFormatted}. Haz clic en "+ Nueva cita" para agendar un turno.
+                {filterStatus === 'por_confirmar'
+                  ? 'Todas las reservas solicitadas por clientes han sido atendidas o confirmadas.'
+                  : `No hay turnos registrados con este filtro para ${selectedDateFormatted}. Haz clic en "+ Nueva cita" para agendar un turno.`}
               </p>
-              <button
-                type="button"
-                onClick={() => setIsNewAptModalOpen(true)}
-                className="py-2 px-4 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
-              >
-                <span className="material-symbols-outlined text-sm font-bold">add</span>
-                <span>{t.newAppointment}</span>
-              </button>
+              {filterStatus !== 'por_confirmar' && (
+                <button
+                  type="button"
+                  onClick={() => setIsNewAptModalOpen(true)}
+                  className="py-2 px-4 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-xs inline-flex items-center gap-1.5 transition-all cursor-pointer"
+                >
+                  <span className="material-symbols-outlined text-sm font-bold">add</span>
+                  <span>{t.newAppointment}</span>
+                </button>
+              )}
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredAppointments.map((apt) => (
-                <div
-                  key={apt.id}
-                  onClick={() => handlePetCardClick(apt)}
-                  className="bg-white hover:bg-[#fcf8ff] rounded-2xl p-4 shadow-sm border border-[#cfc2d2]/30 hover:border-[#4b0878]/50 transition-all cursor-pointer flex flex-col sm:flex-row sm:items-center justify-between gap-3 group"
-                >
-                  <div className="flex items-start gap-3.5 min-w-0">
-                    <div className="w-12 h-12 rounded-2xl bg-[#f5f2ff] text-[#4b0878] flex flex-col items-center justify-center shrink-0 border border-[#cfc2d2]/30 font-mono text-xs font-black">
-                      <span>{apt.time.slice(0, 5)}</span>
+              {filteredAppointments.map((apt) => {
+                const isPending =
+                  apt.status === 'pendiente' ||
+                  apt.status === 'pendiente_confirmacion' ||
+                  apt.statusLabel === 'POR CONFIRMAR';
+
+                return (
+                  <div
+                    key={apt.id}
+                    onClick={() => handlePetCardClick(apt)}
+                    className={`bg-white hover:bg-[#fcf8ff] rounded-2xl p-4 shadow-sm border transition-all cursor-pointer flex flex-col md:flex-row md:items-center justify-between gap-3 group ${
+                      isPending
+                        ? 'border-amber-300 bg-amber-50/20 hover:border-amber-400'
+                        : 'border-[#cfc2d2]/30 hover:border-[#4b0878]/50'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3.5 min-w-0">
+                      <div className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center shrink-0 border font-mono text-xs font-black ${
+                        isPending
+                          ? 'bg-amber-100 text-amber-900 border-amber-300'
+                          : 'bg-[#f5f2ff] text-[#4b0878] border-[#cfc2d2]/30'
+                      }`}>
+                        <span>{apt.time.slice(0, 5)}</span>
+                      </div>
+
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <h4 className="font-extrabold text-sm text-[#1a1a26] truncate">{apt.petName}</h4>
+                          <span className="text-[11px] text-[#7e7482]">({apt.breed})</span>
+                          {/* Date badge if viewing all pending appointments or not today */}
+                          {(filterStatus === 'por_confirmar' || apt.date !== todayFormatted) && (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#2e004e] text-[#f9b900] text-[10px] font-black">
+                              <span className="material-symbols-outlined text-xs">calendar_month</span>
+                              <span>{apt.date}</span>
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-xs text-[#4c4451] font-medium mt-0.5">
+                          {apt.serviceName} • <span className="text-[#2e004e] font-bold">${apt.price.toLocaleString()} {apt.currency || salonConfig.currency}</span>
+                        </p>
+
+                        <div className="flex items-center gap-2 mt-1 text-[11px] text-[#7e7482] flex-wrap">
+                          <span>Tutor: <strong className="text-[#1a1a26]">{apt.tutorName}</strong></span>
+                          {apt.tutorPhone && (
+                            <span className="text-[#2e004e] font-semibold flex items-center gap-0.5">
+                              • 📱 {apt.tutorPhone}
+                            </span>
+                          )}
+                          {apt.groomer && <span>• Estilista: {apt.groomer}</span>}
+                        </div>
+
+                        {apt.notes && (
+                          <p className="text-[11px] text-[#7e7482] mt-1 bg-gray-50 rounded-lg px-2 py-1 border border-gray-100 italic">
+                            📝 {apt.notes}
+                          </p>
+                        )}
+                      </div>
                     </div>
 
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-extrabold text-sm text-[#1a1a26] truncate">{apt.petName}</h4>
-                        <span className="text-[11px] text-[#7e7482]">({apt.breed})</span>
-                      </div>
-                      <p className="text-xs text-[#4c4451] font-medium mt-0.5">
-                        {apt.serviceName} • <span className="text-[#2e004e] font-bold">${apt.price.toLocaleString()} {apt.currency || salonConfig.currency}</span>
-                      </p>
-                      <div className="flex items-center gap-2 mt-1 text-[11px] text-[#7e7482]">
-                        <span>Tutor: {apt.tutorName}</span>
-                        {apt.groomer && <span>• Estilista: {apt.groomer}</span>}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex sm:flex-col items-center sm:items-end justify-between gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
-                    <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                        apt.status === 'completado'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : apt.status === 'en_salon' || apt.status === 'en_corte'
-                          ? 'bg-[#f9b900] text-[#261900]'
-                          : apt.status === 'pendiente' || apt.status === 'pendiente_confirmacion' || apt.statusLabel === 'POR CONFIRMAR'
-                          ? 'bg-amber-100 text-amber-900 border border-amber-300'
-                          : 'bg-[#efecfd] text-[#2e004e]'
-                      }`}
-                    >
-                      {apt.statusLabel || (apt.status === 'pendiente' ? 'POR CONFIRMAR' : apt.status)}
-                    </span>
-
-                    {/* Quick Confirm Action for Public Appointments (Requirement #13) */}
-                    {(apt.status === 'pendiente' || apt.status === 'pendiente_confirmacion' || apt.statusLabel === 'POR CONFIRMAR') && onUpdateAppointmentStatus && (
-                      <button
-                        type="button"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
-                          setToastMessage(`¡Cita de ${apt.petName} confirmada exitosamente!`);
-                          setTimeout(() => setToastMessage(null), 3000);
-                        }}
-                        className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black shadow-xs active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+                    <div className="flex flex-col md:items-end justify-between gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100">
+                      <span
+                        className={`self-start md:self-end px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                          apt.status === 'completado'
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : apt.status === 'en_salon' || apt.status === 'en_corte'
+                            ? 'bg-[#f9b900] text-[#261900]'
+                            : isPending
+                            ? 'bg-amber-100 text-amber-900 border border-amber-300'
+                            : 'bg-[#efecfd] text-[#2e004e]'
+                        }`}
                       >
-                        <span className="material-symbols-outlined text-xs">check</span>
-                        <span>Confirmar cita</span>
-                      </button>
-                    )}
+                        {apt.statusLabel || (isPending ? 'POR CONFIRMAR' : apt.status)}
+                      </span>
 
-                    <span className="text-[11px] text-[#7e7482] font-semibold flex items-center gap-1 group-hover:text-[#4b0878]">
-                      <span>Ver ficha</span>
-                      <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                    </span>
+                      {/* Quick Confirm Actions for Public Appointments (Requirement #13) */}
+                      {isPending && onUpdateAppointmentStatus && (
+                        <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                          {/* Confirm & Open WhatsApp */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConfirmViaWhatsApp(apt);
+                            }}
+                            className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-black shadow-xs active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+                            title="Confirmar cita y enviar confirmación por WhatsApp al tutor"
+                          >
+                            <span className="material-symbols-outlined text-xs">chat</span>
+                            <span>Confirmar x WhatsApp</span>
+                          </button>
+
+                          {/* Confirm System Only */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleConfirmSystemOnly(apt);
+                            }}
+                            className="px-2.5 py-1 bg-[#2e004e] hover:bg-[#4b0878] text-white rounded-lg text-xs font-bold shadow-xs active:scale-95 transition-all cursor-pointer flex items-center gap-1"
+                            title="Confirmar solo en sistema"
+                          >
+                            <span className="material-symbols-outlined text-xs">check</span>
+                            <span>Confirmar</span>
+                          </button>
+
+                          {/* Decline */}
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeclineAppointment(apt);
+                            }}
+                            className="px-2 py-1 text-rose-600 hover:bg-rose-50 rounded-lg text-xs font-bold transition-all cursor-pointer"
+                            title="Rechazar cita"
+                          >
+                            Rechazar
+                          </button>
+                        </div>
+                      )}
+
+                      <span className="text-[11px] text-[#7e7482] font-semibold flex items-center gap-1 group-hover:text-[#4b0878] self-end mt-1">
+                        <span>Ver ficha de mascota</span>
+                        <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                      </span>
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

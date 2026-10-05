@@ -3,14 +3,20 @@ import { decodePublicProfileToken, extractSlugOnly } from './slugUtils';
 import {
   getBusinessFromFirestore,
   saveBusinessToFirestore,
-  addAppointmentToFirestore
+  addAppointmentToFirestore,
+  updateAppointmentInFirestore,
+  subscribeToBusinessAppointments,
+  subscribeToBusinessPets
 } from './firebase';
+
+export { subscribeToBusinessAppointments, subscribeToBusinessPets };
 
 export interface PublicBusinessResult {
   businessId: string;
   config: SalonConfig;
   services: SalonService[];
   appointments: Appointment[];
+  pets?: Pet[];
 }
 
 /**
@@ -32,7 +38,8 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
         businessId: firestoreResult.businessId,
         config: firestoreResult.config,
         services: firestoreResult.services || firestoreResult.config.services || [],
-        appointments: firestoreResult.appointments || []
+        appointments: firestoreResult.appointments || [],
+        pets: firestoreResult.pets || []
       };
 
       // Cache locally for fast offline revisit
@@ -67,7 +74,8 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
           businessId: data.businessId,
           config: data.config,
           services: data.services || data.config.services || [],
-          appointments: data.appointments || []
+          appointments: data.appointments || [],
+          pets: data.pets || []
         };
 
         if (typeof window !== 'undefined') {
@@ -219,7 +227,7 @@ export async function createPublicAppointment(
 
   // 2. Primary: Save to Cloud Firestore
   try {
-    firestoreSuccess = await addAppointmentToFirestore(targetBizId, appointmentToSave);
+    firestoreSuccess = await addAppointmentToFirestore(targetBizId, appointmentToSave, petData);
   } catch (err) {
     console.warn('[FIRESTORE APPOINTMENT ERROR]', err);
   }
@@ -251,4 +259,85 @@ export async function createPublicAppointment(
   }
 
   return firestoreSuccess || serverSuccess;
+}
+
+/**
+ * Updates an appointment's status on the backend server and Firestore,
+ * ensuring synchronization across devices, reloads, and offline recovery.
+ */
+export async function updateAppointmentStatusOnServer(
+  businessIdOrSlug: string,
+  appointmentId: string,
+  status: string,
+  statusLabel: string,
+  extraPatch?: Partial<Appointment>
+): Promise<boolean> {
+  const patch: Partial<Appointment> = {
+    status: status as any,
+    statusLabel,
+    ...(extraPatch || {})
+  };
+
+  let firestoreSuccess = false;
+  let serverSuccess = false;
+
+  // 1. Update Firestore subcollection & document
+  try {
+    firestoreSuccess = await updateAppointmentInFirestore(businessIdOrSlug, appointmentId, patch);
+  } catch (err) {
+    console.warn('[FIRESTORE APPOINTMENT STATUS UPDATE ERROR]', err);
+  }
+
+  // 2. Update Server API
+  try {
+    const res = await fetch(
+      `/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments/${encodeURIComponent(appointmentId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch)
+      }
+    );
+    serverSuccess = res.ok;
+  } catch (err) {
+    console.warn('[SERVER APPOINTMENT STATUS UPDATE ERROR]', err);
+  }
+
+  return firestoreSuccess || serverSuccess;
+}
+
+/**
+ * Fetches the latest appointments and pets from the server or Firestore for background synchronization.
+ */
+export async function fetchLatestAppointmentsAndPets(
+  businessIdOrSlug: string
+): Promise<{ appointments: Appointment[]; pets: Pet[] } | null> {
+  if (!businessIdOrSlug) return null;
+
+  try {
+    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.appointments)) {
+        return {
+          appointments: data.appointments,
+          pets: Array.isArray(data.pets) ? data.pets : []
+        };
+      }
+    }
+  } catch (err) {
+    // Fall back to general profile
+  }
+
+  try {
+    const profile = await fetchBusinessProfile(businessIdOrSlug);
+    if (profile) {
+      return {
+        appointments: profile.appointments || [],
+        pets: profile.pets || []
+      };
+    }
+  } catch {}
+
+  return null;
 }

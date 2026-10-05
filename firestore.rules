@@ -3,10 +3,8 @@ service cloud.firestore {
   match /databases/{database}/documents {
 
     function isValidBusiness(data) {
-      return data.businessId is string &&
-             data.businessId.size() > 0 &&
-             data.name is string &&
-             data.name.size() > 0;
+      return (data.businessId is string && data.businessId.size() > 0) ||
+             (resource != null && resource.data.businessId is string);
     }
 
     function isValidSlugMapping(data) {
@@ -17,9 +15,8 @@ service cloud.firestore {
     }
 
     function isValidAppointment(data) {
-      return data.id is string &&
-             data.serviceName is string &&
-             data.date is string;
+      return (data.id is string && data.id.size() > 0) ||
+             (resource != null && resource.data.id is string);
     }
 
     match /businesses/{businessId} {
@@ -39,6 +36,11 @@ service cloud.firestore {
       }
 
       match /medications/{medicationId} {
+        allow read: if true;
+        allow create, update, delete: if true;
+      }
+
+      match /pets/{petId} {
         allow read: if true;
         allow create, update, delete: if true;
       }
