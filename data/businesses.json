@@ -4,33 +4,149 @@
     "config": {
       "id": "biz_main",
       "name": "Peluquería Canina Luna",
-      "bookingSlug": "pelo",
-      "address": "Av. Corrientes 4520, Almagro, CABA",
-      "phone": "11 5489 3210",
+      "logoUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCgNdH5Hthy5Yi-fglcEX4qyy4-SEvVu9xcHv_WWfZ35c1EUd2VD0DrJuG9wAleNXW-bzR2vh9V6ET_9gV6vu71YIH_hwdXOlNwRfXAQXgczXcJRVANXrqeuHKQ6kIkUDcUVxkayIIwkFSpKTw3x6CPOgteHP_fPA2WtPu2oCARFuOhxuBRVEstwPARhMQCimBPElnj6HqxDzP1F4o_YHz7YSdnDgJk6MmbEmeSZykQaKqRT0Pv5BvxHQ",
       "phonePrefix": "+54",
+      "phone": "11 5489 3210",
+      "address": "Av. Corrientes 4520, Almagro, CABA",
+      "googleMapsPlaceName": "Peluquería Canina Luna - Almagro, CABA",
+      "googleMapsUrl": "https://maps.google.com/?q=-34.603722,-58.423145",
+      "coordinates": "-34.603722, -58.423145",
+      "allowSimultaneousStaff": true,
+      "maxSimultaneousAppointments": 2,
+      "workingDays": "Lunes a Sábado",
+      "openTime": "08:00",
+      "closeTime": "19:30",
+      "currency": "ARS",
+      "simultaneousCapacity": 2,
+      "staffMembers": [
+        {
+          "id": "st-1",
+          "name": "Carlos Morales",
+          "role": "Estilista Principal (Corte & Spa)",
+          "active": true,
+          "shiftAvailability": "todo_el_dia"
+        },
+        {
+          "id": "st-2",
+          "name": "Mariana V.",
+          "role": "Especialista en Baño y Deslanado",
+          "active": true,
+          "shiftAvailability": "todo_el_dia"
+        },
+        {
+          "id": "st-3",
+          "name": "Roberto Díaz",
+          "role": "Ayudante y Secado",
+          "active": true,
+          "shiftAvailability": "solo_tarde"
+        }
+      ],
+      "morningOpen": "08:00",
+      "morningClose": "12:30",
+      "afternoonOpen": "14:00",
+      "afternoonClose": "19:30",
+      "hasDoubleShift": true,
+      "bookingSlug": "pelo",
+      "activeDays": [
+        "L",
+        "M",
+        "X",
+        "J",
+        "V",
+        "S"
+      ],
+      "staffScheduleConfig": {
+        "allDay": {
+          "start": "08:00",
+          "end": "18:00"
+        },
+        "morning": {
+          "start": "08:00",
+          "end": "13:00"
+        },
+        "afternoon": {
+          "start": "14:00",
+          "end": "19:00"
+        }
+      },
       "services": [
         {
-          "id": "s-1",
-          "name": "Baño + corte",
-          "price": 25000,
-          "durationMin": 90,
-          "active": true
-        },
-        {
-          "id": "s-2",
-          "name": "Baño completo",
-          "price": 18000,
+          "id": "srv-1",
+          "name": "Baño y Secado Relajante",
           "durationMin": 45,
+          "price": 18000,
+          "pricingType": "por_tamano",
+          "priceBySize": {
+            "pequeno": 15000,
+            "mediano": 18000,
+            "grande": 22000,
+            "gigante": 27000
+          },
+          "desc": "Champú neutro / hipoalergénico, acondicionador desenredante y secado antiestrés.",
+          "badge": "Popular",
           "active": true
         },
         {
-          "id": "s-3",
-          "name": "Deslanado premium",
+          "id": "srv-2",
+          "name": "Corte de Raza / Estilo Tijera",
+          "durationMin": 60,
+          "price": 25000,
+          "pricingType": "por_tamano",
+          "priceBySize": {
+            "pequeno": 21000,
+            "mediano": 25000,
+            "grande": 30000,
+            "gigante": 36000
+          },
+          "desc": "Corte higiénico, perfilado a mano y arreglo específico de raza.",
+          "badge": "Estrella",
+          "active": true
+        },
+        {
+          "id": "srv-3",
+          "name": "Deslanado Especial / Muda",
+          "durationMin": 50,
           "price": 22000,
-          "durationMin": 75,
+          "pricingType": "por_tamano",
+          "priceBySize": {
+            "pequeno": 18000,
+            "mediano": 22000,
+            "grande": 26000,
+            "gigante": 31000
+          },
+          "desc": "Remoción de subpelo muerto y oxigenación folicular para mantos dobles.",
+          "active": true
+        },
+        {
+          "id": "srv-4",
+          "name": "Corte de Uñas & Limpieza Ótica",
+          "durationMin": 20,
+          "price": 7000,
+          "pricingType": "unico",
+          "desc": "Recorte de uñas con lima y despeje higiénico de oídos.",
           "active": true
         }
-      ]
+      ],
+      "hasMedicationProductsEnabled": true,
+      "medicationProducts": [
+        {
+          "id": "med-1",
+          "name": "Champú Clorhexidina 3% (Piel Alérgica)",
+          "type": "Champu",
+          "purpose": "Tratamiento coadyuvante en piodermas y dermatitis atópica",
+          "price": 4500,
+          "active": true
+        },
+        {
+          "id": "med-2",
+          "name": "Limpiador Otico Enzimático",
+          "type": "Gotas",
+          "purpose": "Higiene y prevención de otitis externa recurrente",
+          "price": 3800,
+          "active": true
+        }
+      ],
+      "medicationFee": 4000
     },
     "pets": [
       {
@@ -169,36 +285,6 @@
           }
         ],
         "recommendedIntervalWeeks": 3
-      },
-      {
-        "id": "#PET-9999",
-        "name": "Max",
-        "breed": "Beagle",
-        "gender": "Macho",
-        "weightKg": 10,
-        "age": "1 año",
-        "isVip": false,
-        "photoUrl": "https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80",
-        "tutor": {
-          "name": "Pedro R.",
-          "phone": "+54 9 11 9988-7766",
-          "rawPhone": "+54 9 11 9988-7766"
-        },
-        "habitualMood": "tranquilo",
-        "healthAllergies": "",
-        "handlingObservations": "",
-        "lastVisit": {
-          "id": "v_1791147393589",
-          "date": "6 de octubre de 2026",
-          "serviceName": "Baño + corte",
-          "price": 25000,
-          "currency": "ARS",
-          "mood": "tranquilo",
-          "paid": false,
-          "photos": {}
-        },
-        "visitHistory": [],
-        "recommendedIntervalWeeks": 4
       }
     ],
     "appointments": [
@@ -262,7 +348,7 @@
       }
     ],
     "bookedRetentions": [],
-    "updatedAt": "2026-10-04T20:56:33.589Z"
+    "updatedAt": "2026-10-05T21:15:54.189Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

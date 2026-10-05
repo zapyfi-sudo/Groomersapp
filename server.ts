@@ -178,7 +178,10 @@ app.post('/api/businesses', (req, res) => {
 
   db[id] = {
     businessId: id,
-    config: cleanConfig,
+    config: {
+      ...(existing.config || {}),
+      ...cleanConfig
+    },
     pets: pets || existing.pets || [],
     appointments: appointments || existing.appointments || [],
     bookedRetentions: bookedRetentions || existing.bookedRetentions || [],
