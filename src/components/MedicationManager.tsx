@@ -59,19 +59,23 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
 
     if (editingId) {
       onChangeProducts(
-        products.map((p) =>
-          p.id === editingId
-            ? {
-                ...p,
-                name: name.trim(),
-                type: 'Medicamento',
-                purpose: purpose.trim(),
-                price: Number(price) || 0,
-                photoUrl: photoUrl.trim() || undefined,
-                active
-              }
-            : p
-        )
+        products.map((p) => {
+          if (p.id !== editingId) return p;
+          const updated: MedicationProduct = {
+            ...p,
+            name: name.trim(),
+            type: 'Medicamento',
+            purpose: purpose.trim(),
+            price: Number(price) || 0,
+            active
+          };
+          if (photoUrl && photoUrl.trim()) {
+            updated.photoUrl = photoUrl.trim();
+          } else {
+            delete updated.photoUrl;
+          }
+          return updated;
+        })
       );
     } else {
       const newProd: MedicationProduct = {
@@ -80,9 +84,11 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
         type: 'Medicamento',
         purpose: purpose.trim(),
         price: Number(price) || 0,
-        photoUrl: photoUrl.trim() || undefined,
         active
       };
+      if (photoUrl && photoUrl.trim()) {
+        newProd.photoUrl = photoUrl.trim();
+      }
       onChangeProducts([...products, newProd]);
     }
 

@@ -93,21 +93,29 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
 
     if (editingServiceId) {
       onChangeServices(
-        services.map((s) =>
-          s.id === editingServiceId
-            ? {
-                ...s,
-                name: name.trim(),
-                desc: desc.trim(),
-                durationMin: Number(durationMin) || 60,
-                price: Number(basePrice) || 0,
-                pricingType,
-                priceBySize: pricingType === 'tamano' ? sizePrices : undefined,
-                imageUrl: imageUrl.trim() || undefined,
-                active
-              }
-            : s
-        )
+        services.map((s) => {
+          if (s.id !== editingServiceId) return s;
+          const updated: SalonService = {
+            ...s,
+            name: name.trim(),
+            desc: desc.trim(),
+            durationMin: Number(durationMin) || 60,
+            price: Number(basePrice) || 0,
+            pricingType,
+            active
+          };
+          if (pricingType === 'tamano' && sizePrices) {
+            updated.priceBySize = sizePrices;
+          } else {
+            delete updated.priceBySize;
+          }
+          if (imageUrl && imageUrl.trim()) {
+            updated.imageUrl = imageUrl.trim();
+          } else {
+            delete updated.imageUrl;
+          }
+          return updated;
+        })
       );
     } else {
       const newSvc: SalonService = {
@@ -117,13 +125,17 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         durationMin: Number(durationMin) || 60,
         price: Number(basePrice) || 0,
         pricingType,
-        priceBySize: pricingType === 'tamano' ? sizePrices : undefined,
-        imageUrl: imageUrl.trim() || undefined,
         active,
         icon: 'content_cut',
         rating: 5.0,
         reviewCount: 0
       };
+      if (pricingType === 'tamano' && sizePrices) {
+        newSvc.priceBySize = sizePrices;
+      }
+      if (imageUrl && imageUrl.trim()) {
+        newSvc.imageUrl = imageUrl.trim();
+      }
       onChangeServices([...services, newSvc]);
     }
 
@@ -144,7 +156,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 600, 0.82);
+        const compressed = await compressImage(file, 480, 0.76);
         setImageUrl(compressed);
       } catch (err) {
         console.warn('Error uploading service image:', err);

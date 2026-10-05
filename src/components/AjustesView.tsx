@@ -163,7 +163,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         return;
       }
       try {
-        const compressed = await compressImage(file, 400, 0.88);
+        const compressed = await compressImage(file, 380, 0.76);
         setLogoUrl(compressed);
         setSavedToast('Logo cargado correctamente. Recuerda guardar cambios.');
         setTimeout(() => setSavedToast(null), 3000);
@@ -358,32 +358,89 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     setIsSaving(true);
     setSlugSaveError(null);
 
-    const persistentBizId = config.id || 'biz_main';
-    const safeSlug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
+    const persistentBizId = activeAccount?.businessId || config.id || 'biz_main';
+
+    // 1. Validaciones de campos obligatorios (Requisito #10)
+    if (!businessName || !businessName.trim()) {
+      setSavedToast('El nombre del negocio es obligatorio.');
+      setIsSaving(false);
+      setTimeout(() => setSavedToast(null), 4000);
+      return;
+    }
+
+    if (!phoneNumber || !phoneNumber.trim()) {
+      setSavedToast('El número de WhatsApp o teléfono es obligatorio.');
+      setIsSaving(false);
+      setTimeout(() => setSavedToast(null), 4000);
+      return;
+    }
+
+    if (!address || !address.trim()) {
+      setSavedToast('La dirección del salón es obligatoria.');
+      setIsSaving(false);
+      setTimeout(() => setSavedToast(null), 4000);
+      return;
+    }
+
+    // Validar servicios: verificar que todos tengan nombre asignado (Requisitos #3, #4, #5)
+    const invalidService = servicesList.find((s) => !s.name || !s.name.trim());
+    if (invalidService) {
+      setSavedToast('Todos los servicios deben tener un nombre asignado.');
+      setIsSaving(false);
+      setTimeout(() => setSavedToast(null), 4000);
+      return;
+    }
+
+    const safeSlug =
+      cleanSlugInput(customSlug) ||
+      extractSlugOnly(config.bookingSlug) ||
+      slugify(businessName || 'reservas', 'reservas');
+
+    // Normalizar servicios con businessId e IDs únicos garantizados
+    const normalizedServices: SalonService[] = servicesList.map((svc, idx) => ({
+      ...svc,
+      id: svc.id || `svc-${Date.now()}-${idx}`,
+      businessId: persistentBizId,
+      name: svc.name.trim(),
+      desc: (svc.desc || '').trim(),
+      durationMin: Number(svc.durationMin) || 60,
+      price: Number(svc.price) || 0,
+      pricingType: svc.pricingType || 'unico',
+      active: svc.active !== false
+    }));
+
+    // Normalizar medicamentos
+    const normalizedMedications: MedicationProduct[] = medicationProducts.map((med, idx) => ({
+      ...med,
+      id: med.id || `med-${Date.now()}-${idx}`,
+      name: med.name.trim(),
+      price: Number(med.price) || 0,
+      active: med.active !== false
+    }));
 
     const updatedConfig: SalonConfig = {
       ...config,
       id: persistentBizId,
       bookingSlug: safeSlug,
-      name: businessName,
-      logoUrl,
+      name: businessName.trim(),
+      logoUrl: logoUrl || '',
       country: selectedCountry,
       language: selectedLanguage,
       phonePrefix,
-      phone: phoneNumber,
-      address,
+      phone: phoneNumber.trim(),
+      address: address.trim(),
       coordinates: coords,
       googleMapsUrl: `https://maps.google.com/?q=${encodeURIComponent(coords)}`,
-      googleMapsPlaceName: `${businessName} - ${address}`,
+      googleMapsPlaceName: `${businessName.trim()} - ${address.trim()}`,
       allowSimultaneousStaff,
       maxSimultaneousAppointments: simultaneousCapacity,
       currency: selectedCurrency,
       simultaneousCapacity,
       staffMembers: staffList,
       staffScheduleConfig,
-      services: servicesList,
+      services: normalizedServices,
       hasMedicationProductsEnabled,
-      medicationProducts,
+      medicationProducts: normalizedMedications,
       hasDoubleShift,
       morningOpen,
       morningClose,
@@ -395,7 +452,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     try {
       const success = await syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments);
       if (!success) {
-        throw new Error('Server returned false');
+        throw new Error('No se pudo guardar la configuración en la base de datos');
       }
 
       await persistActiveConfig(updatedConfig);
@@ -406,11 +463,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         onUpdateLanguage(selectedLanguage);
       }
 
-      setSavedToast(t.changesSavedSuccess || '¡Todos los cambios fueron guardados exitosamente!');
-      setTimeout(() => setSavedToast(null), 3000);
+      setSavedToast('Cambios guardados correctamente.');
+      setTimeout(() => setSavedToast(null), 3500);
     } catch (err) {
       console.error('[SAVE ALL ERROR]', err);
-      setSavedToast('Error al guardar en el servidor. Por favor intenta nuevamente.');
+      const errorMsg =
+        err instanceof Error
+          ? err.message
+          : 'Error al guardar en el servidor. Por favor intenta nuevamente.';
+      setSavedToast(errorMsg);
       setTimeout(() => setSavedToast(null), 4000);
     } finally {
       setIsSaving(false);
