@@ -278,32 +278,40 @@ export async function updateAppointmentStatusOnServer(
     ...(extraPatch || {})
   };
 
-  let firestoreSuccess = false;
-  let serverSuccess = false;
-
-  // 1. Update Firestore subcollection & document
-  try {
-    firestoreSuccess = await updateAppointmentInFirestore(businessIdOrSlug, appointmentId, patch);
-  } catch (err) {
-    console.warn('[FIRESTORE APPOINTMENT STATUS UPDATE ERROR]', err);
-  }
-
-  // 2. Update Server API
-  try {
-    const res = await fetch(
-      `/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments/${encodeURIComponent(appointmentId)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch)
-      }
-    );
-    serverSuccess = res.ok;
-  } catch (err) {
+  // Run Server API and Cloud Firestore concurrently for speed and non-blocking resilience
+  const serverTask = fetch(
+    `/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments/${encodeURIComponent(appointmentId)}`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch)
+    }
+  ).then((res) => res.ok).catch((err) => {
     console.warn('[SERVER APPOINTMENT STATUS UPDATE ERROR]', err);
+    return false;
+  });
+
+  const firestoreTask = updateAppointmentInFirestore(businessIdOrSlug, appointmentId, patch)
+    .catch((err) => {
+      console.warn('[FIRESTORE APPOINTMENT STATUS UPDATE ERROR]', err);
+      return false;
+    });
+
+  // Local storage mirror update
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `agendacan_public_apts_${businessIdOrSlug}`;
+      const raw = localStorage.getItem(key);
+      if (raw) {
+        const list: Appointment[] = JSON.parse(raw);
+        const updated = list.map((a) => (a.id === appointmentId ? { ...a, ...patch } : a));
+        localStorage.setItem(key, JSON.stringify(updated));
+      }
+    } catch {}
   }
 
-  return firestoreSuccess || serverSuccess;
+  const [serverOk, firestoreOk] = await Promise.all([serverTask, firestoreTask]);
+  return serverOk || firestoreOk;
 }
 
 /**

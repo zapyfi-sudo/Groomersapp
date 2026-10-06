@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../types';
 import { fetchBusinessProfile, createPublicAppointment } from '../utils/api';
 import { formatDateSpanish } from '../utils/storage';
+import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -234,13 +235,16 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
     setIsSubmitting(true);
 
+    const normalizedDigits = normalizePhoneForWhatsApp(whatsappPhone.trim(), config);
+    const formattedTutorPhone = normalizedDigits ? `+${normalizedDigits}` : whatsappPhone.trim();
+
     const newApt: Appointment = {
       id: `apt_pub_${Date.now()}`,
       petId: `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
       petName: petName.trim(),
       breed: breed.trim() || 'Mestizo',
       tutorName: tutorName.trim(),
-      tutorPhone: whatsappPhone.trim(),
+      tutorPhone: formattedTutorPhone,
       serviceName: activeService.name,
       time: `${selectedTime} hs`,
       date: selectedDate,
@@ -267,8 +271,8 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       weightKg: selectedDogSize === 'pequeno' ? 6 : selectedDogSize === 'mediano' ? 14 : selectedDogSize === 'grande' ? 24 : 35,
       tutor: {
         name: tutorName.trim(),
-        phone: whatsappPhone.trim(),
-        rawPhone: whatsappPhone.trim()
+        phone: formattedTutorPhone,
+        rawPhone: normalizedDigits || whatsappPhone.trim()
       },
       habitualMood: behavior,
       healthAllergies: healthNotes.trim(),

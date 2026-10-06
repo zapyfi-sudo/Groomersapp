@@ -242,25 +242,34 @@
         "isVip": true,
         "photoUrl": "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=400&auto=format&fit=crop&q=80",
         "tutor": {
-          "name": "Mariana Silva",
-          "phone": "+54 9 11 4455-6677",
-          "rawPhone": "5491144556677"
+          "name": "Carlos Morales",
+          "phone": "0991234567",
+          "rawPhone": "0991234567"
         },
         "habitualMood": "dificil",
         "healthAllergies": "Pliegues faciales con tendencia a hongos.",
         "handlingObservations": "Respiración braquicéfala; no exponer a calor excesivo.",
         "lastVisit": {
-          "id": "v-3",
-          "date": "20 de septiembre de 2026",
-          "serviceName": "Deslanado premium",
-          "price": 22000,
-          "currency": "ARS",
-          "mood": "dificil",
-          "paid": true,
-          "photos": {},
-          "nextRecommendedWeeks": 3
+          "id": "v_1791304681397",
+          "date": "6 de octubre",
+          "serviceName": "Baño completo",
+          "price": 35,
+          "currency": "USD",
+          "mood": "tranquilo",
+          "paid": false,
+          "photos": {}
         },
         "visitHistory": [
+          {
+            "id": "v_1791304681397",
+            "date": "6 de octubre",
+            "serviceName": "Baño completo",
+            "price": 35,
+            "currency": "USD",
+            "mood": "tranquilo",
+            "paid": false,
+            "photos": {}
+          },
           {
             "id": "v-3",
             "date": "20 de septiembre de 2026",
@@ -348,6 +357,25 @@
       }
     ],
     "appointments": [
+      {
+        "id": "apt_test_wa_1791304681261",
+        "petId": "#PET-9911",
+        "petName": "Rocky",
+        "breed": "Golden Retriever",
+        "tutorName": "Carlos Morales",
+        "tutorPhone": "0991234567",
+        "serviceName": "Baño completo",
+        "time": "08:00 hs",
+        "date": "6 de octubre",
+        "status": "confirmada",
+        "statusLabel": "CONFIRMADA",
+        "groomer": "Mariana V.",
+        "price": 35,
+        "currency": "USD",
+        "paymentStatus": "por_cobrar",
+        "paymentStatusLabel": "Por cobrar",
+        "updatedAt": "2026-10-06T16:38:01.410Z"
+      },
       {
         "id": "apt_test_verify_1791238153431",
         "petId": "#PET-7777",
@@ -440,7 +468,7 @@
       }
     ],
     "bookedRetentions": [],
-    "updatedAt": "2026-10-05T22:09:13.564Z"
+    "updatedAt": "2026-10-06T16:38:01.410Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

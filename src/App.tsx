@@ -151,7 +151,62 @@ export default function App() {
                 setAppointments((prev) => {
                   const map = new Map<string, Appointment>();
                   for (const a of prev) if (a?.id) map.set(a.id, a);
-                  for (const a of profile.appointments) if (a?.id) map.set(a.id, a);
+
+                  for (const incoming of profile.appointments) {
+                    if (!incoming?.id) continue;
+                    const existing = map.get(incoming.id);
+                    if (!existing) {
+                      map.set(incoming.id, incoming);
+                    } else {
+                      // Confirmed status must ALWAYS take precedence and never revert to pending
+                      const isConfirmed =
+                        existing.status === 'confirmada' ||
+                        (existing.status as any) === 'confirmed' ||
+                        incoming.status === 'confirmada' ||
+                        (incoming.status as any) === 'confirmed';
+                      const isCompleted =
+                        existing.status === 'completado' ||
+                        (existing.status as any) === 'completed' ||
+                        incoming.status === 'completado' ||
+                        (incoming.status as any) === 'completed';
+                      const isInSalon =
+                        existing.status === 'en_salon' ||
+                        existing.status === 'en_corte' ||
+                        incoming.status === 'en_salon' ||
+                        incoming.status === 'en_corte';
+                      const isCancelled =
+                        existing.status === 'cancelada' ||
+                        incoming.status === 'cancelada';
+
+                      const resolvedStatus = isConfirmed
+                        ? 'confirmada'
+                        : isCompleted
+                        ? 'completado'
+                        : isInSalon
+                        ? 'en_salon'
+                        : isCancelled
+                        ? 'cancelada'
+                        : (incoming.status || existing.status || 'pendiente');
+
+                      const resolvedLabel = resolvedStatus === 'confirmada'
+                        ? 'CONFIRMADA'
+                        : resolvedStatus === 'completado'
+                        ? 'COMPLETADO'
+                        : resolvedStatus === 'en_salon'
+                        ? 'EN SALÓN'
+                        : resolvedStatus === 'cancelada'
+                        ? 'CANCELADA'
+                        : (incoming.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
+
+                      map.set(incoming.id, {
+                        ...incoming,
+                        ...existing,
+                        status: resolvedStatus,
+                        statusLabel: resolvedLabel
+                      });
+                    }
+                  }
+
                   const merged = Array.from(map.values());
                   merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
                   persistActiveAppointments(merged);
@@ -205,7 +260,62 @@ export default function App() {
 
         const map = new Map<string, Appointment>();
         for (const a of prev) if (a?.id) map.set(a.id, a);
-        for (const a of incomingApts) if (a?.id) map.set(a.id, a);
+
+        for (const incoming of incomingApts) {
+          if (!incoming?.id) continue;
+          const existing = map.get(incoming.id);
+          if (!existing) {
+            map.set(incoming.id, incoming);
+          } else {
+            // Never overwrite a confirmed or completed appointment back to pending!
+            const isConfirmed =
+              existing.status === 'confirmada' ||
+              (existing.status as any) === 'confirmed' ||
+              incoming.status === 'confirmada' ||
+              (incoming.status as any) === 'confirmed';
+            const isCompleted =
+              existing.status === 'completado' ||
+              (existing.status as any) === 'completed' ||
+              incoming.status === 'completado' ||
+              (incoming.status as any) === 'completed';
+            const isInSalon =
+              existing.status === 'en_salon' ||
+              existing.status === 'en_corte' ||
+              incoming.status === 'en_salon' ||
+              incoming.status === 'en_corte';
+            const isCancelled =
+              existing.status === 'cancelada' ||
+              incoming.status === 'cancelada';
+
+            const resolvedStatus = isConfirmed
+              ? 'confirmada'
+              : isCompleted
+              ? 'completado'
+              : isInSalon
+              ? 'en_salon'
+              : isCancelled
+              ? 'cancelada'
+              : (incoming.status || existing.status || 'pendiente');
+
+            const resolvedLabel = resolvedStatus === 'confirmada'
+              ? 'CONFIRMADA'
+              : resolvedStatus === 'completado'
+              ? 'COMPLETADO'
+              : resolvedStatus === 'en_salon'
+              ? 'EN SALÓN'
+              : resolvedStatus === 'cancelada'
+              ? 'CANCELADA'
+              : (incoming.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
+
+            map.set(incoming.id, {
+              ...incoming,
+              ...existing,
+              status: resolvedStatus,
+              statusLabel: resolvedLabel
+            });
+          }
+        }
+
         const merged = Array.from(map.values());
         merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
         persistActiveAppointments(merged);
@@ -255,11 +365,51 @@ export default function App() {
                   if (!existing) {
                     prevMap.set(a.id, a);
                   } else {
-                    // Retain local status if updated locally
+                    // Confirmed status must ALWAYS take precedence and never revert to pending
+                    const isConfirmed =
+                      existing.status === 'confirmada' ||
+                      (existing.status as any) === 'confirmed' ||
+                      a.status === 'confirmada' ||
+                      (a.status as any) === 'confirmed';
+                    const isCompleted =
+                      existing.status === 'completado' ||
+                      (existing.status as any) === 'completed' ||
+                      a.status === 'completado' ||
+                      (a.status as any) === 'completed';
+                    const isInSalon =
+                      existing.status === 'en_salon' ||
+                      existing.status === 'en_corte' ||
+                      a.status === 'en_salon' ||
+                      a.status === 'en_corte';
+                    const isCancelled =
+                      existing.status === 'cancelada' ||
+                      a.status === 'cancelada';
+
+                    const resolvedStatus = isConfirmed
+                      ? 'confirmada'
+                      : isCompleted
+                      ? 'completado'
+                      : isInSalon
+                      ? 'en_salon'
+                      : isCancelled
+                      ? 'cancelada'
+                      : (a.status || existing.status || 'pendiente');
+
+                    const resolvedLabel = resolvedStatus === 'confirmada'
+                      ? 'CONFIRMADA'
+                      : resolvedStatus === 'completado'
+                      ? 'COMPLETADO'
+                      : resolvedStatus === 'en_salon'
+                      ? 'EN SALÓN'
+                      : resolvedStatus === 'cancelada'
+                      ? 'CANCELADA'
+                      : (a.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
+
                     prevMap.set(a.id, {
                       ...a,
-                      status: existing.status || a.status,
-                      statusLabel: existing.statusLabel || a.statusLabel
+                      ...existing,
+                      status: resolvedStatus,
+                      statusLabel: resolvedLabel
                     });
                   }
                 }
@@ -541,21 +691,35 @@ export default function App() {
     });
   };
 
-  const handleUpdateAppointmentStatus = (appointmentId: string, status: string, statusLabel: string) => {
+  const handleUpdateAppointmentStatus = async (
+    appointmentId: string,
+    status: string,
+    statusLabel: string,
+    extraPatch?: Partial<Appointment>
+  ): Promise<boolean> => {
     const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
 
+    let updatedList: Appointment[] = [];
     setAppointments((prev) => {
-      const updated = prev.map((a) =>
-        a.id === appointmentId ? { ...a, status: status as any, statusLabel } : a
+      updatedList = prev.map((a) =>
+        a.id === appointmentId ? { ...a, status: status as any, statusLabel, ...(extraPatch || {}) } : a
       );
-      persistActiveAppointments(updated);
-      return updated;
+      return updatedList;
     });
 
-    // Synchronize to Server API and Cloud Firestore
-    updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel).catch((err) => {
+    // 1. Guarantee persistence in local IndexedDB & localStorage cache first
+    if (updatedList.length > 0) {
+      await persistActiveAppointments(updatedList);
+    }
+
+    // 2. Guarantee persistence in Backend Server API & Cloud Firestore
+    try {
+      await updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel, extraPatch);
+    } catch (err) {
       console.warn('Error syncing appointment status update:', err);
-    });
+    }
+
+    return true;
   };
 
   const urgentCount = useMemo(() => {

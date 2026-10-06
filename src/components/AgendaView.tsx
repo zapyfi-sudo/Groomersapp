@@ -5,6 +5,7 @@ import { ShareLinkModal } from './ShareLinkModal';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { formatDateSpanish } from '../utils/storage';
+import { buildWhatsAppConfirmationUrl, openWhatsAppUrl } from '../utils/phoneUtils';
 
 interface AgendaViewProps {
   appointments: Appointment[];
@@ -12,7 +13,12 @@ interface AgendaViewProps {
   onSelectPet: (pet: Pet) => void;
   onNavigateToRetention: () => void;
   onAddNewAppointment: (newApt: Appointment) => void;
-  onUpdateAppointmentStatus?: (appointmentId: string, status: string, statusLabel: string) => void;
+  onUpdateAppointmentStatus?: (
+    appointmentId: string,
+    status: string,
+    statusLabel: string,
+    extraPatch?: Partial<Appointment>
+  ) => Promise<boolean> | void;
   salonConfig: SalonConfig;
   urgentRetentionCount?: number;
   totalRetentionCount?: number;
@@ -55,9 +61,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     const monday = new Date(curr);
     monday.setDate(curr.getDate() + distanceToMonday);
 
-    const dayLetters = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
+    const dayLetters = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
-    for (let i = 0; i < 6; i++) {
+    for (let i = 0; i < 7; i++) {
       const d = new Date(monday);
       d.setDate(monday.getDate() + i);
       const isToday = d.toDateString() === today.toDateString();
@@ -65,7 +71,11 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       const dayApts = appointments.filter((a) => a.date === formatted);
       const countForDay = dayApts.length;
       const pendingCount = dayApts.filter(
-        (a) => a.status === 'pendiente' || a.status === 'pendiente_confirmacion' || a.statusLabel === 'POR CONFIRMAR'
+        (a) =>
+          a.status === 'pendiente' ||
+          a.status === 'pendiente_confirmacion' ||
+          (a.status as any) === 'pending' ||
+          a.statusLabel === 'POR CONFIRMAR'
       ).length;
 
       list.push({
@@ -89,7 +99,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   const inSalonCount = todayAppointments.filter(
     (a) => a.status === 'en_salon' || a.status === 'en_corte'
   ).length;
-  const pickupCount = todayAppointments.filter((a) => a.status === 'completado').length;
+  const pickupCount = todayAppointments.filter(
+    (a) => a.status === 'completado' || (a.status as any) === 'completed'
+  ).length;
 
   // Selected date's appointments
   const selectedDayAppointments = useMemo(() => {
@@ -102,6 +114,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       (a) =>
         a.status === 'pendiente' ||
         a.status === 'pendiente_confirmacion' ||
+        (a.status as any) === 'pending' ||
         a.statusLabel === 'POR CONFIRMAR'
     );
   }, [appointments]);
@@ -119,10 +132,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         return apt.status === 'en_salon' || apt.status === 'en_corte';
       }
       if (filterStatus === 'confirmada') {
-        return apt.status === 'confirmada';
+        return apt.status === 'confirmada' || (apt.status as any) === 'confirmed';
       }
       if (filterStatus === 'completado') {
-        return apt.status === 'completado';
+        return apt.status === 'completado' || (apt.status as any) === 'completed';
       }
       return true;
     });
@@ -134,24 +147,67 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     setTimeout(() => setToastMessage(null), 3000);
   };
 
-  const handleConfirmViaWhatsApp = (apt: Appointment) => {
-    if (onUpdateAppointmentStatus) {
-      onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
-    }
-    const cleanPhone = (apt.tutorPhone || '').replace(/\D/g, '');
-    const message = `¡Hola ${apt.tutorName}! Te confirmamos la cita de ${apt.petName} para ${apt.serviceName} el día ${apt.date} a las ${apt.time} en ${salonConfig.name}. ¡Muchas gracias por agendar con nosotros!`;
-    const waUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
-    window.open(waUrl, '_blank', 'noopener,noreferrer');
-    setToastMessage(`¡Cita de ${apt.petName} confirmada y WhatsApp abierto!`);
-    setTimeout(() => setToastMessage(null), 3000);
+  // Helper to find the week offset corresponding to a given formatted date
+  const findWeekOffsetForDate = (dateStr: string): number => {
+    if (!dateStr) return 0;
+    try {
+      for (let offset = -4; offset <= 12; offset++) {
+        const curr = new Date(today);
+        curr.setDate(curr.getDate() + offset * 7);
+        const dayOfWeek = curr.getDay();
+        const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+        const monday = new Date(curr);
+        monday.setDate(curr.getDate() + distanceToMonday);
+
+        for (let i = 0; i < 7; i++) {
+          const d = new Date(monday);
+          d.setDate(monday.getDate() + i);
+          if (formatDateSpanish(d) === dateStr) {
+            return offset;
+          }
+        }
+      }
+    } catch {}
+    return 0;
   };
 
-  const handleConfirmSystemOnly = (apt: Appointment) => {
+  const handleConfirmViaWhatsApp = async (apt: Appointment) => {
+    // 1. Confirm internally and guarantee persistence in database FIRST (Step 1 requirement)
     if (onUpdateAppointmentStatus) {
-      onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
-      setToastMessage(`¡Cita de ${apt.petName} confirmada exitosamente!`);
-      setTimeout(() => setToastMessage(null), 3000);
+      await onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
     }
+
+    // 2. Adjust agenda view so user sees the confirmed appointment right away in the agenda!
+    if (apt.date) {
+      const offset = findWeekOffsetForDate(apt.date);
+      setWeekOffset(offset);
+      setSelectedDateFormatted(apt.date);
+    }
+    setFilterStatus('todos');
+    setToastMessage(`¡Cita de ${apt.petName} confirmada en tu agenda!`);
+    setTimeout(() => setToastMessage(null), 4000);
+
+    // 3. Normalize WhatsApp phone number with international country code and compose message
+    const waUrl = buildWhatsAppConfirmationUrl(apt, salonConfig);
+
+    // 4. Safely open WhatsApp
+    openWhatsAppUrl(waUrl);
+  };
+
+  const handleConfirmSystemOnly = async (apt: Appointment) => {
+    // 1. Confirm internally and guarantee persistence in database
+    if (onUpdateAppointmentStatus) {
+      await onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
+    }
+    // 2. Switch to that appointment's date so the user sees it confirmed in Agenda
+    if (apt.date) {
+      const offset = findWeekOffsetForDate(apt.date);
+      setWeekOffset(offset);
+      setSelectedDateFormatted(apt.date);
+    }
+    setFilterStatus('todos');
+    setToastMessage(`¡Cita de ${apt.petName} confirmada exitosamente!`);
+    setTimeout(() => setToastMessage(null), 3000);
   };
 
   const handleDeclineAppointment = (apt: Appointment) => {
@@ -327,7 +383,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
             </div>
 
             {/* Quick days row generated dynamically */}
-            <div className="grid grid-cols-6 gap-1.5">
+            <div className="grid grid-cols-7 gap-1.5">
               {weekDays.map((d) => {
                 const isSelected = selectedDateFormatted === d.formatted;
                 return (
@@ -474,7 +530,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Confirmadas ({selectedDayAppointments.filter((a) => a.status === 'confirmada').length})
+                Confirmadas ({selectedDayAppointments.filter((a) => a.status === 'confirmada' || (a.status as any) === 'confirmed').length})
               </button>
               <button
                 type="button"
@@ -485,7 +541,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Completadas ({selectedDayAppointments.filter((a) => a.status === 'completado').length})
+                Completadas ({selectedDayAppointments.filter((a) => a.status === 'completado' || (a.status as any) === 'completed').length})
               </button>
             </div>
           </div>
@@ -625,7 +681,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                             title="Confirmar cita y enviar confirmación por WhatsApp al tutor"
                           >
                             <span className="material-symbols-outlined text-xs">chat</span>
-                            <span>Confirmar x WhatsApp</span>
+                            <span>Confirmar por WhatsApp</span>
                           </button>
 
                           {/* Confirm System Only */}
