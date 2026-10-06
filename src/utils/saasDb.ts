@@ -566,6 +566,7 @@ export async function getPublicBusinessProfile(businessIdOrSlug: string): Promis
         name: matched.config.name,
         logoUrl: matched.config.logoUrl,
         country: matched.config.country,
+        city: matched.config.city,
         currency: matched.config.currency,
         phonePrefix: matched.config.phonePrefix,
         phone: matched.config.phone,

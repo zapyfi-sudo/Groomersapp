@@ -142,6 +142,8 @@ export const INITIAL_PETS: Pet[] = [
 export const INITIAL_SALON_CONFIG: SalonConfig = {
   name: 'Peluquería Canina Luna',
   logoUrl: HOTLINK_IMAGES.logo,
+  country: 'Argentina',
+  city: 'Buenos Aires',
   phonePrefix: '+54',
   phone: '11 5489 3210',
   address: 'Av. Corrientes 4520, Almagro, CABA',

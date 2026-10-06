@@ -386,20 +386,30 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               {config.name}
             </h1>
 
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-x-4 gap-y-1 mt-2 text-xs text-[#7e7482]">
-              {config.address && (
-                <div className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-sm text-[#2e004e]">location_on</span>
-                  <span>{config.address}</span>
+            {/* Ubicación: [Ciudad], [País] y debajo [Dirección del negocio] */}
+            {([config.city?.trim(), config.country?.trim()].filter(Boolean).length > 0 || config.address) && (
+              <div className="flex items-start justify-center sm:justify-start gap-1.5 mt-2 text-xs text-[#7e7482]">
+                <span className="material-symbols-outlined text-sm text-[#2e004e] shrink-0 mt-0.5">location_on</span>
+                <div className="flex flex-col text-center sm:text-left">
+                  {[config.city?.trim(), config.country?.trim()].filter(Boolean).length > 0 && (
+                    <span className="font-bold text-[#1a1a26]">
+                      {[config.city?.trim(), config.country?.trim()].filter(Boolean).join(', ')}
+                    </span>
+                  )}
+                  {config.address && (
+                    <span>{config.address}</span>
+                  )}
                 </div>
-              )}
-              {config.phone && (
-                <div className="flex items-center gap-1">
-                  <span className="material-symbols-outlined text-sm text-[#2e004e]">call</span>
-                  <span>{config.phonePrefix} {config.phone}</span>
-                </div>
-              )}
-            </div>
+              </div>
+            )}
+
+            {/* Teléfono */}
+            {config.phone && (
+              <div className="flex items-center justify-center sm:justify-start gap-1 mt-1 text-xs text-[#7e7482]">
+                <span className="material-symbols-outlined text-sm text-[#2e004e]">call</span>
+                <span>{config.phonePrefix} {config.phone}</span>
+              </div>
+            )}
 
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-3">
               <span className="inline-flex items-center gap-1 bg-[#f5f2ff] text-[#2e004e] px-2.5 py-1 rounded-full text-[11px] font-bold">

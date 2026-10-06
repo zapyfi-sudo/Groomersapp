@@ -54,8 +54,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || HOTLINK_IMAGES.logo);
   const [businessName, setBusinessName] = useState<string>(config.name || 'Peluquería Canina Luna');
   const [selectedCountry, setSelectedCountry] = useState<string>(config.country || 'Argentina');
+  const [selectedCity, setSelectedCity] = useState<string>(config.city || '');
   const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(currentLanguage);
   const [selectedCurrency, setSelectedCurrency] = useState<string>(config.currency || 'ARS');
+
+  useEffect(() => {
+    if (config.city !== undefined) {
+      setSelectedCity(config.city);
+    }
+  }, [config.city]);
 
   // Contact & Location
   const [phonePrefix, setPhonePrefix] = useState<string>(config.phonePrefix || '+54');
@@ -319,6 +326,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         ...config,
         id: persistentBizId,
         name: businessName,
+        city: selectedCity.trim(),
         bookingSlug: targetSlug
       };
 
@@ -423,6 +431,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       name: businessName.trim(),
       logoUrl: logoUrl || '',
       country: selectedCountry,
+      city: selectedCity.trim(),
       language: selectedLanguage,
       phonePrefix,
       phone: phoneNumber.trim(),
@@ -854,107 +863,115 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       </div>
                     </div>
 
-                    {/* País e Idioma */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {/* País - Muestra solo nombre de país, sin texto de moneda */}
-                      <div>
-                        <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.country}</label>
-                        <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
-                          <select
-                            value={selectedCountry}
-                            onChange={(e) => handleCountryChange(e.target.value)}
-                            className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
-                          >
-                            {COUNTRIES.map((c) => (
-                              <option key={c.code} value={c.name}>
-                                {c.name}
-                              </option>
-                            ))}
-                          </select>
-                          <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
-                            expand_more
-                          </span>
-                        </div>
-                      </div>
-
-                      {/* Idioma - 4 opciones globales */}
-                      <div>
-                        <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.languageLabel}</label>
-                        <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
-                          <select
-                            value={selectedLanguage}
-                            onChange={(e) => {
-                              const newLang = e.target.value as AppLanguage;
-                              setSelectedLanguage(newLang);
-                              onUpdateLanguage(newLang);
-                            }}
-                            className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
-                          >
-                            <option value="es-LA">Español (Latinoamérica)</option>
-                            <option value="es-ES">Español (España)</option>
-                            <option value="en">English</option>
-                            <option value="pt">Português</option>
-                          </select>
-                          <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
-                            expand_more
-                          </span>
-                        </div>
+                    {/* País */}
+                    <div>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.country}</label>
+                      <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
+                        <select
+                          value={selectedCountry}
+                          onChange={(e) => handleCountryChange(e.target.value)}
+                          className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
+                        >
+                          {COUNTRIES.map((c) => (
+                            <option key={c.code} value={c.name}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
+                          expand_more
+                        </span>
                       </div>
                     </div>
 
-                    {/* Moneda y Teléfono */}
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {/* Selector explícito de Moneda */}
-                      <div>
-                        <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.currencyLabel}</label>
-                        <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
+                    {/* Ciudad */}
+                    <div>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">Ciudad</label>
+                      <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30 focus-within:border-[#4b0878] focus-within:ring-2 focus-within:ring-[#4b0878]/20 transition-all">
+                        <input
+                          type="text"
+                          value={selectedCity}
+                          onChange={(e) => setSelectedCity(e.target.value)}
+                          placeholder="Escribe el nombre de tu ciudad"
+                          className="w-full bg-transparent text-xs font-semibold text-[#1a1a26] outline-none placeholder:text-[#7e7482]/60"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Idioma - 4 opciones globales */}
+                    <div>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.languageLabel}</label>
+                      <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
+                        <select
+                          value={selectedLanguage}
+                          onChange={(e) => {
+                            const newLang = e.target.value as AppLanguage;
+                            setSelectedLanguage(newLang);
+                            onUpdateLanguage(newLang);
+                          }}
+                          className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
+                        >
+                          <option value="es-LA">Español (Latinoamérica)</option>
+                          <option value="es-ES">Español (España)</option>
+                          <option value="en">English</option>
+                          <option value="pt">Português</option>
+                        </select>
+                        <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
+                          expand_more
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Selector explícito de Moneda */}
+                    <div>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.currencyLabel}</label>
+                      <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
+                        <select
+                          value={selectedCurrency}
+                          onChange={(e) => setSelectedCurrency(e.target.value)}
+                          className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
+                        >
+                          {CURRENCIES.map((cur) => (
+                            <option key={cur.code} value={cur.code}>
+                              {cur.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
+                          expand_more
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Teléfono con código de país expandido */}
+                    <div>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.whatsappPhone}</label>
+                      <div className="flex gap-2">
+                        <div className="w-28 relative flex items-center bg-[#f5f2ff] rounded-xl px-2 py-2 border border-[#cfc2d2]/30">
                           <select
-                            value={selectedCurrency}
-                            onChange={(e) => setSelectedCurrency(e.target.value)}
+                            value={phonePrefix}
+                            onChange={(e) => setPhonePrefix(e.target.value)}
                             className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
                           >
-                            {CURRENCIES.map((cur) => (
-                              <option key={cur.code} value={cur.code}>
-                                {cur.name}
+                            {COUNTRIES.map((c) => (
+                              <option key={c.code} value={c.callingCode}>
+                                {c.code} {c.callingCode}
                               </option>
                             ))}
                           </select>
-                          <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
+                          <span className="material-symbols-outlined text-[#7e7482] text-xs pointer-events-none absolute right-1.5">
                             expand_more
                           </span>
                         </div>
-                      </div>
 
-                      {/* Teléfono con código de país expandido */}
-                      <div>
-                        <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.whatsappPhone}</label>
-                        <div className="flex gap-2">
-                          <div className="w-28 relative flex items-center bg-[#f5f2ff] rounded-xl px-2 py-2 border border-[#cfc2d2]/30">
-                            <select
-                              value={phonePrefix}
-                              onChange={(e) => setPhonePrefix(e.target.value)}
-                              className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
-                            >
-                              {COUNTRIES.map((c) => (
-                                <option key={c.code} value={c.callingCode}>
-                                  {c.code} {c.callingCode}
-                                </option>
-                              ))}
-                            </select>
-                            <span className="material-symbols-outlined text-[#7e7482] text-xs pointer-events-none absolute right-1.5">
-                              expand_more
-                            </span>
-                          </div>
-
-                          <div className="flex-1 relative flex items-center bg-[#f5f2ff] rounded-xl px-3 py-2 border border-[#cfc2d2]/30">
-                            <input
-                              type="text"
-                              value={phoneNumber}
-                              onChange={(e) => setPhoneNumber(e.target.value)}
-                              className="w-full bg-transparent text-xs font-semibold text-[#1a1a26] outline-none"
-                              placeholder="Ej: 11 5489 3210"
-                            />
-                          </div>
+                        <div className="flex-1 relative flex items-center bg-[#f5f2ff] rounded-xl px-3 py-2 border border-[#cfc2d2]/30">
+                          <input
+                            type="text"
+                            value={phoneNumber}
+                            onChange={(e) => setPhoneNumber(e.target.value)}
+                            className="w-full bg-transparent text-xs font-semibold text-[#1a1a26] outline-none"
+                            placeholder="Ej: 11 5489 3210"
+                          />
                         </div>
                       </div>
                     </div>

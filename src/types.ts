@@ -126,6 +126,7 @@ export interface SalonConfig {
   name: string;
   logoUrl: string;
   country?: string;
+  city?: string;
   language?: string;
   phonePrefix: string;
   phone: string;

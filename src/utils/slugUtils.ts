@@ -73,6 +73,8 @@ export interface CompactPublicPayload {
   slug?: string;
   name: string;
   logo?: string;
+  country?: string;
+  city?: string;
   addr?: string;
   phone?: string;
   pref?: string;
@@ -148,6 +150,8 @@ export function encodePublicProfileToken(
       slug: extractSlugOnly(config.bookingSlug) || slugify(config.name),
       name: config.name || 'Peluquería Canina',
       logo: config.logoUrl,
+      country: config.country,
+      city: config.city,
       addr: config.address,
       phone: config.phone,
       pref: config.phonePrefix || '+593',
@@ -206,6 +210,8 @@ export function decodePublicProfileToken(token: string): {
       id: p.bid,
       name: p.name,
       logoUrl: p.logo || '',
+      country: p.country,
+      city: p.city,
       address: p.addr || '',
       phone: p.phone || '',
       phonePrefix: p.pref || '+593',
