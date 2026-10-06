@@ -1,6 +1,7 @@
 import { Pet, SalonConfig, Appointment, RetentionPet } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage } from './translations';
+import { DEFAULT_WHATSAPP_TEMPLATES } from './phoneUtils';
 
 const STORAGE_KEY_CONFIG = 'agendacan_salon_config_v2';
 const STORAGE_KEY_PETS = 'agendacan_pets_v2';
@@ -167,7 +168,8 @@ export const DEFAULT_SALON_CONFIG: SalonConfig = {
       rating: 4.8,
       reviewCount: 19
     }
-  ]
+  ],
+  whatsappTemplates: DEFAULT_WHATSAPP_TEMPLATES
 };
 
 export function getDefaultPets(): Pet[] {

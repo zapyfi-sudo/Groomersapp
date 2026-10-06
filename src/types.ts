@@ -154,6 +154,15 @@ export interface SalonConfig {
   hasMedicationProductsEnabled?: boolean;
   medicationProducts?: MedicationProduct[];
   medicationFee: number;
+  whatsappTemplates?: WhatsAppTemplate[];
+}
+
+export interface WhatsAppTemplate {
+  id: string;
+  title: string;
+  content: string;
+  isDefault?: boolean;
+  createdAt?: string;
 }
 
 export interface Appointment {

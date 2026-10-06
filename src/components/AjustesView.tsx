@@ -10,7 +10,6 @@ import {
   UserAccount
 } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
-import { GoogleMapsLocationPicker } from './GoogleMapsLocationPicker';
 import { ServiceManager } from './ServiceManager';
 import { MedicationManager } from './MedicationManager';
 import { StaffShiftScheduleManager } from './StaffShiftScheduleManager';
@@ -62,7 +61,6 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [phonePrefix, setPhonePrefix] = useState<string>(config.phonePrefix || '+54');
   const [phoneNumber, setPhoneNumber] = useState<string>(config.phone || '11 5489 3210');
   const [address, setAddress] = useState<string>(config.address || 'Av. Corrientes 4520, Almagro, CABA');
-  const [coords, setCoords] = useState<string>(config.coordinates || '-34.603722, -58.423145');
 
   // Schedule & Double Shift
   const [activeDays, setActiveDays] = useState<string[]>(config.activeDays || ['L', 'M', 'X', 'J', 'V', 'S']);
@@ -429,9 +427,6 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       phonePrefix,
       phone: phoneNumber.trim(),
       address: address.trim(),
-      coordinates: coords,
-      googleMapsUrl: `https://maps.google.com/?q=${encodeURIComponent(coords)}`,
-      googleMapsPlaceName: `${businessName.trim()} - ${address.trim()}`,
       allowSimultaneousStaff,
       maxSimultaneousAppointments: simultaneousCapacity,
       currency: selectedCurrency,
@@ -964,32 +959,22 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Dirección del salón */}
+                    {/* Dirección del negocio */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.addressLabel}</label>
-                      <div className="flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">
+                        {t.addressLabel || 'Dirección del negocio'}
+                      </label>
+                      <div className="flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30 focus-within:border-[#4b0878] focus-within:ring-2 focus-within:ring-[#4b0878]/20 transition-all">
                         <span className="material-symbols-outlined text-[#7e7482] text-base mr-2">pin_drop</span>
                         <input
                           type="text"
                           value={address}
                           onChange={(e) => setAddress(e.target.value)}
                           className="w-full bg-transparent text-sm font-semibold text-[#1a1a26] outline-none"
-                          placeholder="Ej: Av. Corrientes 4520, Almagro, CABA"
+                          placeholder="Escribe la dirección de tu negocio"
                         />
                       </div>
                     </div>
-
-                    {/* Google Maps Location */}
-                    <GoogleMapsLocationPicker
-                      initialAddress={address}
-                      initialCoords={coords}
-                      onLocationSaved={(newAddress, newCoords) => {
-                        setAddress(newAddress);
-                        setCoords(newCoords);
-                        setSavedToast('¡Ubicación de Google Maps guardada correctamente!');
-                        setTimeout(() => setSavedToast(null), 3000);
-                      }}
-                    />
                   </div>
 
                   {/* Card 3: Horarios de atención */}

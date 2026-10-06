@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData } from './types';
+import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData, WhatsAppTemplate } from './types';
 import {
   deriveRetentionPets,
   loadLanguage,
@@ -722,6 +722,35 @@ export default function App() {
     return true;
   };
 
+  const handleSaveWhatsAppTemplate = async (template: WhatsAppTemplate) => {
+    const currentTemplates = salonConfig.whatsappTemplates || [];
+    const exists = currentTemplates.some(
+      (t) => t.id === template.id || t.title.toLowerCase().trim() === template.title.toLowerCase().trim()
+    );
+    const updatedTemplates = exists
+      ? currentTemplates.map((t) =>
+          t.id === template.id || t.title.toLowerCase().trim() === template.title.toLowerCase().trim()
+            ? template
+            : t
+        )
+      : [...currentTemplates, template];
+
+    const updatedConfig: SalonConfig = {
+      ...salonConfig,
+      whatsappTemplates: updatedTemplates
+    };
+
+    setSalonConfig(updatedConfig);
+    await persistActiveConfig(updatedConfig);
+
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+    try {
+      await syncBusinessToServer(currentBizId, updatedConfig, pets, appointments, bookedRetentions);
+    } catch (err) {
+      console.warn('Error syncing template to server:', err);
+    }
+  };
+
   const urgentCount = useMemo(() => {
     return retentionPets.filter((p) => (p.urgency === 'esta_semana' || p.urgency === 'urgente') && !p.alreadyBooked).length;
   }, [retentionPets]);
@@ -822,6 +851,7 @@ export default function App() {
               onAddNewAppointment={handleAddNewAppointment}
               onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
               salonConfig={salonConfig}
+              onSaveWhatsAppTemplate={handleSaveWhatsAppTemplate}
               urgentRetentionCount={urgentCount}
               totalRetentionCount={retentionPets.filter((p) => !p.alreadyBooked).length}
               currentLanguage={currentLanguage}

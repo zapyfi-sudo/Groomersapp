@@ -180,13 +180,22 @@ export async function saveBusinessToFirestore(
     active: m.active !== false
   }));
 
+  const sanitizedTemplates = (config.whatsappTemplates || []).map((t, idx) => ({
+    id: t.id || `tmpl-${Date.now()}-${idx}`,
+    title: (t.title || 'Plantilla').trim(),
+    content: t.content || '',
+    isDefault: !!t.isDefault,
+    createdAt: t.createdAt || now
+  }));
+
   const cleanConfig: SalonConfig = {
     ...config,
     id: cleanId,
     bookingSlug: cleanSlug,
     name: (config.name || 'Peluquería Canina Luna').trim(),
     services: sanitizedServices,
-    medicationProducts: sanitizedMedications
+    medicationProducts: sanitizedMedications,
+    whatsappTemplates: sanitizedTemplates
   };
 
   const businessData: FirestoreBusinessData = {

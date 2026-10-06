@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Appointment, Pet, SalonConfig } from '../types';
+import { Appointment, Pet, SalonConfig, WhatsAppTemplate } from '../types';
 import { NewAppointmentView } from './NewAppointmentView';
 import { ShareLinkModal } from './ShareLinkModal';
+import { ConfirmWhatsAppModal } from './ConfirmWhatsAppModal';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { formatDateSpanish } from '../utils/storage';
@@ -20,6 +21,7 @@ interface AgendaViewProps {
     extraPatch?: Partial<Appointment>
   ) => Promise<boolean> | void;
   salonConfig: SalonConfig;
+  onSaveWhatsAppTemplate?: (template: WhatsAppTemplate) => Promise<void> | void;
   urgentRetentionCount?: number;
   totalRetentionCount?: number;
   currentLanguage?: AppLanguage;
@@ -33,6 +35,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   onAddNewAppointment,
   onUpdateAppointmentStatus,
   salonConfig,
+  onSaveWhatsAppTemplate,
   urgentRetentionCount = 0,
   totalRetentionCount = 0,
   currentLanguage = 'es-LA'
@@ -40,6 +43,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isNewAptModalOpen, setIsNewAptModalOpen] = useState(false);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
+  const [whatsAppModalApt, setWhatsAppModalApt] = useState<Appointment | null>(null);
   const [filterStatus, setFilterStatus] = useState<'todos' | 'por_confirmar' | 'en_salon' | 'confirmada' | 'completado'>('todos');
   const [weekOffset, setWeekOffset] = useState<number>(0);
 
@@ -171,13 +175,31 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     return 0;
   };
 
-  const handleConfirmViaWhatsApp = async (apt: Appointment) => {
-    // 1. Confirm internally and guarantee persistence in database FIRST (Step 1 requirement)
+  const handleConfirmViaWhatsApp = (apt: Appointment) => {
+    // Open modal to review, edit, and personalize WhatsApp message before confirming and sending
+    setWhatsAppModalApt(apt);
+  };
+
+  const handleModalConfirmAndSend = async (
+    apt: Appointment,
+    _finalMessage: string,
+    templateToSave?: { title: string; content: string }
+  ) => {
+    // 1. If user opted to save current message as template, persist it
+    if (templateToSave && onSaveWhatsAppTemplate) {
+      await onSaveWhatsAppTemplate({
+        id: `tmpl-${Date.now()}`,
+        title: templateToSave.title,
+        content: templateToSave.content
+      });
+    }
+
+    // 2. Confirm internally and guarantee persistence in database FIRST (Step 1 & 2 requirement)
     if (onUpdateAppointmentStatus) {
       await onUpdateAppointmentStatus(apt.id, 'confirmada', 'CONFIRMADA');
     }
 
-    // 2. Adjust agenda view so user sees the confirmed appointment right away in the agenda!
+    // 3. Adjust agenda view so user sees the confirmed appointment right away in the agenda!
     if (apt.date) {
       const offset = findWeekOffsetForDate(apt.date);
       setWeekOffset(offset);
@@ -186,12 +208,18 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     setFilterStatus('todos');
     setToastMessage(`¡Cita de ${apt.petName} confirmada en tu agenda!`);
     setTimeout(() => setToastMessage(null), 4000);
+  };
 
-    // 3. Normalize WhatsApp phone number with international country code and compose message
-    const waUrl = buildWhatsAppConfirmationUrl(apt, salonConfig);
-
-    // 4. Safely open WhatsApp
-    openWhatsAppUrl(waUrl);
+  const handleModalSaveTemplateOnly = async (title: string, content: string) => {
+    if (onSaveWhatsAppTemplate) {
+      await onSaveWhatsAppTemplate({
+        id: `tmpl-${Date.now()}`,
+        title,
+        content
+      });
+      setToastMessage(`Plantilla "${title}" guardada exitosamente`);
+      setTimeout(() => setToastMessage(null), 3000);
+    }
   };
 
   const handleConfirmSystemOnly = async (apt: Appointment) => {
@@ -756,6 +784,16 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           setIsShareModalOpen(false);
           setIsNewAptModalOpen(true);
         }}
+      />
+
+      {/* WhatsApp Custom Message & Confirmation Modal */}
+      <ConfirmWhatsAppModal
+        isOpen={!!whatsAppModalApt}
+        appointment={whatsAppModalApt}
+        salonConfig={salonConfig}
+        onClose={() => setWhatsAppModalApt(null)}
+        onConfirmAndSend={handleModalConfirmAndSend}
+        onSaveTemplateOnly={handleModalSaveTemplateOnly}
       />
     </div>
   );

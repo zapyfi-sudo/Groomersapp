@@ -1,5 +1,162 @@
-import { SalonConfig } from '../types';
+import { SalonConfig, WhatsAppTemplate } from '../types';
 import { COUNTRIES } from './countries';
+
+export const DEFAULT_WHATSAPP_TEMPLATES: WhatsAppTemplate[] = [
+  {
+    id: 'tmpl-confirmacion',
+    title: 'Confirmación de cita',
+    content: `Hola, {{cliente}} 👋
+
+Te confirmamos la cita de {{mascota}} para el servicio de {{servicio}}.
+
+📅 Fecha: {{fecha}}
+🕐 Hora: {{hora}}
+
+Te esperamos. ¡Gracias por confiar en nosotros! 🐶✨`,
+    isDefault: true
+  },
+  {
+    id: 'tmpl-recordatorio',
+    title: 'Recordatorio',
+    content: `Hola {{cliente}} 👋
+
+Te recordamos la cita programada para {{mascota}} ({{servicio}}).
+
+📅 Fecha: {{fecha}}
+🕐 Hora: {{hora}}
+
+Por favor avísanos con tiempo si necesitas reprogramar. ¡Te esperamos! 🐾`,
+    isDefault: false
+  },
+  {
+    id: 'tmpl-personalizado',
+    title: 'Mensaje personalizado',
+    content: `Hola {{cliente}}, tu cita para {{mascota}} ({{servicio}}) el {{fecha}} a las {{hora}} está confirmada en {{salon}}. ¡Nos vemos pronto! 🐶✨`,
+    isDefault: false
+  }
+];
+
+export interface TemplateVariablesSource {
+  tutorName?: string;
+  petName?: string;
+  serviceName?: string;
+  date?: string;
+  time?: string;
+  tutorPhone?: string;
+}
+
+/**
+ * Replaces dynamic variables with real appointment data.
+ * Safely removes brackets or curly tags and avoids any "undefined" / "null".
+ */
+export function renderWhatsAppTemplate(
+  templateContent: string,
+  appointment: TemplateVariablesSource,
+  salonName: string = ''
+): string {
+  if (!templateContent) return '';
+
+  const cleanTime = (appointment.time || '').trim();
+  const cleanDate = (appointment.date || '').trim();
+  const cleanTutor = (appointment.tutorName || '').trim();
+  const cleanPet = (appointment.petName || '').trim();
+  const cleanService = (appointment.serviceName || '').trim();
+  const cleanSalon = salonName.trim();
+
+  let rendered = templateContent;
+
+  // Replacements for Tutor / Cliente
+  rendered = rendered.replace(/(\{\{cliente\}\}|\{\{tutor\}\}|\[Nombre del tutor\]|\[tutor\]|\[cliente\])/gi, cleanTutor);
+
+  // Replacements for Mascota
+  rendered = rendered.replace(/(\{\{mascota\}\}|\[Nombre de la mascota\]|\[mascota\])/gi, cleanPet);
+
+  // Replacements for Servicio
+  rendered = rendered.replace(/(\{\{servicio\}\}|\[Servicio\]|\[servicio\])/gi, cleanService);
+
+  // Replacements for Fecha
+  rendered = rendered.replace(/(\{\{fecha\}\}|\[Fecha\]|\[fecha\])/gi, cleanDate);
+
+  // Replacements for Hora
+  rendered = rendered.replace(/(\{\{hora\}\}|\[Hora\]|\[hora\])/gi, cleanTime);
+
+  // Replacements for Salon / Negocio
+  rendered = rendered.replace(/(\{\{salon\}\}|\[Salon\]|\[Nombre del salón\]|\[negocio\])/gi, cleanSalon);
+
+  // Clean up any remaining undefined / null strings just in case
+  rendered = rendered.replace(/undefined/gi, '').replace(/null/gi, '');
+
+  return rendered;
+}
+
+/**
+ * Intelligently converts concrete values back to reusable dynamic template variables
+ * (e.g. replaces "Carlos" with {{cliente}}, "Rocky" with {{mascota}}) so the saved template
+ * works seamlessly for future appointments.
+ */
+export function convertMessageToTemplate(
+  message: string,
+  appointment: TemplateVariablesSource,
+  salonName: string = ''
+): string {
+  if (!message) return '';
+
+  let templated = message;
+
+  // If variables are already present, keep them. Otherwise, parametrize concrete values:
+  if (appointment.tutorName && appointment.tutorName.trim().length > 1) {
+    const reg = new RegExp(escapeRegex(appointment.tutorName.trim()), 'g');
+    templated = templated.replace(reg, '{{cliente}}');
+  }
+
+  if (appointment.petName && appointment.petName.trim().length > 1) {
+    const reg = new RegExp(escapeRegex(appointment.petName.trim()), 'g');
+    templated = templated.replace(reg, '{{mascota}}');
+  }
+
+  if (appointment.serviceName && appointment.serviceName.trim().length > 2) {
+    const reg = new RegExp(escapeRegex(appointment.serviceName.trim()), 'g');
+    templated = templated.replace(reg, '{{servicio}}');
+  }
+
+  if (appointment.date && appointment.date.trim().length > 2) {
+    const reg = new RegExp(escapeRegex(appointment.date.trim()), 'g');
+    templated = templated.replace(reg, '{{fecha}}');
+  }
+
+  if (appointment.time && appointment.time.trim().length > 2) {
+    const reg = new RegExp(escapeRegex(appointment.time.trim()), 'g');
+    templated = templated.replace(reg, '{{hora}}');
+  }
+
+  if (salonName && salonName.trim().length > 2) {
+    const reg = new RegExp(escapeRegex(salonName.trim()), 'g');
+    templated = templated.replace(reg, '{{salon}}');
+  }
+
+  return templated;
+}
+
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Builds a WhatsApp URL with any custom message and normalized phone
+ */
+export function buildCustomWhatsAppUrl(
+  phone: string,
+  message: string,
+  salonConfig?: SalonConfig
+): string {
+  const normalizedPhone = normalizePhoneForWhatsApp(phone || '', salonConfig);
+  const encodedText = encodeURIComponent(message || '');
+
+  if (!normalizedPhone) {
+    return `https://wa.me/?text=${encodedText}`;
+  }
+  return `https://wa.me/${normalizedPhone}?text=${encodedText}`;
+}
 
 /**
  * Normalizes any phone number into clean international format for WhatsApp (wa.me/NUMBER).
