@@ -100,11 +100,6 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     }
   };
 
-  // Helper to insert a dynamic tag at cursor or end of text
-  const handleInsertTag = (tag: string) => {
-    setMessageText((prev) => `${prev} ${tag}`);
-  };
-
   // Action: Guardar plantilla sin enviar
   const handleSaveTemplateSecondary = async () => {
     if (!messageText.trim()) return;
@@ -300,39 +295,6 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
                 placeholder="Escribe el mensaje para el cliente..."
                 className="w-full bg-white border border-[#cfc2d2]/60 focus:border-[#4b0878] rounded-2xl p-3.5 text-xs sm:text-sm text-[#1a1a26] leading-relaxed resize-y focus:outline-hidden focus:ring-2 focus:ring-[#4b0878]/30 shadow-2xs font-sans transition-all"
               />
-            </div>
-          </div>
-
-          {/* Quick-insert dynamic variable chips */}
-          <div className="bg-[#f5f2ff] rounded-2xl p-3 border border-[#cfc2d2]/30 space-y-2">
-            <div className="flex items-center justify-between text-[11px]">
-              <span className="font-bold text-[#2e004e] flex items-center gap-1">
-                <span className="material-symbols-outlined text-xs text-[#f9b900]">data_object</span>
-                <span>Datos dinámicos disponibles</span>
-              </span>
-              <span className="text-[#7e7482] text-[10px]">Toca para insertar</span>
-            </div>
-
-            <div className="flex flex-wrap gap-1.5">
-              {[
-                { tag: '{{cliente}}', label: 'Tutor', val: appointment.tutorName },
-                { tag: '{{mascota}}', label: 'Mascota', val: appointment.petName },
-                { tag: '{{servicio}}', label: 'Servicio', val: appointment.serviceName },
-                { tag: '{{fecha}}', label: 'Fecha', val: appointment.date },
-                { tag: '{{hora}}', label: 'Hora', val: appointment.time },
-                { tag: '{{salon}}', label: 'Salón', val: salonConfig.name }
-              ].map((item) => (
-                <button
-                  key={item.tag}
-                  type="button"
-                  onClick={() => handleInsertTag(item.tag)}
-                  className="px-2.5 py-1 bg-white hover:bg-[#efecfd] text-[#2e004e] border border-[#cfc2d2]/40 rounded-lg text-[10px] font-bold transition-all shadow-2xs cursor-pointer flex items-center gap-1 active:scale-95"
-                  title={`Insertar ${item.tag} (actual: ${item.val || 'N/A'})`}
-                >
-                  <span className="text-[#f9b900]">+</span>
-                  <span>{item.tag}</span>
-                </button>
-              ))}
             </div>
           </div>
 
