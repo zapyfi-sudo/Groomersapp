@@ -271,11 +271,23 @@ export function buildWhatsAppConfirmationUrl(
 }
 
 /**
- * Safely opens a WhatsApp URL in a new window/tab without navigating away
+ * Safely opens a WhatsApp URL in a new window/tab without navigating away or losing context
  */
-export function openWhatsAppUrl(url: string): void {
+export function openWhatsAppUrl(url: string, existingWindow?: Window | null): void {
   if (typeof window === 'undefined') return;
 
+  if (existingWindow && !existingWindow.closed) {
+    existingWindow.location.href = url;
+    return;
+  }
+
+  // Try window.open first for direct user gesture handling
+  try {
+    const win = window.open(url, '_blank', 'noopener,noreferrer');
+    if (win) return;
+  } catch {}
+
+  // Fallback anchor click
   const a = document.createElement('a');
   a.href = url;
   a.target = '_blank';

@@ -147,6 +147,12 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     if (isSubmitting) return;
     setIsSubmitting(true);
 
+    // Pre-open blank tab within the synchronous user gesture event to bypass browser popup blockers
+    let popupWin: Window | null = null;
+    try {
+      popupWin = window.open('about:blank', '_blank');
+    } catch {}
+
     try {
       let templatePayload: { title: string; content: string } | undefined;
 
@@ -178,11 +184,14 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
         messageText,
         salonConfig
       );
-      openWhatsAppUrl(waUrl);
+      openWhatsAppUrl(waUrl, popupWin);
 
       // Close modal
       onClose();
     } catch (err) {
+      if (popupWin && !popupWin.closed) {
+        popupWin.close();
+      }
       console.error('Error during WhatsApp confirmation flow:', err);
     } finally {
       setIsSubmitting(false);
