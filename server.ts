@@ -291,6 +291,64 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
   res.status(201).json({ success: true, appointment });
 });
 
+// Reviews API
+app.get('/api/businesses/:idOrSlug/reviews', (req, res) => {
+  const { idOrSlug } = req.params;
+  const db = readDb();
+  const business = findBusiness(idOrSlug, db);
+
+  if (!business) {
+    res.status(404).json({ error: 'Business not found' });
+    return;
+  }
+
+  const reviews = business.config?.reviews || [];
+  res.json({ reviews });
+});
+
+app.post('/api/businesses/:idOrSlug/reviews', (req, res) => {
+  const { idOrSlug } = req.params;
+  const { review } = req.body;
+
+  if (!review || !review.clientName || !review.stars) {
+    res.status(400).json({ error: 'Invalid review payload' });
+    return;
+  }
+
+  const db = readDb();
+  const business = findBusiness(idOrSlug, db);
+
+  if (!business) {
+    res.status(404).json({ error: 'Business not found' });
+    return;
+  }
+
+  const cleanReview = {
+    ...review,
+    id: review.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    businessId: business.businessId,
+    stars: Math.min(5, Math.max(1, Number(review.stars) || 5)),
+    clientName: String(review.clientName).trim(),
+    comment: review.comment ? String(review.comment).trim() : '',
+    date: review.date || new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
+    createdAt: review.createdAt || new Date().toISOString()
+  };
+
+  const existingReviews = business.config?.reviews || [];
+  const updatedReviews = [cleanReview, ...existingReviews.filter((r: any) => r.id !== cleanReview.id)];
+
+  business.config = {
+    ...business.config,
+    reviews: updatedReviews
+  };
+  business.updatedAt = new Date().toISOString();
+  db[business.businessId] = business;
+  writeDb(db);
+
+  console.log(`[REVIEW SAVED ON SERVER] Business: ${business.businessId}, From: ${cleanReview.clientName}, Stars: ${cleanReview.stars}`);
+  res.status(201).json({ success: true, review: cleanReview });
+});
+
 app.get('/api/businesses/:idOrSlug/appointments', (req, res) => {
   const { idOrSlug } = req.params;
   const db = readDb();

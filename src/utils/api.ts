@@ -1,4 +1,4 @@
-import { SalonConfig, SalonService, Appointment, Pet } from '../types';
+import { SalonConfig, SalonService, Appointment, Pet, ClientReview, ReviewRequestState } from '../types';
 import { decodePublicProfileToken, extractSlugOnly } from './slugUtils';
 import {
   getBusinessFromFirestore,
@@ -6,10 +6,18 @@ import {
   addAppointmentToFirestore,
   updateAppointmentInFirestore,
   subscribeToBusinessAppointments,
-  subscribeToBusinessPets
+  subscribeToBusinessPets,
+  addReviewToFirestore,
+  subscribeToBusinessReviews,
+  updateReviewRequestStateInFirestore
 } from './firebase';
 
-export { subscribeToBusinessAppointments, subscribeToBusinessPets };
+export {
+  subscribeToBusinessAppointments,
+  subscribeToBusinessPets,
+  subscribeToBusinessReviews,
+  updateReviewRequestStateInFirestore
+};
 
 export interface PublicBusinessResult {
   businessId: string;
@@ -337,15 +345,104 @@ export async function fetchLatestAppointmentsAndPets(
     // Fall back to general profile
   }
 
+  return null;
+}
+
+/**
+ * Submits a public client rating and review for a business.
+ * Persists to both Cloud Firestore and Server API.
+ */
+export async function submitPublicReview(
+  businessIdOrSlug: string,
+  review: ClientReview
+): Promise<{ success: boolean; review?: ClientReview }> {
+  if (!businessIdOrSlug || !review || !review.clientName || !review.stars) {
+    return { success: false };
+  }
+
+  // 1. Resolve business ID
+  let targetBizId = businessIdOrSlug;
   try {
-    const profile = await fetchBusinessProfile(businessIdOrSlug);
-    if (profile) {
-      return {
-        appointments: profile.appointments || [],
-        pets: profile.pets || []
-      };
+    const biz = await getBusinessFromFirestore(businessIdOrSlug);
+    if (biz && biz.businessId) {
+      targetBizId = biz.businessId;
     }
   } catch {}
 
-  return null;
+  const now = new Date().toISOString();
+  const cleanReview: ClientReview = {
+    ...review,
+    id: review.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+    businessId: targetBizId,
+    stars: Math.min(5, Math.max(1, Number(review.stars) || 5)),
+    clientName: review.clientName.trim(),
+    comment: review.comment ? review.comment.trim() : '',
+    date: review.date || new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
+    createdAt: review.createdAt || now,
+    verified: true
+  };
+
+  let firestoreSuccess = false;
+  let serverSuccess = false;
+
+  // 2. Primary: Cloud Firestore
+  try {
+    firestoreSuccess = await addReviewToFirestore(targetBizId, cleanReview);
+  } catch (err) {
+    console.warn('[FIRESTORE SUBMIT REVIEW WARN]', err);
+  }
+
+  // 3. Secondary: Server API
+  try {
+    const res = await fetch(`/api/businesses/${encodeURIComponent(targetBizId)}/reviews`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ review: cleanReview })
+    });
+    serverSuccess = res.ok;
+  } catch (err) {
+    console.warn('Server API review post warn:', err);
+  }
+
+  // 4. Update local cache if available
+  if (typeof window !== 'undefined') {
+    try {
+      const cacheKey = `agendacan_reviews_${targetBizId}`;
+      const raw = localStorage.getItem(cacheKey);
+      const existing: ClientReview[] = raw ? JSON.parse(raw) : [];
+      const updated = [cleanReview, ...existing.filter((r) => r.id !== cleanReview.id)];
+      localStorage.setItem(cacheKey, JSON.stringify(updated));
+    } catch {}
+  }
+
+  return {
+    success: firestoreSuccess || serverSuccess,
+    review: cleanReview
+  };
+}
+
+/**
+ * Fetches all reviews for a business from server API or Firestore.
+ */
+export async function fetchBusinessReviews(businessIdOrSlug: string): Promise<ClientReview[]> {
+  if (!businessIdOrSlug) return [];
+
+  try {
+    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/reviews`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.reviews)) {
+        return data.reviews;
+      }
+    }
+  } catch {}
+
+  try {
+    const biz = await getBusinessFromFirestore(businessIdOrSlug);
+    if (biz && biz.config && Array.isArray(biz.config.reviews)) {
+      return biz.config.reviews;
+    }
+  } catch {}
+
+  return [];
 }

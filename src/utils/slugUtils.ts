@@ -285,3 +285,20 @@ export function buildPublicBookingUrl(
   
   return `${base}/reservas/${safeSlug}`;
 }
+
+/**
+ * Builds the clean, short public review rating link:
+ * https://groomers-app.vercel.app/calificar/[slug]
+ */
+export function buildPublicReviewUrl(
+  origin: string,
+  businessId: string,
+  slug?: string,
+  config?: SalonConfig
+): string {
+  const extracted = extractSlugOnly(slug || config?.bookingSlug);
+  const safeSlug = extracted || slugify(config?.name || businessId || 'calificar', 'calificar');
+  const base = (origin || 'https://groomers-app.vercel.app').replace(/\/+$/, '');
+  return `${base}/calificar/${safeSlug}`;
+}
+

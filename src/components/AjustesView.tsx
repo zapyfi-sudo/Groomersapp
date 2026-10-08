@@ -16,10 +16,11 @@ import { StaffShiftScheduleManager } from './StaffShiftScheduleManager';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
-import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
-import { syncBusinessToServer } from '../utils/api';
+import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl, buildPublicReviewUrl } from '../utils/slugUtils';
+import { syncBusinessToServer, updateReviewRequestStateInFirestore } from '../utils/api';
 import { persistActiveConfig } from '../utils/saasDb';
 import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
+import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -197,6 +198,70 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       setIsCopied(false);
       setSavedToast(null);
     }, 2500);
+  };
+
+  // Dedicated review URL for collecting customer ratings
+  const realReviewUrl = useMemo(() => {
+    const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
+    const slug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'calificar', 'calificar');
+    return buildPublicReviewUrl(origin, config.id || 'biz_main', slug, config);
+  }, [config.bookingSlug, config.id, customSlug, businessName]);
+
+  const [isReviewLinkCopied, setIsReviewLinkCopied] = useState<boolean>(false);
+
+  const handleCopyReviewLink = () => {
+    navigator.clipboard.writeText(realReviewUrl);
+    setIsReviewLinkCopied(true);
+    setSavedToast('¡Enlace para calificar copiado al portapapeles!');
+    setTimeout(() => {
+      setIsReviewLinkCopied(false);
+      setSavedToast(null);
+    }, 2500);
+  };
+
+  // WhatsApp review request to a completed client visit
+  const handleRequestReviewViaWhatsApp = async (item: {
+    id: string;
+    tutorName: string;
+    petName?: string;
+    phone: string;
+    rawPhone: string;
+  }) => {
+    const tutorFirstName = item.tutorName.trim().split(' ')[0] || item.tutorName.trim();
+    const petPart = item.petName?.trim() ? ` para el cuidado de ${item.petName.trim()}` : '';
+
+    const message = `Hola, ${tutorFirstName} 👋\n\n¡Gracias por confiar en nosotros${petPart}! 🐶\n\nNos gustaría conocer tu opinión sobre tu experiencia con nuestro negocio.\n¿Podrías dedicarnos un momento para dejarnos una calificación?\n\nTu opinión nos ayuda a mejorar y a seguir ofreciendo un mejor servicio.\n\nPuedes calificarnos aquí:\n${realReviewUrl}\n\n¡Muchas gracias por tu confianza! ❤️`;
+
+    const normalizedDigits = normalizePhoneForWhatsApp(item.phone || item.rawPhone, config);
+    const waUrl = `https://wa.me/${normalizedDigits}?text=${encodeURIComponent(message)}`;
+
+    // Open WhatsApp safely
+    openWhatsAppUrl(waUrl);
+
+    // Update request state in config & database to 'iniciada'
+    const currentRequests = { ...(config.reviewRequests || {}) };
+    currentRequests[item.id] = {
+      state: 'iniciada',
+      requestedAt: new Date().toISOString()
+    };
+    const updatedConfig = {
+      ...config,
+      reviewRequests: currentRequests
+    };
+    onUpdateConfig(updatedConfig);
+    await persistActiveConfig(updatedConfig);
+    try {
+      await updateReviewRequestStateInFirestore(config.id || 'biz_main', item.id, 'iniciada');
+    } catch (err) {
+      console.warn('Error updating review request state:', err);
+    }
+  };
+
+  // General share review link via WhatsApp (to anyone)
+  const handleShareGeneralReviewWhatsApp = () => {
+    const message = `¡Hola! 👋\n\nNos encantaría conocer tu opinión sobre nuestro servicio en ${config.name}.\n\nPuedes dejarnos tu calificación y comentarios aquí:\n${realReviewUrl}\n\n¡Muchas gracias por tu apoyo! ❤️`;
+    const waUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
+    openWhatsAppUrl(waUrl);
   };
 
   const handleAddStaff = () => {
@@ -1399,66 +1464,424 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
             </div>
           )}
 
-          {/* SUB-SECCIÓN 2: CALIFICACIONES */}
-          {selectedSection === 'calificaciones' && (
-            <div className="space-y-6">
-              <div className="bg-gradient-to-br from-[#2e004e] to-[#4b0878] text-white rounded-3xl p-6 sm:p-8 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
-                <div className="space-y-2">
-                  <span className="text-xs font-bold text-[#f9b900] uppercase tracking-wider block">
-                    Reputación y valoraciones de clientes
-                  </span>
-                  <h2 className="text-2xl sm:text-3xl font-black text-white">
-                    {t.ratings}
-                  </h2>
-                  <p className="text-xs sm:text-sm text-[#e3e0f1] max-w-xl">
-                    Cada vez que un cliente completa una sesión o reserva a través del enlace online, puede calificar la experiencia con estrellas y comentarios para tu salón.
-                  </p>
+          {/* SUB-SECCIÓN 2: CALIFICACIONES (SISTEMA COMPLETO Y PERSISTENTE) */}
+          {selectedSection === 'calificaciones' && (() => {
+            const reviewsList = (config.reviews || []).filter(
+              (r) => r && typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 5
+            );
+            const totalReviews = reviewsList.length;
+
+            const sumStars = reviewsList.reduce((acc, r) => acc + r.stars, 0);
+            const rawAvg = totalReviews > 0 ? sumStars / totalReviews : 0;
+            const avgRating = totalReviews > 0 ? (rawAvg % 1 === 0 ? rawAvg.toFixed(1) : rawAvg.toFixed(1).replace('.', ',')) : '0,0';
+
+            const starCounts = {
+              5: reviewsList.filter((r) => r.stars === 5).length,
+              4: reviewsList.filter((r) => r.stars === 4).length,
+              3: reviewsList.filter((r) => r.stars === 3).length,
+              2: reviewsList.filter((r) => r.stars === 2).length,
+              1: reviewsList.filter((r) => r.stars === 1).length
+            };
+
+            // Eligible completed clients for review requests
+            const requestStateMap = config.reviewRequests || {};
+            const completedApts = appointments.filter(
+              (a) =>
+                a.status === 'completado' ||
+                (a.status as any) === 'completed' ||
+                (a.paymentStatus === 'cobrado' && a.status !== 'cancelada')
+            );
+
+            // Group by tutor phone/name so we show unique clients with their latest completed visit
+            const eligibleClientsMap = new Map<
+              string,
+              {
+                id: string;
+                tutorName: string;
+                petName: string;
+                phone: string;
+                rawPhone: string;
+                lastVisitDate: string;
+                state: 'pendiente' | 'iniciada' | 'calificado';
+              }
+            >();
+
+            for (const apt of completedApts) {
+              const tutorPhone = apt.tutorPhone || '';
+              const key = (tutorPhone.trim() || apt.tutorName.trim().toLowerCase()) || apt.id;
+              const existing = eligibleClientsMap.get(key);
+
+              // Check if client has already left a review matching their name or phone
+              const hasReviewed = reviewsList.some(
+                (r) =>
+                  (tutorPhone && r.tutorPhone === tutorPhone) ||
+                  r.clientName.trim().toLowerCase() === apt.tutorName.trim().toLowerCase()
+              );
+
+              const stateEntry = requestStateMap[apt.id]?.state || (hasReviewed ? 'calificado' : 'pendiente');
+
+              if (!existing) {
+                eligibleClientsMap.set(key, {
+                  id: apt.id,
+                  tutorName: apt.tutorName,
+                  petName: apt.petName,
+                  phone: tutorPhone,
+                  rawPhone: tutorPhone.replace(/\D/g, ''),
+                  lastVisitDate: apt.date || 'Reciente',
+                  state: hasReviewed ? 'calificado' : stateEntry
+                });
+              }
+            }
+
+            const eligibleClients = Array.from(eligibleClientsMap.values());
+
+            return (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                {/* Header Banner */}
+                <div className="bg-gradient-to-br from-[#2e004e] via-[#3b0361] to-[#4b0878] text-white rounded-3xl p-6 sm:p-8 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
+                  <div className="space-y-2">
+                    <span className="text-xs font-bold text-[#f9b900] uppercase tracking-wider block">
+                      Reputación y opiniones del negocio
+                    </span>
+                    <h2 className="text-2xl sm:text-3xl font-black text-white">
+                      Calificación del negocio
+                    </h2>
+                    <p className="text-xs sm:text-sm text-[#e3e0f1] max-w-xl">
+                      Gestiona las opiniones de tus clientes, comparte tu enlace público y solicita calificaciones fácilmente por WhatsApp tras cada visita completada.
+                    </p>
+                  </div>
+
+                  {/* Summary Score Card */}
+                  <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md px-5 py-4 rounded-2xl border border-white/20 shrink-0 self-start sm:self-auto">
+                    <div className="text-center">
+                      <span className="text-4xl sm:text-5xl font-black text-[#f9b900] block leading-none">
+                        {totalReviews > 0 ? avgRating : '—'}
+                      </span>
+                      <div className="flex items-center justify-center text-[#f9b900] text-sm mt-1">
+                        {[1, 2, 3, 4, 5].map((s) => (
+                          <span key={s} className={s <= Math.round(rawAvg) ? 'text-[#f9b900]' : 'text-white/30'}>
+                            ★
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="border-l border-white/20 pl-4 text-left">
+                      <span className="text-xs font-bold block text-white">
+                        {totalReviews > 0 ? `${avgRating} de 5 estrellas` : 'Sin reseñas'}
+                      </span>
+                      <span className="text-[11px] text-[#e3e0f1] block">
+                        {totalReviews === 1 ? '1 reseña recibida' : `${totalReviews} reseñas recibidas`}
+                      </span>
+                      <span className="text-[10px] text-emerald-300 font-bold block mt-0.5">
+                        {totalReviews > 0 ? '✓ Calificaciones reales' : 'Comparte tu enlace'}
+                      </span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="flex items-center gap-4 bg-white/10 backdrop-blur-md px-5 py-4 rounded-2xl border border-white/20 shrink-0 self-start sm:self-auto">
-                  <div className="text-center">
-                    <span className="text-4xl sm:text-5xl font-black text-[#f9b900] block leading-none">
-                      5.0
-                    </span>
-                    <div className="flex items-center justify-center text-[#f9b900] text-sm mt-1">
-                      <span>★</span><span>★</span><span>★</span><span>★</span><span>★</span>
+                {/* SECCIÓN A: RESUMEN DE CALIFICACIONES Y DISTRIBUCIÓN */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-6">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#cfc2d2]/30">
+                    <div className="flex items-center gap-2">
+                      <span className="w-8 h-8 rounded-xl bg-[#fff8e1] text-[#7a5900] flex items-center justify-center font-black text-sm">
+                        ★
+                      </span>
+                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
+                        Resumen de calificaciones
+                      </h3>
                     </div>
+                    <span className="text-xs font-bold text-[#7e7482]">
+                      {totalReviews === 1 ? '1 reseña en total' : `${totalReviews} reseñas en total`}
+                    </span>
                   </div>
-                  <div className="border-l border-white/20 pl-4 text-left">
-                    <span className="text-xs font-bold block text-white">Excelente</span>
-                    <span className="text-[11px] text-[#e3e0f1] block">
-                      Opiniones de clientes satisfechos
-                    </span>
-                    <span className="text-[10px] text-emerald-300 font-bold block mt-0.5">
-                      ✓ 100% satisfacción
-                    </span>
+
+                  {totalReviews === 0 ? (
+                    /* Estado vacío */
+                    <div className="text-center py-8 px-4 space-y-3">
+                      <div className="w-16 h-16 rounded-full bg-[#f5f2ff] text-[#2e004e] flex items-center justify-center mx-auto text-3xl shadow-2xs">
+                        <span className="material-symbols-outlined text-3xl">star_half</span>
+                      </div>
+                      <h4 className="text-base font-black text-[#1a1a26]">
+                        Aún no tienes calificaciones
+                      </h4>
+                      <p className="text-xs sm:text-sm text-[#7e7482] max-w-md mx-auto">
+                        Comparte tu enlace para comenzar a recibir opiniones de tus clientes.
+                      </p>
+                    </div>
+                  ) : (
+                    /* Distribución de estrellas real */
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
+                      <div className="text-center p-4 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/30">
+                        <span className="text-5xl font-black text-[#2e004e] block leading-none">
+                          {avgRating}
+                        </span>
+                        <div className="text-[#f9b900] text-xl my-1.5">
+                          {[1, 2, 3, 4, 5].map((s) => (
+                            <span key={s} className={s <= Math.round(rawAvg) ? 'text-[#f9b900]' : 'text-gray-300'}>
+                              ★
+                            </span>
+                          ))}
+                        </div>
+                        <span className="text-xs font-bold text-[#7e7482]">
+                          Promedio basado en {totalReviews} {totalReviews === 1 ? 'opinión' : 'opiniones'}
+                        </span>
+                      </div>
+
+                      <div className="md:col-span-2 space-y-2">
+                        {[5, 4, 3, 2, 1].map((star) => {
+                          const count = starCounts[star as 1 | 2 | 3 | 4 | 5];
+                          const percent = totalReviews > 0 ? Math.round((count / totalReviews) * 100) : 0;
+                          return (
+                            <div key={star} className="flex items-center gap-3 text-xs">
+                              <span className="font-bold text-[#1a1a26] w-12 flex items-center gap-0.5">
+                                <span>{star}</span>
+                                <span className="text-[#f9b900]">★</span>
+                              </span>
+                              <div className="flex-1 h-3 rounded-full bg-gray-100 overflow-hidden">
+                                <div
+                                  className="h-full bg-[#f9b900] rounded-full transition-all duration-500"
+                                  style={{ width: `${percent}%` }}
+                                />
+                              </div>
+                              <span className="text-[11px] text-[#7e7482] w-24 text-right">
+                                {count} {count === 1 ? 'reseña' : 'reseñas'} ({percent}%)
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* SECCIÓN: ENLACE PÚBLICO PARA RECIBIR CALIFICACIONES (REQUISITO 3 y 9) */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-lg text-[#2e004e]">link</span>
+                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
+                        Enlace para recibir calificaciones
+                      </h3>
+                    </div>
+                    <p className="text-xs text-[#7e7482]">
+                      Comparte este enlace con tus clientes para que puedan calificar tu negocio y dejar sus comentarios.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-[#fcf8ff] p-2.5 rounded-2xl border border-[#cfc2d2]/40">
+                    <input
+                      type="text"
+                      readOnly
+                      value={realReviewUrl}
+                      className="bg-transparent text-xs text-[#2e004e] font-mono px-3 py-2 flex-1 outline-none truncate"
+                    />
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleCopyReviewLink}
+                        className="flex-1 sm:flex-none px-4 py-2 bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                      >
+                        <span className="material-symbols-outlined text-sm">
+                          {isReviewLinkCopied ? 'check' : 'content_copy'}
+                        </span>
+                        <span>{isReviewLinkCopied ? '¡Copiado!' : 'Copiar enlace'}</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={handleShareGeneralReviewWhatsApp}
+                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1 shadow-xs"
+                        title="Compartir por WhatsApp"
+                      >
+                        <span className="material-symbols-outlined text-sm">chat</span>
+                        <span className="hidden sm:inline">WhatsApp</span>
+                      </button>
+
+                      <a
+                        href={realReviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/60 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1 shadow-xs"
+                        title="Abrir formulario para probarlo"
+                      >
+                        <span className="material-symbols-outlined text-sm">open_in_new</span>
+                        <span className="hidden sm:inline">Probar enlace</span>
+                      </a>
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Lista de Reseñas */}
-              <div className="space-y-3">
-                {(config.reviews || []).map((rev) => (
-                  <div key={rev.id} className="bg-white rounded-2xl p-4 shadow-sm border border-[#cfc2d2]/30 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-[#1a1a26]">{rev.clientName}</span>
-                        <span className="text-[11px] text-[#7e7482]">({rev.petName})</span>
-                      </div>
-                      <div className="flex items-center text-[#f9b900] text-xs font-bold">
-                        {'★'.repeat(rev.stars)}
-                      </div>
+                {/* SECCIÓN 6 & 7: SOLICITAR CALIFICACIONES A CLIENTES CON VISITAS COMPLETADAS */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-lg text-emerald-700">outgoing_mail</span>
+                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
+                        Solicitar calificaciones
+                      </h3>
                     </div>
-                    <p className="text-xs text-[#4c4451] italic">"{rev.comment}"</p>
-                    <div className="flex items-center justify-between text-[10px] text-[#7e7482] pt-1 border-t border-gray-100">
-                      <span>{rev.serviceName}</span>
-                      <span>{rev.date}</span>
-                    </div>
+                    <p className="text-xs text-[#7e7482]">
+                      Clientes que completaron un servicio o visita en tu negocio y están listos para recibir una solicitud de opinión por WhatsApp.
+                    </p>
                   </div>
-                ))}
+
+                  {eligibleClients.length === 0 ? (
+                    <div className="text-center py-6 px-4 bg-[#fcf8ff] rounded-2xl border border-dashed border-[#cfc2d2]/60 space-y-1.5">
+                      <span className="material-symbols-outlined text-2xl text-[#7e7482]">event_available</span>
+                      <p className="text-xs font-bold text-[#1a1a26]">
+                        No hay solicitudes pendientes en este momento
+                      </p>
+                      <p className="text-[11px] text-[#7e7482] max-w-sm mx-auto">
+                        A medida que completes citas en la Agenda, tus clientes aparecerán aquí para solicitarles su calificación.
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
+                      {eligibleClients.map((item) => (
+                        <div
+                          key={item.id}
+                          className="bg-[#fcf8ff] hover:bg-[#f5f2ff] rounded-2xl p-4 border border-[#cfc2d2]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                        >
+                          <div className="space-y-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs font-black text-[#1a1a26] truncate">
+                                {item.tutorName}
+                              </span>
+                              {item.petName && (
+                                <span className="text-[11px] text-[#7e7482] bg-white px-2 py-0.5 rounded-full border border-[#cfc2d2]/30 shrink-0">
+                                  🐶 {item.petName}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#7e7482]">
+                              {item.phone && (
+                                <span className="flex items-center gap-1">
+                                  <span className="material-symbols-outlined text-xs">call</span>
+                                  <span>{item.phone}</span>
+                                </span>
+                              )}
+                              <span>Última visita: {item.lastVisitDate}</span>
+                            </div>
+
+                            <div className="pt-0.5">
+                              {item.state === 'calificado' ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                  <span className="material-symbols-outlined text-xs">check</span>
+                                  <span>Calificación recibida</span>
+                                </span>
+                              ) : item.state === 'iniciada' ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
+                                  <span className="material-symbols-outlined text-xs">schedule</span>
+                                  <span>Solicitud iniciada</span>
+                                </span>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#2e004e] bg-[#f5f2ff] px-2 py-0.5 rounded-full">
+                                  <span className="material-symbols-outlined text-xs">pending</span>
+                                  <span>Pendiente de solicitar</span>
+                                </span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                            {item.state !== 'calificado' && (
+                              <button
+                                type="button"
+                                onClick={() => handleRequestReviewViaWhatsApp(item)}
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
+                                title="Abrir WhatsApp con mensaje personalizado"
+                              >
+                                <span className="material-symbols-outlined text-sm">chat</span>
+                                <span>Solicitar por WhatsApp</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={handleCopyReviewLink}
+                              className="p-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/40 rounded-xl text-xs font-bold active:scale-95 transition-all cursor-pointer shadow-xs"
+                              title="Copiar enlace"
+                            >
+                              <span className="material-symbols-outlined text-sm">content_copy</span>
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* SECCIÓN B: LISTA DE RESEÑAS RECIBIDAS (ORDENADAS DE RECIENTE A ANTIGUA) */}
+                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
+                  <div className="flex items-center justify-between pb-3 border-b border-[#cfc2d2]/30">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-lg text-[#2e004e]">reviews</span>
+                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
+                        Lista de reseñas recibidas
+                      </h3>
+                    </div>
+                    <span className="text-xs text-[#7e7482]">
+                      {totalReviews === 1 ? '1 opinión' : `${totalReviews} opiniones`}
+                    </span>
+                  </div>
+
+                  {totalReviews === 0 ? (
+                    <div className="text-center py-8 text-xs text-[#7e7482]">
+                      No hay comentarios ni reseñas todavía.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {reviewsList.map((rev) => (
+                        <div
+                          key={rev.id}
+                          className="bg-[#fcf8ff] rounded-2xl p-4 sm:p-5 border border-[#cfc2d2]/30 space-y-2 hover:border-[#2e004e]/30 transition-colors"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs sm:text-sm font-black text-[#1a1a26]">
+                                  {rev.clientName}
+                                </span>
+                                {rev.petName && (
+                                  <span className="text-[11px] text-[#7e7482] font-semibold">
+                                    ({rev.petName})
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-[10px] text-[#7e7482] block mt-0.5">
+                                {rev.date}
+                              </span>
+                            </div>
+
+                            <div className="flex items-center text-[#f9b900] text-sm shrink-0">
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <span key={s} className={s <= rev.stars ? 'text-[#f9b900]' : 'text-gray-300'}>
+                                  ★
+                                </span>
+                              ))}
+                            </div>
+                          </div>
+
+                          {rev.comment ? (
+                            <p className="text-xs text-[#4c4451] leading-relaxed italic bg-white p-3 rounded-xl border border-[#cfc2d2]/20">
+                              "{rev.comment}"
+                            </p>
+                          ) : null}
+
+                          {rev.serviceName && (
+                            <div className="flex items-center text-[10px] text-[#7e7482] pt-1">
+                              <span>Servicio: <strong>{rev.serviceName}</strong></span>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {/* SUB-SECCIÓN 3: MIS CLIENTES */}
           {selectedSection === 'clientes' && (

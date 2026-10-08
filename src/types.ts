@@ -63,13 +63,29 @@ export interface BusinessAccountData {
 
 export interface ClientReview {
   id: string;
+  businessId?: string;
   clientName: string;
-  petName: string;
-  serviceName: string;
+  petName?: string;
+  serviceName?: string;
   stars: number; // 1 to 5
-  comment: string;
-  date: string; // e.g. "14 Octubre 2024"
-  verified: boolean;
+  comment?: string;
+  date: string; // formatted date or ISO
+  createdAt?: string; // ISO timestamp
+  verified?: boolean;
+  tutorPhone?: string;
+}
+
+export type ReviewRequestState = 'pendiente' | 'iniciada' | 'calificado';
+
+export interface ReviewRequestStatus {
+  id: string; // appointment id or unique key
+  tutorName: string;
+  petName?: string;
+  phone: string;
+  rawPhone: string;
+  lastVisitDate: string;
+  state: ReviewRequestState;
+  requestedAt?: string;
 }
 
 export interface ServicePricingBySize {
@@ -145,6 +161,7 @@ export interface SalonConfig {
   staffMembers?: StaffMember[];
   staffScheduleConfig?: StaffScheduleConfig;
   reviews?: ClientReview[];
+  reviewRequests?: Record<string, { state: ReviewRequestState; requestedAt?: string }>;
   morningOpen: string; // e.g. '08:00'
   morningClose: string; // e.g. '12:30'
   afternoonOpen: string; // e.g. '14:00'

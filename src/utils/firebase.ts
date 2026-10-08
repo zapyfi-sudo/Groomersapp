@@ -14,7 +14,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import firebaseConfigRaw from '../../firebase-applet-config.json';
-import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct } from '../types';
+import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState } from '../types';
 import { slugify, cleanSlugInput, extractSlugOnly } from './slugUtils';
 
 const firebaseConfig = {
@@ -432,10 +432,29 @@ export async function getBusinessFromFirestore(
       }
     } catch {}
 
-    const config = {
+    // Read reviews from subcollection
+    let reviews: ClientReview[] = b.config?.reviews || [];
+    try {
+      const subReviewsSnap = await getDocs(collection(db, 'businesses', targetBizId, 'reviews'));
+      if (!subReviewsSnap.empty) {
+        const revMap = new Map<string, ClientReview>();
+        for (const r of reviews) {
+          if (r?.id) revMap.set(r.id, r);
+        }
+        subReviewsSnap.forEach((d) => {
+          const r = d.data() as ClientReview;
+          if (r?.id) revMap.set(r.id, r);
+        });
+        reviews = Array.from(revMap.values());
+        reviews.sort((x, y) => (y.createdAt || y.date || '').localeCompare(x.createdAt || x.date || ''));
+      }
+    } catch {}
+
+    const config: SalonConfig = {
       ...b.config,
       id: b.businessId,
-      services
+      services,
+      reviews
     };
 
     return {
@@ -630,3 +649,124 @@ export async function updateAppointmentInFirestore(
     return false;
   }
 }
+
+/**
+ * Persists a new client review to Firestore under businesses/{businessId}/reviews/{reviewId}
+ * and atomically updates the parent business document.
+ */
+export async function addReviewToFirestore(
+  businessId: string,
+  review: ClientReview
+): Promise<boolean> {
+  if (!businessId || !review) return false;
+  try {
+    const now = new Date().toISOString();
+    const cleanReview: ClientReview = {
+      ...review,
+      id: review.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      businessId,
+      createdAt: review.createdAt || now,
+      verified: review.verified !== false
+    };
+
+    // 1. Save in subcollection
+    const revRef = doc(db, 'businesses', businessId, 'reviews', cleanReview.id);
+    await setDoc(revRef, cleanFirestoreData(cleanReview));
+
+    // 2. Also append/merge in parent business config.reviews
+    const bizRef = doc(db, 'businesses', businessId);
+    const bizSnap = await getDoc(bizRef);
+    if (bizSnap.exists()) {
+      const bizData = bizSnap.data();
+      const currentConfig = bizData?.config || {};
+      const existingReviews: ClientReview[] = currentConfig.reviews || [];
+      const updatedReviews = [cleanReview, ...existingReviews.filter((r) => r.id !== cleanReview.id)];
+      await setDoc(
+        bizRef,
+        cleanFirestoreData({
+          config: {
+            ...currentConfig,
+            reviews: updatedReviews
+          }
+        }),
+        { merge: true }
+      );
+    }
+
+    console.log(`[FIRESTORE REVIEW SUCCESS] Review saved for business ${businessId} from ${cleanReview.clientName}`);
+    return true;
+  } catch (err) {
+    console.error('[FIRESTORE REVIEW ERROR]', err);
+    return false;
+  }
+}
+
+/**
+ * Subscribes to reviews in real-time from Firestore.
+ */
+export function subscribeToBusinessReviews(
+  businessId: string,
+  onUpdate: (reviews: ClientReview[]) => void
+): () => void {
+  if (!businessId) return () => {};
+
+  try {
+    const q = collection(db, 'businesses', businessId, 'reviews');
+    return onSnapshot(
+      q,
+      (snapshot) => {
+        const list: ClientReview[] = [];
+        snapshot.forEach((d) => {
+          list.push(d.data() as ClientReview);
+        });
+        list.sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn('[FIRESTORE REVIEWS LISTENER ERROR]', err);
+      }
+    );
+  } catch (err) {
+    console.warn('[FIRESTORE SUBSCRIBE REVIEWS ERROR]', err);
+    return () => {};
+  }
+}
+
+/**
+ * Updates a review request state (e.g. 'pendiente', 'iniciada', 'calificado')
+ */
+export async function updateReviewRequestStateInFirestore(
+  businessId: string,
+  requestId: string,
+  state: ReviewRequestState
+): Promise<boolean> {
+  if (!businessId || !requestId) return false;
+  try {
+    const bizRef = doc(db, 'businesses', businessId);
+    const bizSnap = await getDoc(bizRef);
+    if (bizSnap.exists()) {
+      const bizData = bizSnap.data();
+      const currentConfig = bizData?.config || {};
+      const requests = currentConfig.reviewRequests || {};
+      requests[requestId] = {
+        state,
+        requestedAt: new Date().toISOString()
+      };
+      await setDoc(
+        bizRef,
+        cleanFirestoreData({
+          config: {
+            ...currentConfig,
+            reviewRequests: requests
+          }
+        }),
+        { merge: true }
+      );
+    }
+    return true;
+  } catch (err) {
+    console.warn('[FIRESTORE REVIEW REQUEST STATE ERROR]', err);
+    return false;
+  }
+}
+
