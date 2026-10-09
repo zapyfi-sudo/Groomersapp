@@ -2,6 +2,17 @@ import { jsPDF } from 'jspdf';
 import { Pet, Visit, SalonConfig } from '../types';
 
 /**
+ * Strips technical IDs, hashtags and database identifiers from display names
+ */
+export function cleanPetDisplayName(name?: string): string {
+  if (!name || !name.trim()) return 'Mascota';
+  return name
+    .replace(/\s*[\(\[]\s*#?[A-Za-z0-9_-]+\s*[\)\]]/g, '')
+    .replace(/\s*#[A-Za-z0-9_-]+/g, '')
+    .trim() || name.trim() || 'Mascota';
+}
+
+/**
  * Converts an image URL (dataURL or HTTP URL) into a base64 data URL
  * safely handling CORS and loading errors.
  */
@@ -146,10 +157,11 @@ export async function generatePetReportPdf({
 
   let curY = 46;
 
-  // Section 1: Pet & Tutor Info Card
+  // Section 1: Pet & Tutor Info Card (with Session Mood Traffic Light)
+  const petDisplayName = cleanPetDisplayName(pet.name);
   doc.setFillColor(...bgLight);
   doc.setDrawColor(...borderLight);
-  doc.roundedRect(margin, curY, contentWidth, 38, 3, 3, 'FD');
+  doc.roundedRect(margin, curY, contentWidth, 40, 3, 3, 'FD');
 
   // Title of card
   doc.setTextColor(...purpleMedium);
@@ -161,13 +173,13 @@ export async function generatePetReportPdf({
   doc.setDrawColor(...borderLight);
   doc.line(margin + 5, curY + 8.5, margin + contentWidth - 5, curY + 8.5);
 
-  // Left col: Pet
+  // Left col: Pet (Requirement #2: ONLY real name, NO technical identifiers like #pet-5959)
   doc.setFontSize(8.5);
   doc.setTextColor(...textMuted);
   doc.text('Mascota:', margin + 5, curY + 14);
   doc.setTextColor(...textDark);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${pet.name} (${pet.id})`, margin + 24, curY + 14);
+  doc.text(petDisplayName, margin + 24, curY + 14);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...textMuted);
@@ -186,8 +198,8 @@ export async function generatePetReportPdf({
   doc.setFont('helvetica', 'bold');
   doc.text(`${pet.weightKg || 10} kg`, margin + 24, curY + 32);
 
-  // Right col: Tutor & Behavior
-  const midX = margin + contentWidth / 2 + 5;
+  // Right col: Tutor & Session Mood (Requirement #1: Semáforo del comportamiento de la sesión)
+  const midX = margin + contentWidth / 2 + 3;
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...textMuted);
   doc.text('Tutor:', midX, curY + 14);
@@ -201,26 +213,64 @@ export async function generatePetReportPdf({
   doc.setTextColor(...textDark);
   doc.text(pet.tutor.phone || 'No registrado', midX + 16, curY + 20);
 
+  // SEMÁFORO DE COMPORTAMIENTO EN ESTA SESIÓN (Requirement #1)
   doc.setTextColor(...textMuted);
   doc.text('Comportamiento:', midX, curY + 26);
-  doc.setTextColor(...textDark);
-  const moodLabel =
-    visit.mood === 'tranquilo'
-      ? 'Tranquilo / Colaborador'
-      : visit.mood === 'inquieto'
-      ? 'Inquieto'
-      : 'Difícil / Cuidados especiales';
-  doc.text(moodLabel, midX + 27, curY + 26);
 
-  if (pet.healthAllergies && pet.healthAllergies !== 'Sin afecciones registradas.') {
-    doc.setTextColor(...textMuted);
-    doc.text('Piel / Salud:', midX, curY + 32);
-    doc.setTextColor(186, 26, 26);
-    doc.setFont('helvetica', 'bold');
-    doc.text(pet.healthAllergies.slice(0, 36), midX + 20, curY + 32);
+  const sessionMood = visit.mood;
+  let moodLabel = 'Sin registrar';
+  let dotColor: [number, number, number] = [150, 150, 160];
+  let badgeBg: [number, number, number] = [240, 240, 245];
+  let badgeTextColor: [number, number, number] = [90, 90, 100];
+
+  if (sessionMood === 'tranquilo') {
+    moodLabel = 'Tranquilo';
+    dotColor = [22, 163, 74]; // Verde
+    badgeBg = [220, 252, 231];
+    badgeTextColor = [21, 128, 61];
+  } else if (sessionMood === 'inquieto') {
+    moodLabel = 'Inquieto';
+    dotColor = [217, 119, 6]; // Amarillo / Ámbar
+    badgeBg = [254, 243, 199];
+    badgeTextColor = [180, 83, 9];
+  } else if (sessionMood === 'dificil') {
+    moodLabel = 'Difícil';
+    dotColor = [220, 38, 38]; // Rojo
+    badgeBg = [254, 226, 226];
+    badgeTextColor = [185, 28, 28];
   }
 
-  curY += 43;
+  // Draw pill badge for traffic light
+  const badgeX = midX + 27;
+  const badgeY = curY + 22.2;
+  const badgeWidth = 27;
+  const badgeHeight = 5.4;
+  doc.setFillColor(...badgeBg);
+  doc.setDrawColor(...dotColor);
+  doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 1.4, 1.4, 'FD');
+
+  // Traffic light circle
+  doc.setFillColor(...dotColor);
+  doc.circle(badgeX + 3.5, badgeY + badgeHeight / 2, 1.5, 'F');
+
+  // Badge text
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(7.5);
+  doc.setTextColor(...badgeTextColor);
+  doc.text(moodLabel, badgeX + 7.2, badgeY + 3.9);
+
+  // Salud / Piel si existe
+  if (pet.healthAllergies && pet.healthAllergies !== 'Sin afecciones registradas.') {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.5);
+    doc.setTextColor(...textMuted);
+    doc.text('Piel / Salud:', midX, curY + 33);
+    doc.setTextColor(186, 26, 26);
+    doc.setFont('helvetica', 'bold');
+    doc.text(pet.healthAllergies.slice(0, 38), midX + 20, curY + 33);
+  }
+
+  curY += 45;
 
   // Section 2: Services Performed & Price
   doc.setFillColor(...bgLight);
@@ -255,19 +305,19 @@ export async function generatePetReportPdf({
   doc.setFontSize(10);
   doc.text(priceFormatted, pageWidth - margin - 27.5, curY + 19, { align: 'center' });
 
-  // Notes / Observations if present
+  // Session Notes
   if (visit.notes || pet.handlingObservations) {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...textMuted);
-    doc.text('Observaciones:', margin + 5, curY + 23);
+    doc.text('Notas sesión:', margin + 5, curY + 23);
     doc.setTextColor(...textDark);
     const obsText = visit.notes || pet.handlingObservations || 'Sin observaciones adicionales.';
-    doc.text(obsText.slice(0, 75), margin + 28, curY + 23);
+    doc.text(obsText.slice(0, 75), margin + 26, curY + 23);
   }
 
   curY += 37;
 
-  // Section 3: Before & After Photos (CRITICAL)
+  // Section 3: Before & After Photos (Requirement #3: Corregir posicionamiento y márgenes de etiquetas)
   doc.setFillColor(...bgLight);
   doc.setDrawColor(...borderLight);
   const photoCardHeight = 98;
@@ -307,13 +357,15 @@ export async function generatePetReportPdf({
     doc.text('Sin fotografía de antes registrada', beforeX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
   }
 
-  // Label "ANTES DEL SERVICIO"
+  // Label "ANTES DEL SERVICIO" (Requirement #3: margen interior adecuado, sin desbordamiento)
+  const beforeLabelWidth = 42;
+  const beforeLabelHeight = 6.4;
   doc.setFillColor(...purplePrimary);
-  doc.roundedRect(beforeX + 3, photoY + 3, 38, 6, 1, 1, 'F');
+  doc.roundedRect(beforeX + 3, photoY + 3, beforeLabelWidth, beforeLabelHeight, 1.4, 1.4, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text('ANTES DEL SERVICIO', beforeX + 22, photoY + 7.2, { align: 'center' });
+  doc.setFontSize(7.2);
+  doc.text('ANTES DEL SERVICIO', beforeX + 3 + beforeLabelWidth / 2, photoY + 3 + beforeLabelHeight / 2 + 1, { align: 'center' });
 
   // Right Photo: Después
   const afterX = margin + 5 + photoWidth + 6;
@@ -337,13 +389,15 @@ export async function generatePetReportPdf({
     doc.text('Sin fotografía de después registrada', afterX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
   }
 
-  // Label "DESPUÉS DEL SERVICIO ✨"
+  // Label "DESPUÉS DEL SERVICIO" (Requirement #3: ancho suficiente, centrado, con margen interior adecuado)
+  const afterLabelWidth = 46;
+  const afterLabelHeight = 6.4;
   doc.setFillColor(...goldAccent);
-  doc.roundedRect(afterX + 3, photoY + 3, 42, 6, 1, 1, 'F');
+  doc.roundedRect(afterX + 3, photoY + 3, afterLabelWidth, afterLabelHeight, 1.4, 1.4, 'F');
   doc.setTextColor(38, 25, 0);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(7);
-  doc.text('DESPUÉS DEL SERVICIO ✨', afterX + 24, photoY + 7.2, { align: 'center' });
+  doc.setFontSize(7.2);
+  doc.text('DESPUÉS DEL SERVICIO', afterX + 3 + afterLabelWidth / 2, photoY + 3 + afterLabelHeight / 2 + 1, { align: 'center' });
 
   // Photo card footer text
   doc.setFont('helvetica', 'normal');
@@ -353,30 +407,52 @@ export async function generatePetReportPdf({
 
   curY += photoCardHeight + 5;
 
-  // Section 4: Return Recommendation & Next Appointment
+  // Section 4: Return Recommendation & Groomer Care Recommendations (Requirement #4 & #5)
   const intervalWeeks = visit.nextRecommendedWeeks || pet.recommendedIntervalWeeks || 4;
+  const customRecommendations = (visit.careRecommendations || pet.careRecommendations || '').trim();
+
+  // Split custom recommendations into lines if present
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8);
+  const recLines = customRecommendations
+    ? doc.splitTextToSize(customRecommendations, contentWidth - 10)
+    : [];
+
+  const recBoxHeight = Math.max(26, 16 + (recLines.length > 0 ? recLines.length * 4.2 : 5) + (nextVisitDateStr ? 6 : 0));
+
   doc.setFillColor(255, 250, 235); // soft gold/amber bg
   doc.setDrawColor(245, 200, 100);
-  doc.roundedRect(margin, curY, contentWidth, 26, 3, 3, 'FD');
+  doc.roundedRect(margin, curY, contentWidth, recBoxHeight, 3, 3, 'FD');
 
   doc.setTextColor(130, 80, 0);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('RECOMENDACIÓN DE CUIDADO Y PRÓXIMA VISITA', margin + 5, curY + 6);
+  doc.text('RECOMENDACIONES DE CUIDADO Y PRÓXIMA VISITA', margin + 5, curY + 6);
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
-  doc.setTextColor(...textDark);
-  doc.text(
-    `Para conservar la salud del manto y prevenir nudos o dermatitis, sugerimos regresar cada ${intervalWeeks} semanas.`,
-    margin + 5,
-    curY + 12
-  );
+  let currentTextY = curY + 12;
 
+  // Requirement #5: Show real groomer recommendations, NOT generic fixed text
+  if (recLines.length > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...textDark);
+    doc.text(recLines, margin + 5, currentTextY);
+    currentTextY += recLines.length * 4.2 + 2;
+  } else {
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8);
+    doc.setTextColor(...textDark);
+    const defaultAdvice = 'Para conservar la salud del manto y prevenir nudos o dermatitis sugerimos cepillado frecuente y seguir las pautas de higiene.';
+    doc.text(defaultAdvice, margin + 5, currentTextY);
+    currentTextY += 5.5;
+  }
+
+  // Next recommended appointment calculation
   if (nextVisitDateStr) {
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
     doc.setTextColor(...purplePrimary);
-    doc.text(`Próxima visita sugerida: ${nextVisitDateStr} (en ${intervalWeeks} semanas)`, margin + 5, curY + 18);
+    doc.text(`Próxima visita sugerida: ${nextVisitDateStr} (en ${intervalWeeks} semanas)`, margin + 5, currentTextY);
   }
 
   // Footer Disclaimer
@@ -386,7 +462,7 @@ export async function generatePetReportPdf({
   const footerText = `¡Gracias por confiar en ${salonName}! Ficha oficial generada el ${new Date().toLocaleDateString('es-ES')}.`;
   doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: 'center' });
 
-  const safePetName = pet.name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const safePetName = petDisplayName.replace(/[^a-zA-Z0-9_-]/g, '_');
   const filename = `Ficha_${safePetName}_${new Date().toISOString().slice(0, 10)}.pdf`;
   const blob = doc.output('blob');
 

@@ -25,6 +25,9 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
   const [habitualMood, setHabitualMood] = useState<BehaviorMood>(pet.habitualMood);
   const [healthAllergies, setHealthAllergies] = useState(pet.healthAllergies);
   const [handlingObservations, setHandlingObservations] = useState(pet.handlingObservations);
+  const [careRecommendations, setCareRecommendations] = useState(
+    pet.careRecommendations || pet.lastVisit?.careRecommendations || ''
+  );
 
   if (!isOpen) return null;
 
@@ -46,7 +49,8 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
       },
       habitualMood,
       healthAllergies,
-      handlingObservations
+      handlingObservations,
+      careRecommendations: careRecommendations.trim() || undefined
     });
     onClose();
   };
@@ -243,6 +247,24 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
               onChange={(e) => setHandlingObservations(e.target.value)}
               className="w-full bg-white text-[#1a1a26] text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
               placeholder="Detalla qué le molesta, cuidados con secador, tijeras o extremidades..."
+            />
+          </div>
+
+          {/* Care Recommendations */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-bold text-[#2e004e] uppercase tracking-wider flex items-center gap-1">
+                <span className="material-symbols-outlined text-sm text-[#7a5900]">tips_and_updates</span>
+                Recomendaciones de Cuidado
+              </label>
+              <span className="text-[10px] text-[#7e7482]">Visible en Ficha PDF y WhatsApp</span>
+            </div>
+            <textarea
+              rows={2}
+              value={careRecommendations}
+              onChange={(e) => setCareRecommendations(e.target.value)}
+              className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
+              placeholder="Recomendaciones personalizadas del groomer para el tutor (manto, cepillado, productos)..."
             />
           </div>
 

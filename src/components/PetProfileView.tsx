@@ -5,7 +5,7 @@ import { WhatsAppShareModal } from './WhatsAppShareModal';
 import { EditPetModal } from './EditPetModal';
 import { PhotoUploadModal } from './PhotoUploadModal';
 import { formatDateSpanish } from '../utils/storage';
-import { downloadPetReportPdf } from '../utils/pdfGenerator';
+import { downloadPetReportPdf, cleanPetDisplayName } from '../utils/pdfGenerator';
 
 interface PetProfileViewProps {
   pet: Pet;
@@ -110,11 +110,11 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     setCustomPrice(computedTotalPrice);
   }, [computedTotalPrice]);
 
-  // Comportamiento de la sesión
-  const [sessionMood, setSessionMood] = useState<BehaviorMood>(pet.habitualMood || 'tranquilo');
+  // Comportamiento de la sesión (No deducir del habitual ni predeterminar Tranquilo si no se ha registrado)
+  const [sessionMood, setSessionMood] = useState<BehaviorMood | undefined>(undefined);
 
   // Fotografías de antes y después
-  // Connects with public booking photo if submitted (Requirement #2)
+  // Connects with public booking photo if submitted
   const initialBeforePhoto =
     pet.lastVisit?.photos?.beforeUrl ||
     (scheduledAppointment as any)?.beforePhotoUrl ||
@@ -130,10 +130,20 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     }
   }, [initialBeforePhoto, beforePhoto]);
 
-  // Notas de la sesión
-  const [sessionNotes, setSessionNotes] = useState<string>('');
+  // Notas generales de la sesión
+  const [sessionNotes, setSessionNotes] = useState<string>(pet.lastVisit?.notes || '');
   const [sessionHealthNotes, setSessionHealthNotes] = useState<string>('');
   const [sessionHandlingNotes, setSessionHandlingNotes] = useState<string>('');
+
+  // Recomendaciones de cuidado personalizadas del groomer (Requirement #4)
+  const [careRecommendations, setCareRecommendations] = useState<string>(
+    pet.lastVisit?.careRecommendations || pet.careRecommendations || ''
+  );
+
+  // Sincronizar recomendaciones cuando cambia la mascota
+  useEffect(() => {
+    setCareRecommendations(pet.lastVisit?.careRecommendations || pet.careRecommendations || '');
+  }, [pet.id, pet.lastVisit?.careRecommendations, pet.careRecommendations]);
 
   // Intervalo de retorno (Por volver)
   const [selectedInterval, setSelectedInterval] = useState<number | 'custom'>(
@@ -216,6 +226,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       mood: sessionMood,
       paid: true,
       notes: sessionNotes.trim() || undefined,
+      careRecommendations: careRecommendations.trim() || undefined,
       healthNotes: sessionHealthNotes.trim() || undefined,
       handlingNotes: sessionHandlingNotes.trim() || undefined,
       photos: {
@@ -232,6 +243,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       const updatedHistory = [newVisit, ...(pet.visitHistory || [])];
       onUpdatePet({
         ...pet,
+        careRecommendations: careRecommendations.trim() || undefined,
         lastVisit: newVisit,
         visitHistory: updatedHistory,
         recommendedIntervalWeeks: weeksToReturn
@@ -250,6 +262,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
 
     onUpdatePet({
       ...pet,
+      careRecommendations: careRecommendations.trim() || pet.careRecommendations || undefined,
       recommendedIntervalWeeks: weeks
     });
 
@@ -260,7 +273,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   const handleOpenPhotoModal = (target: 'before' | 'after' | 'avatar') => {
     const titles = {
       before: 'Foto Antes del Servicio',
-      after: 'Foto Después del Servicio ✨',
+      after: 'Foto Después del Servicio',
       avatar: `Foto de Perfil de ${pet.name}`
     };
     setPhotoModalConfig({
@@ -274,7 +287,6 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   const handleSelectPhoto = (url: string) => {
     if (photoModalConfig.targetType === 'before') {
       setBeforePhoto(url);
-      // Immediately persist to pet.lastVisit so photo survives reloads immediately
       const updatedVisit: Visit = {
         ...(pet.lastVisit || {
           id: `v-${Date.now()}`,
@@ -343,6 +355,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       mood: sessionMood,
       paid: true,
       notes: sessionNotes || pet.lastVisit?.notes,
+      careRecommendations: careRecommendations.trim() || pet.lastVisit?.careRecommendations || pet.careRecommendations,
       photos: {
         beforeUrl: beforePhoto || pet.lastVisit?.photos?.beforeUrl,
         afterUrl: afterPhoto || pet.lastVisit?.photos?.afterUrl
@@ -352,7 +365,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
 
     try {
       const filename = await downloadPetReportPdf({
-        pet,
+        pet: {
+          ...pet,
+          careRecommendations: careRecommendations.trim() || pet.careRecommendations
+        },
         visit: activeVisit,
         salonConfig,
         nextVisitDateStr: nextVisitFormatted
@@ -843,12 +859,30 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 rows={2}
                 value={sessionNotes}
                 onChange={(e) => setSessionNotes(e.target.value)}
-                placeholder="Escribe observaciones sobre el manto, nudos, corte o recomendaciones..."
+                placeholder="Escribe observaciones sobre el manto, nudos, corte o detalles del estilista..."
                 className="w-full bg-[#f5f2ff] text-[#1a1a26] text-xs p-3 rounded-xl outline-none resize-none border border-[#cfc2d2]/20"
               />
             </div>
 
-            {/* 6. Carga de Fotos del Servicio (Antes y Después - Requirement #3) */}
+            {/* 6. Recomendaciones de cuidado para el tutor (Requirement #4) */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-bold text-[#2e004e] flex items-center gap-1.5">
+                  <span className="material-symbols-outlined text-sm text-[#7a5900]">tips_and_updates</span>
+                  <span>Recomendaciones de cuidado para el tutor</span>
+                </label>
+                <span className="text-[11px] text-[#7e7482]">Se incluirán en la ficha PDF y WhatsApp</span>
+              </div>
+              <textarea
+                rows={2}
+                value={careRecommendations}
+                onChange={(e) => setCareRecommendations(e.target.value)}
+                placeholder="Escribe recomendaciones personalizadas para el tutor (ej: cepillar manto 2 veces por semana, secar bien almohadillas tras paseo, usar champú hidratante)..."
+                className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs p-3 rounded-xl outline-none resize-none border border-[#cfc2d2]/40 focus:border-[#4b0878]"
+              />
+            </div>
+
+            {/* 7. Carga de Fotos del Servicio (Antes y Después - Requirement #3) */}
             <div className="space-y-2 pt-1">
               <label className="text-xs font-bold text-[#4c4451] flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-[#2e004e] text-base">photo_camera</span>
@@ -893,7 +927,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 <div className="bg-[#f5f2ff] rounded-2xl p-2.5 flex flex-col gap-2 border border-[#cfc2d2]/30">
                   <div className="flex items-center justify-between">
                     <span className="text-xs font-bold text-[#2e004e]">Foto Después</span>
-                    <span className="text-[10px] text-[#7a5900] font-bold">✨ Final</span>
+                    <span className="text-[10px] text-[#7a5900] font-bold">Final</span>
                   </div>
 
                   <div
@@ -922,7 +956,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </div>
             </div>
 
-            {/* 7. Entrega de Mascota al Tutor: PDF & WhatsApp (Requirement #5 & #6) */}
+            {/* 8. Entrega de Mascota al Tutor: PDF & WhatsApp (Requirement #5 & #6) */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#f9b900]/15 to-[#ffdea1]/30 border border-[#f9b900]/40 flex flex-col gap-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-[#1a1a26] flex items-center gap-1.5">
@@ -966,7 +1000,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </div>
             </div>
 
-            {/* 8. Botón Guardar Visita */}
+            {/* 9. Botón Guardar Visita */}
             <button
               type="button"
               onClick={handleSaveVisit}
@@ -1064,7 +1098,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       <WhatsAppShareModal
         isOpen={isShareModalOpen}
         onClose={() => setIsShareModalOpen(false)}
-        pet={pet}
+        pet={{
+          ...pet,
+          careRecommendations: careRecommendations.trim() || pet.careRecommendations
+        }}
         visit={{
           id: pet.lastVisit?.id || 'temp',
           date: formatDateSpanish(new Date()),
@@ -1074,6 +1111,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
           currency,
           mood: sessionMood,
           paid: true,
+          careRecommendations: careRecommendations.trim() || pet.lastVisit?.careRecommendations || pet.careRecommendations,
           photos: {
             beforeUrl: beforePhoto,
             afterUrl: afterPhoto

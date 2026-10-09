@@ -18,9 +18,10 @@ export interface Visit {
   services?: VisitServiceItem[]; // List of services performed (main + additional)
   price: number;
   currency: string;
-  mood: BehaviorMood;
+  mood?: BehaviorMood;
   paid: boolean;
   notes?: string;
+  careRecommendations?: string;
   healthNotes?: string;
   handlingNotes?: string;
   photos: VisitPhoto;
@@ -44,6 +45,7 @@ export interface Pet {
   habitualMood: BehaviorMood;
   healthAllergies: string;
   handlingObservations: string;
+  careRecommendations?: string;
   lastVisit: Visit;
   visitHistory: Visit[];
   recommendedIntervalWeeks: number | string;

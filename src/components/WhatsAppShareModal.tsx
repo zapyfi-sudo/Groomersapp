@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Pet, Visit, SalonConfig } from '../types';
-import { downloadPetReportPdf, generatePetReportPdf } from '../utils/pdfGenerator';
+import { downloadPetReportPdf, generatePetReportPdf, cleanPetDisplayName } from '../utils/pdfGenerator';
 import { formatDateSpanish } from '../utils/storage';
 
 interface WhatsAppShareModalProps {
@@ -29,13 +29,25 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   returnDate.setDate(returnDate.getDate() + Number(returnWeeks) * 7);
   const nextVisitFormatted = formatDateSpanish(returnDate);
 
-  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${pet.name} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: $${Number(visit.price || 0).toLocaleString()} ${currency}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${pet.name} en nosotros! Te esperamos pronto.`;
+  const customRecommendations = (visit.careRecommendations || pet.careRecommendations || '').trim();
+  const recLine = customRecommendations
+    ? `\n• Recomendaciones de cuidado: ${customRecommendations}`
+    : '';
+
+  const petDisplayName = cleanPetDisplayName(pet.name);
+
+  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${petDisplayName} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: $${Number(visit.price || 0).toLocaleString()} ${currency}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}${recLine}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${petDisplayName} en nosotros! Te esperamos pronto.`;
 
   const [messageText, setMessageText] = useState<string>(initialMsg);
   const [copied, setCopied] = useState(false);
   const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [pdfDownloaded, setPdfDownloaded] = useState(false);
   const [downloadedFilename, setDownloadedFilename] = useState<string | null>(null);
+
+  // Sync initial message if visit recommendations change
+  useEffect(() => {
+    setMessageText(initialMsg);
+  }, [visit.careRecommendations, pet.careRecommendations, visit.serviceName, visit.price]);
 
   if (!isOpen) return null;
 
@@ -150,7 +162,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                     <span>Sin foto antes</span>
                   </div>
                 )}
-                <span className="absolute top-1.5 left-1.5 bg-[#2e004e] text-white text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs">
+                <span className="absolute top-1.5 left-1.5 bg-[#2e004e] text-white text-[9px] font-bold px-2 py-0.5 rounded shadow-xs">
                   Antes
                 </span>
               </div>
@@ -168,8 +180,8 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                     <span>Sin foto después</span>
                   </div>
                 )}
-                <span className="absolute top-1.5 left-1.5 bg-[#f9b900] text-[#261900] text-[9px] font-bold px-1.5 py-0.5 rounded shadow-xs">
-                  Después ✨
+                <span className="absolute top-1.5 left-1.5 bg-[#f9b900] text-[#261900] text-[9px] font-bold px-2 py-0.5 rounded shadow-xs">
+                  Después
                 </span>
               </div>
             </div>
@@ -192,6 +204,19 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                   Cada {returnWeeks} semanas ({nextVisitFormatted})
                 </span>
               </div>
+
+              {/* Groomer care recommendations */}
+              {customRecommendations && (
+                <div className="pt-1 border-t border-[#cfc2d2]/30 flex flex-col gap-0.5">
+                  <span className="text-[#7a5900] font-bold flex items-center gap-1">
+                    <span className="material-symbols-outlined text-xs">tips_and_updates</span>
+                    <span>Recomendaciones de cuidado:</span>
+                  </span>
+                  <span className="text-[#1a1a26] text-[11px] leading-relaxed italic bg-white/60 p-2 rounded-lg border border-[#cfc2d2]/20">
+                    {customRecommendations}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
 
@@ -211,7 +236,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             </div>
 
             <p className="text-xs text-[#4c4451] leading-relaxed">
-              Genera un documento PDF profesional con el logotipo de tu peluquería, datos de la mascota, servicios realizados y las fotografías de antes y después.
+              Genera un documento PDF profesional con el logotipo de tu peluquería, datos de la mascota, comportamiento en sesión con semaforización, recomendaciones personalizadas y las fotografías de antes y después.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-2 pt-1">
