@@ -158,9 +158,9 @@ export function getSyncActiveData(): BusinessAccountData {
 
   // Safe fallback before async init completes
   const fallbackData: BusinessAccountData = {
-    businessId: 'biz_default',
-    userId: 'usr_default',
-    config: { ...DEFAULT_SALON_CONFIG, id: 'biz_default', userId: 'usr_default' },
+    businessId: 'biz_main',
+    userId: 'usr_owner',
+    config: { ...DEFAULT_SALON_CONFIG, id: 'biz_main', userId: 'usr_owner' },
     pets: getDefaultPets(),
     appointments: getDefaultAppointments(),
     bookedRetentions: [],
@@ -279,21 +279,21 @@ export async function initSaasDatabase(): Promise<{
     // Case 2: No accounts yet in IndexedDB - Check for legacy data to migrate
     const legacy = checkLegacyLocalStorageData();
 
-    const primaryUserId = 'usr_owner';
-    const legacyName = legacy.config?.name || 'Mi Peluquería Canina';
+    const primaryUserId = legacy.config?.userId || 'usr_owner';
     const primaryBizId = (legacy.config?.id && legacy.config.id !== 'biz_default')
       ? legacy.config.id
-      : generateStableBusinessId(legacyName);
+      : 'biz_main';
 
-    const initialConfig: SalonConfig = legacy.config || {
+    const initialConfig: SalonConfig = {
       ...DEFAULT_SALON_CONFIG,
+      ...(legacy.config || {}),
       id: primaryBizId,
       userId: primaryUserId
     };
 
     initialConfig.id = primaryBizId;
     initialConfig.userId = primaryUserId;
-    initialConfig.bookingSlug = extractSlugOnly(initialConfig.bookingSlug) || slugify(initialConfig.name);
+    initialConfig.bookingSlug = extractSlugOnly(initialConfig.bookingSlug) || 'pelo';
 
     const initialPets: Pet[] = legacy.pets && legacy.pets.length > 0 ? legacy.pets : getDefaultPets();
     const initialAppointments: Appointment[] = legacy.appointments && legacy.appointments.length > 0 ? legacy.appointments : getDefaultAppointments();

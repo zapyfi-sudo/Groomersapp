@@ -3,6 +3,7 @@ import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../ty
 import { fetchBusinessProfile, createPublicAppointment } from '../utils/api';
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
+import { getSyncActiveData } from '../utils/saasDb';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -65,12 +66,43 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             setSelectedServiceId(result.services[0].id);
           }
         } else {
+          // Robust fallback: if preview mode or active local data is available
+          if (typeof window !== 'undefined') {
+            const syncData = getSyncActiveData();
+            if (syncData && syncData.config) {
+              setBusinessData({
+                businessId: syncData.businessId || 'biz_main',
+                config: syncData.config,
+                services: syncData.config.services || [],
+                appointments: syncData.appointments || []
+              });
+              if (syncData.config.services && syncData.config.services.length > 0) {
+                setSelectedServiceId(syncData.config.services[0].id);
+              }
+              return;
+            }
+          }
           setLoadError('No encontramos este negocio. Este enlace de reservas no es válido o ya no está disponible.');
         }
       })
       .catch((err) => {
         if (!isMounted) return;
         console.error('Error loading public business:', err);
+        if (typeof window !== 'undefined') {
+          const syncData = getSyncActiveData();
+          if (syncData && syncData.config) {
+            setBusinessData({
+              businessId: syncData.businessId || 'biz_main',
+              config: syncData.config,
+              services: syncData.config.services || [],
+              appointments: syncData.appointments || []
+            });
+            if (syncData.config.services && syncData.config.services.length > 0) {
+              setSelectedServiceId(syncData.config.services[0].id);
+            }
+            return;
+          }
+        }
         setLoadError('No encontramos este negocio. Este enlace de reservas no es válido o ya no está disponible.');
       })
       .finally(() => {

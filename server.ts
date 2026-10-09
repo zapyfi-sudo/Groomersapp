@@ -34,7 +34,7 @@ function cleanString(str?: string): string {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^a-z0-9]/g, '');
+    .replace(/[^a-z0-9_-]/g, ''); // Preserve alphanumeric, hyphens and underscores
 }
 
 function readDb(): Record<string, StoredBusiness> {
@@ -69,41 +69,81 @@ function extractSlug(str?: string): string {
 // Find business by exact businessId, config.id, bookingSlug, or name
 function findBusiness(idOrSlug: string, db: Record<string, StoredBusiness>): StoredBusiness | null {
   if (!idOrSlug) return null;
-  const rawClean = cleanString(idOrSlug);
-  const targetClean = cleanString(extractSlug(idOrSlug)) || rawClean;
+  const raw = idOrSlug.trim();
+  const rawClean = cleanString(raw);
+  const extracted = extractSlug(raw);
+  const targetClean = cleanString(extracted) || rawClean;
 
   // 1. Direct ID match
-  if (db[idOrSlug]) {
-    return db[idOrSlug];
-  }
-  if (db[targetClean]) {
-    return db[targetClean];
-  }
+  if (db[raw]) return db[raw];
+  if (db[rawClean]) return db[rawClean];
+  if (db[targetClean]) return db[targetClean];
 
   const all = Object.values(db);
 
   // 2. Check businessId or config.id exact match
   const matchId = all.find(
-    (b) => b.businessId === idOrSlug || b.config?.id === idOrSlug || cleanString(b.businessId) === targetClean
+    (b) =>
+      b.businessId === raw ||
+      b.config?.id === raw ||
+      cleanString(b.businessId) === rawClean ||
+      cleanString(b.config?.id) === rawClean ||
+      cleanString(b.businessId) === targetClean
   );
   if (matchId) return matchId;
 
   // 3. Check bookingSlug (matching raw or extracted slug)
   const matchSlug = all.find((b) => {
-    const raw = b.config?.bookingSlug;
-    if (!raw) return false;
-    const cleanRaw = cleanString(raw);
-    const cleanExtracted = cleanString(extractSlug(raw));
-    return cleanRaw === rawClean || cleanExtracted === targetClean || cleanExtracted === rawClean;
+    const rawSlug = b.config?.bookingSlug;
+    if (!rawSlug) return false;
+    const cleanRawSlug = cleanString(rawSlug);
+    const cleanExtracted = cleanString(extractSlug(rawSlug));
+    return (
+      rawSlug === raw ||
+      rawSlug === extracted ||
+      cleanRawSlug === rawClean ||
+      cleanRawSlug === targetClean ||
+      cleanExtracted === rawClean ||
+      cleanExtracted === targetClean
+    );
   });
   if (matchSlug) return matchSlug;
 
   // 4. Exact clean name match (exact match only, never loose substring)
   const matchName = all.find((b) => {
     const nameClean = cleanString(b.config?.name);
-    return nameClean && (nameClean === rawClean || nameClean === targetClean);
+    return (
+      nameClean &&
+      (nameClean === rawClean ||
+        nameClean === targetClean ||
+        nameClean.replace(/[-_]/g, '') === rawClean.replace(/[-_]/g, ''))
+    );
   });
   if (matchName) return matchName;
+
+  // 5. If generic parameter requested or single business exists
+  if (all.length > 0) {
+    const stripped = targetClean.replace(/[-_]/g, '');
+    const isGenericTarget =
+      !targetClean ||
+      stripped === 'reservas' ||
+      stripped === 'reservar' ||
+      stripped === 'online' ||
+      stripped === 'book' ||
+      stripped === 'booking' ||
+      stripped === 'bizmain' ||
+      stripped === 'notspecifiedbusiness' ||
+      stripped === 'default' ||
+      stripped === 'main';
+
+    if (isGenericTarget) {
+      return db['biz_main'] || all[0];
+    }
+
+    if (all.length === 1) {
+      return all[0];
+    }
+  }
 
   return null;
 }

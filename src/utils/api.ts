@@ -36,11 +36,16 @@ export interface PublicBusinessResult {
  */
 export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusinessResult | null> {
   if (!idOrSlug) return null;
-  const cleanTarget = extractSlugOnly(idOrSlug) || idOrSlug.trim();
+  const rawTarget = idOrSlug.trim();
+  const cleanTarget = extractSlugOnly(idOrSlug) || rawTarget;
 
   // 1. Primary: Query Cloud Firestore
   try {
-    const firestoreResult = await getBusinessFromFirestore(cleanTarget);
+    let firestoreResult = await getBusinessFromFirestore(rawTarget);
+    if (!firestoreResult && cleanTarget !== rawTarget) {
+      firestoreResult = await getBusinessFromFirestore(cleanTarget);
+    }
+
     if (firestoreResult && firestoreResult.businessId && firestoreResult.config) {
       const result: PublicBusinessResult = {
         businessId: firestoreResult.businessId,
@@ -71,34 +76,44 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
 
   // 2. Secondary: Query Server API (/api/businesses/:idOrSlug)
   try {
-    const res = await fetch(`/api/businesses/${encodeURIComponent(cleanTarget)}`);
-    const contentType = res.headers.get('content-type') || '';
+    const targetsToTry = [cleanTarget];
+    if (rawTarget !== cleanTarget && !targetsToTry.includes(rawTarget)) {
+      targetsToTry.push(rawTarget);
+    }
 
-    // Ensure the response is valid JSON and not an HTML fallback page from static routing
-    if (res.ok && contentType.includes('application/json')) {
-      const data = await res.json();
-      if (data && data.businessId && data.config) {
-        const result: PublicBusinessResult = {
-          businessId: data.businessId,
-          config: data.config,
-          services: data.services || data.config.services || [],
-          appointments: data.appointments || [],
-          pets: data.pets || []
-        };
+    for (const target of targetsToTry) {
+      const res = await fetch(`/api/businesses/${encodeURIComponent(target)}`);
+      const contentType = res.headers.get('content-type') || '';
 
-        if (typeof window !== 'undefined') {
-          try {
-            localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
-            if (data.config.bookingSlug) {
-              localStorage.setItem(
-                `agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`,
-                JSON.stringify(result)
-              );
-            }
-          } catch {}
+      // Ensure the response is valid JSON and not an HTML fallback page from static routing
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data && data.businessId && data.config) {
+          const result: PublicBusinessResult = {
+            businessId: data.businessId,
+            config: data.config,
+            services: data.services || data.config.services || [],
+            appointments: data.appointments || [],
+            pets: data.pets || []
+          };
+
+          if (typeof window !== 'undefined') {
+            try {
+              localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
+              if (data.config.bookingSlug) {
+                localStorage.setItem(
+                  `agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`,
+                  JSON.stringify(result)
+                );
+              }
+            } catch {}
+          }
+
+          // Asynchronously warm Firestore in the background
+          saveBusinessToFirestore(data.businessId, data.config, data.appointments, data.pets).catch(() => {});
+
+          return result;
         }
-
-        return result;
       }
     }
   } catch (err) {
@@ -161,7 +176,23 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
   }
 
-  // 5. Zero demo fallback: If not found, return null so the proper Spanish error is displayed
+  // 5. Local storage cache fallback
+  if (typeof window !== 'undefined') {
+    try {
+      const cachedRaw =
+        localStorage.getItem(`agendacan_public_biz_${cleanTarget}`) ||
+        localStorage.getItem(`agendacan_public_biz_${rawTarget}`) ||
+        localStorage.getItem('agendacan_public_biz_biz_main');
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        if (cached && cached.config && cached.businessId) {
+          return cached;
+        }
+      }
+    } catch {}
+  }
+
+  // 6. Zero demo fallback: If not found anywhere, return null so the proper Spanish error is displayed
   return null;
 }
 

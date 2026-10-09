@@ -337,48 +337,76 @@ export async function getBusinessFromFirestore(
 } | null> {
   if (!slugOrId) return null;
 
-  const clean = cleanSlugInput(slugOrId) || slugOrId.trim();
+  const raw = slugOrId.trim();
+  const clean = cleanSlugInput(raw) || raw;
 
-  try {
-    let targetBizId = '';
+  const performLookup = async () => {
+    try {
+      let targetBizId = '';
 
-    // Strategy 1: Check direct slug mapping (O(1))
-    const slugDocRef = doc(db, 'slugs', clean);
-    const slugSnap = await getDoc(slugDocRef);
-
-    if (slugSnap.exists()) {
-      targetBizId = slugSnap.data()?.businessId || '';
-    }
-
-    // Strategy 2: If not found, check if it's a direct business ID
-    if (!targetBizId) {
-      const directBizRef = doc(db, 'businesses', clean);
-      const directSnap = await getDoc(directBizRef);
-      if (directSnap.exists()) {
-        targetBizId = clean;
+      // Strategy 0: Direct business ID lookup in businesses collection
+      const directRawBizRef = doc(db, 'businesses', raw);
+      const directRawBizSnap = await getDoc(directRawBizRef);
+      if (directRawBizSnap.exists()) {
+        targetBizId = raw;
       }
-    }
 
-    // Strategy 3: Query by bookingSlug field
-    if (!targetBizId) {
-      const qSlug = query(collection(db, 'businesses'), where('bookingSlug', '==', clean));
-      const snapSlug = await getDocs(qSlug);
-      if (!snapSlug.empty) {
-        targetBizId = snapSlug.docs[0].id;
+      // Strategy 1: Check direct slug mapping (O(1))
+      if (!targetBizId) {
+        const slugDocRef = doc(db, 'slugs', clean);
+        const slugSnap = await getDoc(slugDocRef);
+        if (slugSnap.exists()) {
+          targetBizId = slugSnap.data()?.businessId || '';
+        } else if (clean !== raw) {
+          const rawSlugSnap = await getDoc(doc(db, 'slugs', raw));
+          if (rawSlugSnap.exists()) {
+            targetBizId = rawSlugSnap.data()?.businessId || '';
+          }
+        }
       }
-    }
 
-    if (!targetBizId) {
-      return null;
-    }
+      // Strategy 2: If not found, check businesses collection with clean
+      if (!targetBizId && clean !== raw) {
+        const directCleanBizRef = doc(db, 'businesses', clean);
+        const directCleanBizSnap = await getDoc(directCleanBizRef);
+        if (directCleanBizSnap.exists()) {
+          targetBizId = clean;
+        }
+      }
 
-    // Retrieve full business document
-    const bizRef = doc(db, 'businesses', targetBizId);
-    const bizSnap = await getDoc(bizRef);
+      // Strategy 3: Query by bookingSlug field
+      if (!targetBizId) {
+        const qSlug = query(collection(db, 'businesses'), where('bookingSlug', '==', clean));
+        const snapSlug = await getDocs(qSlug);
+        if (!snapSlug.empty) {
+          targetBizId = snapSlug.docs[0].id;
+        } else if (clean !== raw) {
+          const snapRawSlug = await getDocs(query(collection(db, 'businesses'), where('bookingSlug', '==', raw)));
+          if (!snapRawSlug.empty) {
+            targetBizId = snapRawSlug.docs[0].id;
+          }
+        }
+      }
 
-    if (!bizSnap.exists()) {
-      return null;
-    }
+      // Strategy 4: Query by businessId field
+      if (!targetBizId) {
+        const snapBizId = await getDocs(query(collection(db, 'businesses'), where('businessId', '==', raw)));
+        if (!snapBizId.empty) {
+          targetBizId = snapBizId.docs[0].id;
+        }
+      }
+
+      if (!targetBizId) {
+        return null;
+      }
+
+      // Retrieve full business document
+      const bizRef = doc(db, 'businesses', targetBizId);
+      const bizSnap = await getDoc(bizRef);
+
+      if (!bizSnap.exists()) {
+        return null;
+      }
 
     const b = bizSnap.data() as FirestoreBusinessData;
     let services = b.services || b.config?.services || [];
@@ -466,6 +494,15 @@ export async function getBusinessFromFirestore(
     };
   } catch (err) {
     console.warn('[FIRESTORE RESOLUTION WARN]', err);
+    return null;
+  }
+};
+
+  try {
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
+    return await Promise.race([performLookup(), timeoutPromise]);
+  } catch (err) {
+    console.warn('[FIRESTORE LOOKUP ERROR]', err);
     return null;
   }
 }

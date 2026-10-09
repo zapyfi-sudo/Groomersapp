@@ -37,6 +37,7 @@ function getPastDate(weeksAgo: number): { iso: string; formatted: string; short:
 }
 
 export const DEFAULT_SALON_CONFIG: SalonConfig = {
+  id: 'biz_main',
   name: 'Peluquería Canina Luna',
   logoUrl: HOTLINK_IMAGES.logo,
   country: 'Argentina',
@@ -64,7 +65,7 @@ export const DEFAULT_SALON_CONFIG: SalonConfig = {
   afternoonOpen: '14:00',
   afternoonClose: '19:30',
   hasDoubleShift: true,
-  bookingSlug: 'peluqueria-luna',
+  bookingSlug: 'pelo',
   activeDays: ['L', 'M', 'X', 'J', 'V', 'S'],
   staffScheduleConfig: {
     allDay: { start: '08:00', end: '18:00' },

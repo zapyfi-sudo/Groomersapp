@@ -956,7 +956,83 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </div>
             </div>
 
-            {/* 8. Entrega de Mascota al Tutor: PDF & WhatsApp (Requirement #5 & #6) */}
+            {/* 8. Recomendación periódica para el cuidado óptimo del manto (Feeds Por volver) */}
+            <div ref={retentionRef} className="p-3.5 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/40 flex flex-col gap-3">
+              <div className="flex items-center gap-2">
+                <span className="material-symbols-outlined text-[#2e004e] text-xl">
+                  auto_schedule
+                </span>
+                <h4 className="text-sm text-[#1a1a26] font-bold">
+                  ¿Cuándo debería volver {pet.name}?
+                </h4>
+              </div>
+
+              <p className="text-xs text-[#4c4451] -mt-1 leading-relaxed">
+                Recomendación periódica para el cuidado óptimo del manto. Esta recomendación alimentará automáticamente el módulo &quot;Por volver&quot;.
+              </p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[4, 6, 8].map((w) => (
+                  <button
+                    key={w}
+                    type="button"
+                    onClick={() => setSelectedInterval(w)}
+                    className={`py-3 px-2 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer ${
+                      selectedInterval === w
+                        ? 'bg-[#2e004e] text-white font-bold shadow-md scale-[1.02]'
+                        : 'bg-white text-[#4c4451] hover:bg-[#e9e6f7] border border-[#cfc2d2]/30'
+                    }`}
+                  >
+                    {w} semanas
+                  </button>
+                ))}
+
+                <button
+                  type="button"
+                  onClick={() => setSelectedInterval('custom')}
+                  className={`py-3 px-2 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer ${
+                    selectedInterval === 'custom'
+                      ? 'bg-[#2e004e] text-white font-bold shadow-md scale-[1.02]'
+                      : 'bg-white text-[#4c4451] hover:bg-[#e9e6f7] border border-[#cfc2d2]/30'
+                  }`}
+                >
+                  Personalizado
+                </button>
+              </div>
+
+              {selectedInterval === 'custom' && (
+                <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-[#cfc2d2]/40">
+                  <span className="text-xs text-[#4c4451]">Cada</span>
+                  <input
+                    type="number"
+                    min="1"
+                    max="52"
+                    value={customWeeks}
+                    onChange={(e) => setCustomWeeks(e.target.value)}
+                    className="w-16 bg-[#f5f2ff] text-center font-bold text-xs p-1.5 rounded-lg border border-[#cfc2d2]"
+                  />
+                  <span className="text-xs text-[#4c4451]">semanas</span>
+                </div>
+              )}
+
+              {reminderSavedNotice && (
+                <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-900 text-xs font-semibold flex items-center gap-2 border border-emerald-300">
+                  <span className="material-symbols-outlined text-sm">verified</span>
+                  <span>{reminderSavedNotice}</span>
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={handleSaveReminder}
+                className="w-full mt-0.5 py-2.5 px-4 rounded-xl bg-[#4b0878] text-white text-xs font-bold shadow-sm hover:bg-[#2e004e] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span className="material-symbols-outlined text-base">notifications_active</span>
+                <span>Guardar Recomendación de Retorno</span>
+              </button>
+            </div>
+
+            {/* 9. Entrega de Mascota al Tutor: PDF & WhatsApp (Requirement #5 & #6) */}
             <div className="p-3.5 rounded-2xl bg-gradient-to-r from-[#f9b900]/15 to-[#ffdea1]/30 border border-[#f9b900]/40 flex flex-col gap-2.5">
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-[#1a1a26] flex items-center gap-1.5">
@@ -1000,7 +1076,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </div>
             </div>
 
-            {/* 9. Botón Guardar Visita */}
+            {/* 10. Botón Guardar Visita (al final del formulario) */}
             <button
               type="button"
               onClick={handleSaveVisit}
@@ -1011,84 +1087,6 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 {isSavingVisit ? 'progress_activity' : 'check_circle'}
               </span>
               <span>{isSavingVisit ? 'Guardando Visita...' : 'Guardar Visita'}</span>
-            </button>
-          </div>
-
-          <div className="h-px bg-[#e3e0f1] my-1"></div>
-
-          {/* Recomendación de Próxima Visita (Feeds Por volver) */}
-          <div ref={retentionRef} className="flex flex-col gap-3">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined text-[#2e004e] text-xl">
-                auto_schedule
-              </span>
-              <h4 className="text-sm text-[#1a1a26] font-bold">
-                ¿Cuándo debería volver {pet.name}?
-              </h4>
-            </div>
-
-            <p className="text-xs text-[#4c4451] -mt-1 leading-relaxed">
-              Recomendación periódica para el cuidado óptimo del manto. Esta recomendación alimentará automáticamente el módulo &quot;Por volver&quot;.
-            </p>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {[4, 6, 8].map((w) => (
-                <button
-                  key={w}
-                  type="button"
-                  onClick={() => setSelectedInterval(w)}
-                  className={`py-3 px-2 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer ${
-                    selectedInterval === w
-                      ? 'bg-[#2e004e] text-white font-bold shadow-md scale-[1.02]'
-                      : 'bg-[#f5f2ff] text-[#4c4451] hover:bg-[#e9e6f7]'
-                  }`}
-                >
-                  {w} semanas
-                </button>
-              ))}
-
-              <button
-                type="button"
-                onClick={() => setSelectedInterval('custom')}
-                className={`py-3 px-2 rounded-xl text-xs font-semibold text-center transition-all cursor-pointer ${
-                  selectedInterval === 'custom'
-                    ? 'bg-[#2e004e] text-white font-bold shadow-md scale-[1.02]'
-                    : 'bg-[#f5f2ff] text-[#4c4451] hover:bg-[#e9e6f7]'
-                }`}
-              >
-                Personalizado
-              </button>
-            </div>
-
-            {selectedInterval === 'custom' && (
-              <div className="flex items-center gap-2 bg-[#f5f2ff] p-2 rounded-xl border border-[#cfc2d2]/40">
-                <span className="text-xs text-[#4c4451]">Cada</span>
-                <input
-                  type="number"
-                  min="1"
-                  max="52"
-                  value={customWeeks}
-                  onChange={(e) => setCustomWeeks(e.target.value)}
-                  className="w-16 bg-white text-center font-bold text-xs p-1.5 rounded-lg border border-[#cfc2d2]"
-                />
-                <span className="text-xs text-[#4c4451]">semanas</span>
-              </div>
-            )}
-
-            {reminderSavedNotice && (
-              <div className="p-2.5 rounded-xl bg-emerald-100 text-emerald-900 text-xs font-semibold flex items-center gap-2 border border-emerald-300">
-                <span className="material-symbols-outlined text-sm">verified</span>
-                <span>{reminderSavedNotice}</span>
-              </div>
-            )}
-
-            <button
-              type="button"
-              onClick={handleSaveReminder}
-              className="w-full mt-1 py-3 px-4 rounded-xl bg-[#4b0878] text-white text-sm font-bold shadow-md hover:bg-[#2e004e] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-lg">notifications_active</span>
-              <span>Guardar Recomendación de Retorno</span>
             </button>
           </div>
         </div>

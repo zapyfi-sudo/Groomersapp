@@ -14,7 +14,7 @@ export function cleanSlugInput(text?: string): string {
     .replace(/[\u0300-\u036f]/g, '') // Remove accent diacritics (á -> a, ñ -> n)
     .replace(/ñ/g, 'n')
     .replace(/ü/g, 'u')
-    .replace(/[^a-z0-9-]/g, '') // Keep lowercase alphanumeric and hyphens
+    .replace(/[^a-z0-9_-]/g, '') // Keep lowercase alphanumeric, hyphens and underscores
     .replace(/-+/g, '-'); // Replace multiple hyphens with single hyphen
 }
 

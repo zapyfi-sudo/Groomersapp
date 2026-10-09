@@ -121,12 +121,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     }
   }, [config.bookingSlug]);
 
+  // Active saved slug for shareable URL
+  const activeSlug = useMemo(() => {
+    return extractSlugOnly(config.bookingSlug) || cleanSlugInput(customSlug) || slugify(businessName || 'pelo', 'pelo');
+  }, [config.bookingSlug, customSlug, businessName]);
+
   // Clean, short shareable booking URL (Architecture: URL -> slug/id -> persistent data -> public booking)
   const realBookingUrl = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
-    const slug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'reservas', 'reservas');
-    return `${origin.replace(/\/+$/, '')}/reservas/${slug}`;
-  }, [config.bookingSlug, customSlug, businessName]);
+    return `${origin.replace(/\/+$/, '')}/reservas/${activeSlug}`;
+  }, [activeSlug]);
 
   const [isSavingSlug, setIsSavingSlug] = useState<boolean>(false);
   const [slugSaveError, setSlugSaveError] = useState<string | null>(null);
@@ -807,11 +811,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       <span className="truncate">{realBookingUrl}</span>
                     </div>
 
-                    <div className="flex items-center gap-2 shrink-0">
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
                       <button
                         type="button"
                         onClick={handleCopyLink}
-                        className="px-4 py-2.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                        className="px-3.5 py-2.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                        title="Copiar enlace al portapapeles"
                       >
                         <span className="material-symbols-outlined text-sm font-bold">
                           {isCopied ? 'check' : 'content_copy'}
@@ -819,14 +824,25 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         <span>{isCopied ? '¡Copiado!' : 'Copiar enlace'}</span>
                       </button>
 
+                      <button
+                        type="button"
+                        onClick={onPreviewClientFlow}
+                        className="px-3.5 py-2.5 bg-white text-[#2e004e] hover:bg-[#ffdea1] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                        title="Probar flujo completo de reservas como cliente"
+                      >
+                        <span className="material-symbols-outlined text-sm font-bold text-[#2e004e]">visibility</span>
+                        <span>Probar flujo</span>
+                      </button>
+
                       <a
                         href={realBookingUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-2.5 bg-white/20 hover:bg-white/30 text-white text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                        className="px-3 py-2.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                        title="Abrir en pestaña nueva"
                       >
                         <span className="material-symbols-outlined text-sm text-[#f9b900]">open_in_new</span>
-                        <span>Probar enlace</span>
+                        <span>Abrir enlace</span>
                       </a>
                     </div>
                   </div>
