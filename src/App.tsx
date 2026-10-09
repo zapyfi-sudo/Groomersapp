@@ -20,6 +20,7 @@ import {
   fetchBusinessProfile,
   subscribeToBusinessAppointments,
   subscribeToBusinessPets,
+  subscribeToBusinessReviews,
   updateAppointmentStatusOnServer,
   fetchLatestAppointmentsAndPets
 } from './utils/api';
@@ -34,8 +35,41 @@ import { PetListView } from './components/PetListView';
 import { AccountAuthModal } from './components/AccountAuthModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PublicBookingPage } from './components/PublicBookingPage';
+import { PublicReviewPage } from './components/PublicReviewPage';
 
 import { decodePublicProfileToken, extractSlugOnly } from './utils/slugUtils';
+
+function getPublicReviewIdentifierFromUrl(): string | null {
+  if (typeof window === 'undefined') return null;
+
+  // 1. Path routing: /calificar/:idOrSlug, /opiniones/:idOrSlug, /review/:idOrSlug, /reviews/:idOrSlug, /calificaciones/:idOrSlug
+  const path = window.location.pathname;
+  const pathMatch = path.match(/^\/(?:calificar|opiniones|review|reviews|calificaciones)\/([^\/?#]+)/i);
+  if (pathMatch && pathMatch[1]) {
+    return extractSlugOnly(decodeURIComponent(pathMatch[1]));
+  }
+
+  // 2. Query params: ?calificar=slug or ?review=slug
+  const searchParams = new URLSearchParams(window.location.search);
+  const explicitReview = searchParams.get('calificar') || searchParams.get('review') || searchParams.get('opinion');
+  if (explicitReview) {
+    return extractSlugOnly(explicitReview) || explicitReview;
+  }
+
+  // 3. Hash routing: #calificar/:idOrSlug, #review/:idOrSlug
+  const hash = window.location.hash;
+  const hashMatch = hash.match(/^#(?:calificar|opiniones|review|reviews|calificaciones)(?:\/([^\/?#]+))?/i);
+  if (hashMatch && hashMatch[1]) {
+    return extractSlugOnly(decodeURIComponent(hashMatch[1]));
+  }
+
+  // 4. Exact path match /calificar or /opiniones without slug -> default
+  if (path === '/calificar' || path === '/calificar/' || path === '/opiniones' || path === '/opiniones/' || hash === '#calificar') {
+    return 'default_review';
+  }
+
+  return null;
+}
 
 function getPublicBookingIdentifierFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
@@ -78,13 +112,16 @@ function getPublicBookingIdentifierFromUrl(): string | null {
 }
 
 export default function App() {
-  // Check if current URL is a public booking page request
+  // Check if current URL is a public booking or public review page request
   const [urlBookingId, setUrlBookingId] = useState<string | null>(() => getPublicBookingIdentifierFromUrl());
+  const [urlReviewId, setUrlReviewId] = useState<string | null>(() => getPublicReviewIdentifierFromUrl());
   const [previewBookingId, setPreviewBookingId] = useState<string | null>(null);
+  const [previewReviewId, setPreviewReviewId] = useState<string | null>(null);
 
   useEffect(() => {
     const handleUrlChange = () => {
       setUrlBookingId(getPublicBookingIdentifierFromUrl());
+      setUrlReviewId(getPublicReviewIdentifierFromUrl());
     };
     window.addEventListener('popstate', handleUrlChange);
     return () => window.removeEventListener('popstate', handleUrlChange);
@@ -337,6 +374,23 @@ export default function App() {
       });
     });
 
+    // 2b. Subscribe to real-time incoming reviews via Firestore
+    const unsubReviews = subscribeToBusinessReviews(currentBizId, (incomingReviews) => {
+      if (!incomingReviews) return;
+
+      setSalonConfig((prev) => {
+        const revMap = new Map<string, ClientReview>();
+        for (const r of (prev.reviews || [])) if (r?.id) revMap.set(r.id, r);
+        for (const r of incomingReviews) if (r?.id) revMap.set(r.id, r);
+        const merged = Array.from(revMap.values());
+        merged.sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
+        return {
+          ...prev,
+          reviews: merged
+        };
+      });
+    });
+
     // 3. Periodic server polling (every 8 seconds + window focus) to ensure zero desync across all environments
     const pollServerSync = async () => {
       try {
@@ -448,6 +502,7 @@ export default function App() {
     return () => {
       unsubApts();
       unsubPets();
+      unsubReviews();
       clearInterval(pollInterval);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
@@ -767,7 +822,51 @@ export default function App() {
     return retentionPets.filter((p) => (p.urgency === 'esta_semana' || p.urgency === 'urgente') && !p.alreadyBooked).length;
   }, [retentionPets]);
 
-  // 1. PUBLIC BOOKING LINK FLOW (Requirement #10: COMPLETELY SEPARATE FROM THE ADMIN APP)
+  // 1. PUBLIC REVIEWS FLOW (Independent public rating form for customers - Requirement #1 & #2)
+  if (urlReviewId) {
+    const targetSlugOrId =
+      urlReviewId === 'default_review'
+        ? salonConfig.bookingSlug || salonConfig.id || 'biz_main'
+        : urlReviewId;
+
+    return (
+      <PublicReviewPage
+        businessIdOrSlug={targetSlugOrId}
+        onReviewSubmitted={(newReview) => {
+          handleAddNewReview(newReview);
+        }}
+      />
+    );
+  }
+
+  // 1b. ADMIN PREVIEW FLOW FOR REVIEWS ("Probar enlace" from Ajustes -> Calificaciones)
+  if (previewReviewId) {
+    return (
+      <div className="relative">
+        <div className="sticky top-0 z-50 bg-[#2e004e] text-white px-4 py-2.5 text-xs flex items-center justify-between shadow-md border-b-2 border-[#f9b900]">
+          <span className="font-bold flex items-center gap-1.5 text-[#ffdea1]">
+            <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
+            <span>MODO VISTA PREVIA: Así ve tu cliente el formulario de calificación</span>
+          </span>
+          <button
+            type="button"
+            onClick={() => setPreviewReviewId(null)}
+            className="px-3 py-1 bg-[#f9b900] text-[#261900] font-bold rounded-lg text-xs hover:bg-[#ffdea1] cursor-pointer"
+          >
+            Volver a Ajustes
+          </button>
+        </div>
+        <PublicReviewPage
+          businessIdOrSlug={previewReviewId}
+          onReviewSubmitted={(newReview) => {
+            handleAddNewReview(newReview);
+          }}
+        />
+      </div>
+    );
+  }
+
+  // 2. PUBLIC BOOKING LINK FLOW (Requirement #10: COMPLETELY SEPARATE FROM THE ADMIN APP)
   // When a customer visits via a shared booking link, ONLY show the Public Customer Booking page
   if (urlBookingId) {
     return (
@@ -781,7 +880,7 @@ export default function App() {
     );
   }
 
-  // 2. ADMIN PREVIEW FLOW ("Probar flujo como cliente" inside Ajustes)
+  // 2b. ADMIN PREVIEW FLOW ("Probar flujo como cliente" inside Ajustes)
   if (previewBookingId) {
     return (
       <PublicBookingPage
@@ -880,6 +979,9 @@ export default function App() {
               }}
               onPreviewClientFlow={() => {
                 setPreviewBookingId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');
+              }}
+              onPreviewReviewFlow={() => {
+                setPreviewReviewId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');
               }}
               appointments={appointments}
               onAddNewReview={handleAddNewReview}
