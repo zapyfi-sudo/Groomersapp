@@ -633,10 +633,16 @@ export default function App() {
       if (existing) {
         return prevPets.map((p) => {
           if (p.id === existing.id) {
+            const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || p.lastVisit?.photos?.beforeUrl;
             return {
               ...p,
+              age: newPetData?.age || p.age || '1 año',
+              gender: newPetData?.gender || p.gender || 'Macho',
+              weightKg: Number(newPetData?.weightKg) || p.weightKg || 10,
+              photoUrl: incomingPhoto || p.photoUrl,
               tutor: {
                 ...p.tutor,
+                name: newApt.tutorName || p.tutor.name,
                 phone: newApt.tutorPhone || p.tutor.phone
               },
               lastVisit: {
@@ -645,9 +651,12 @@ export default function App() {
                 serviceName: newApt.serviceName,
                 price: newApt.price,
                 currency: newApt.currency,
-                mood: 'tranquilo',
+                mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
                 paid: newApt.paymentStatus === 'cobrado',
-                photos: {}
+                photos: {
+                  ...p.lastVisit?.photos,
+                  beforeUrl: incomingPhoto
+                }
               }
             };
           }
@@ -656,32 +665,35 @@ export default function App() {
       }
 
       // Create new Pet record from appointment data
+      const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || '';
       const createdPet: Pet = {
         id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
         name: newApt.petName,
         breed: newApt.breed || 'Mestizo',
-        age: '1 año',
+        age: newPetData?.age || '1 año',
         gender: newPetData?.gender || 'Macho',
-        weightKg: newPetData?.weightKg || 10,
+        weightKg: Number(newPetData?.weightKg) || 10,
         isVip: false,
-        photoUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
+        photoUrl: incomingPhoto || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
         tutor: {
           name: newApt.tutorName,
           phone: newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`,
           rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
         },
-        habitualMood: newPetData?.habitualMood || 'tranquilo',
-        healthAllergies: newPetData?.healthAllergies || 'Ninguna registrada.',
-        handlingObservations: newPetData?.handlingObservations || 'Manejo habitual.',
+        habitualMood: (newPetData?.habitualMood as any) || 'tranquilo',
+        healthAllergies: newPetData?.healthAllergies || '',
+        handlingObservations: newPetData?.handlingObservations || '',
         lastVisit: {
           id: `v-${Date.now()}`,
           date: newApt.date || 'Hoy',
           serviceName: newApt.serviceName,
           price: newApt.price,
           currency: newApt.currency,
-          mood: 'tranquilo',
+          mood: (newPetData?.habitualMood as any) || 'tranquilo',
           paid: newApt.paymentStatus === 'cobrado',
-          photos: {}
+          photos: {
+            beforeUrl: incomingPhoto || undefined
+          }
         },
         visitHistory: [],
         recommendedIntervalWeeks: 4
@@ -896,6 +908,7 @@ export default function App() {
               onUpdatePet={handleUpdatePet}
               onNavigateOnboarding={() => setCurrentTab('onboarding')}
               salonConfig={salonConfig}
+              appointments={appointments}
             />
           )}
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../types';
 import { fetchBusinessProfile, createPublicAppointment } from '../utils/api';
-import { formatDateSpanish } from '../utils/storage';
+import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
 
 interface PublicBookingPageProps {
@@ -36,6 +36,11 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   const [whatsappPhone, setWhatsappPhone] = useState<string>('');
   const [petName, setPetName] = useState<string>('');
   const [breed, setBreed] = useState<string>('');
+  const [age, setAge] = useState<string>('');
+  const [gender, setGender] = useState<'Macho' | 'Hembra'>('Macho');
+  const [weightKg, setWeightKg] = useState<string>('10');
+  const [petPhoto, setPetPhoto] = useState<string>('');
+  const [isPhotoCompressing, setIsPhotoCompressing] = useState<boolean>(false);
   const [behavior, setBehavior] = useState<BehaviorMood>('tranquilo');
   const [healthNotes, setHealthNotes] = useState<string>('');
   const [handlingNotes, setHandlingNotes] = useState<string>('');
@@ -238,6 +243,8 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     const normalizedDigits = normalizePhoneForWhatsApp(whatsappPhone.trim(), config);
     const formattedTutorPhone = normalizedDigits ? `+${normalizedDigits}` : whatsappPhone.trim();
 
+    const parsedWeight = Number(weightKg) || (selectedDogSize === 'pequeno' ? 6 : selectedDogSize === 'mediano' ? 14 : selectedDogSize === 'grande' ? 24 : 35);
+
     const newApt: Appointment = {
       id: `apt_pub_${Date.now()}`,
       petId: `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
@@ -258,6 +265,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       subStatus: 'Reserva online (Por confirmar)',
       subStatusType: 'warning',
       hasMedication: selectedMedicationIds.length > 0,
+      beforePhotoUrl: petPhoto || undefined,
       notes: [
         healthNotes ? `Salud: ${healthNotes}` : '',
         handlingNotes ? `Manejo: ${handlingNotes}` : ''
@@ -267,8 +275,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     const petData: Partial<Pet> = {
       name: petName.trim(),
       breed: breed.trim() || 'Mestizo',
-      gender: 'Macho',
-      weightKg: selectedDogSize === 'pequeno' ? 6 : selectedDogSize === 'mediano' ? 14 : selectedDogSize === 'grande' ? 24 : 35,
+      age: age.trim() || '1 año',
+      gender,
+      weightKg: parsedWeight,
+      photoUrl: petPhoto || undefined,
       tutor: {
         name: tutorName.trim(),
         phone: formattedTutorPhone,
@@ -298,6 +308,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     setCreatedAppointment(null);
     setPetName('');
     setBreed('');
+    setAge('');
+    setGender('Macho');
+    setWeightKg('10');
+    setPetPhoto('');
     setHealthNotes('');
     setHandlingNotes('');
     setSelectedMedicationIds([]);
@@ -758,6 +772,151 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
+              </div>
+
+              {/* Edad, Sexo y Peso (Requirement #1) */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="text-xs font-bold text-[#4c4451] block mb-1">
+                    Edad de la mascota
+                  </label>
+                  <input
+                    type="text"
+                    value={age}
+                    onChange={(e) => setAge(e.target.value)}
+                    placeholder="Ej: 2 años / 8 meses"
+                    className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-[#4c4451] block mb-1">
+                    Sexo
+                  </label>
+                  <select
+                    value={gender}
+                    onChange={(e) => setGender(e.target.value as 'Macho' | 'Hembra')}
+                    className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] cursor-pointer"
+                  >
+                    <option value="Macho">Macho ♂</option>
+                    <option value="Hembra">Hembra ♀</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-bold text-[#4c4451] block mb-1">
+                    Peso aproximado (kg)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      max="100"
+                      value={weightKg}
+                      onChange={(e) => setWeightKg(e.target.value)}
+                      placeholder="10"
+                      className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs text-[#7e7482] font-bold">
+                      kg
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Fotografía de la mascota antes del servicio (Requirement #2) */}
+              <div className="p-3.5 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-bold text-[#4c4451] flex items-center gap-1.5">
+                    <span className="material-symbols-outlined text-sm text-[#2e004e]">photo_camera</span>
+                    <span>Foto de tu mascota (Opcional - Antes del servicio)</span>
+                  </label>
+                  {petPhoto && (
+                    <button
+                      type="button"
+                      onClick={() => setPetPhoto('')}
+                      className="text-xs text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
+                    >
+                      Quitar foto
+                    </button>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-[#7e7482] leading-tight">
+                  Sube una foto de tu mascota para que el peluquero pueda ver el estado de su manto antes de la cita.
+                </p>
+
+                {petPhoto ? (
+                  <div className="flex items-center gap-3 pt-1">
+                    <div className="w-20 h-20 rounded-xl overflow-hidden border border-[#cfc2d2]/60 bg-gray-100 shrink-0 shadow-xs">
+                      <img src={petPhoto} alt="Foto mascota" className="w-full h-full object-cover" />
+                    </div>
+                    <div className="text-xs text-emerald-700 font-semibold flex items-center gap-1">
+                      <span className="material-symbols-outlined text-base">check_circle</span>
+                      <span>Foto adjuntada correctamente</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col sm:flex-row gap-2 pt-1">
+                    {/* Tomar foto */}
+                    <label className="flex-1 py-2.5 px-3 bg-white hover:bg-[#f5f2ff] border border-dashed border-[#cfc2d2] hover:border-[#2e004e] rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#2e004e] cursor-pointer transition-all active:scale-98">
+                      <span className="material-symbols-outlined text-base">photo_camera</span>
+                      <span>Tomar foto</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setIsPhotoCompressing(true);
+                            try {
+                              const compressed = await compressImage(file, 800, 0.85);
+                              setPetPhoto(compressed);
+                            } catch (err) {
+                              console.error('Error comprimiendo foto:', err);
+                            } finally {
+                              setIsPhotoCompressing(false);
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+
+                    {/* Elegir de galería */}
+                    <label className="flex-1 py-2.5 px-3 bg-white hover:bg-[#f5f2ff] border border-dashed border-[#cfc2d2] hover:border-[#2e004e] rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#4c4451] cursor-pointer transition-all active:scale-98">
+                      <span className="material-symbols-outlined text-base">photo_library</span>
+                      <span>Elegir de galería</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={async (e) => {
+                          const file = e.target.files?.[0];
+                          if (file) {
+                            setIsPhotoCompressing(true);
+                            try {
+                              const compressed = await compressImage(file, 800, 0.85);
+                              setPetPhoto(compressed);
+                            } catch (err) {
+                              console.error('Error comprimiendo foto:', err);
+                            } finally {
+                              setIsPhotoCompressing(false);
+                            }
+                          }
+                        }}
+                      />
+                    </label>
+                  </div>
+                )}
+
+                {isPhotoCompressing && (
+                  <p className="text-[11px] text-[#4b0878] font-bold animate-pulse">
+                    Procesando fotografía...
+                  </p>
+                )}
               </div>
 
               {/* Comportamiento */}

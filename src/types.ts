@@ -5,10 +5,17 @@ export interface VisitPhoto {
   afterUrl?: string;
 }
 
+export interface VisitServiceItem {
+  id: string;
+  name: string;
+  price: number;
+}
+
 export interface Visit {
   id: string;
   date: string; // e.g. "15 de Septiembre" or ISO
   serviceName: string;
+  services?: VisitServiceItem[]; // List of services performed (main + additional)
   price: number;
   currency: string;
   mood: BehaviorMood;
@@ -204,6 +211,7 @@ export interface Appointment {
   subStatus?: string; // e.g. "Finalizó 10:20", "En secado", "Sin confirmar", "Cliente recurrente", "En 2h 15m"
   subStatusType?: 'time' | 'action_pill' | 'warning' | 'tag';
   hasMedication?: boolean;
+  beforePhotoUrl?: string;
   notes?: string;
   rating?: number;
   reviewComment?: string;

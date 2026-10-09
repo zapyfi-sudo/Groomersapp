@@ -493,16 +493,17 @@ export async function addAppointmentToFirestore(
 
     // 2. Create or update Pet in subcollection
     const petId = appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
+    const incomingPhoto = appointment.beforePhotoUrl || petData?.photoUrl || undefined;
     const newPet: Pet = {
       id: petId,
       name: appointment.petName || petData?.name || 'Mascota',
       breed: petData?.breed || appointment.breed || 'Mestizo',
       gender: petData?.gender || 'Macho',
-      weightKg: petData?.weightKg || 12,
-      age: '1 año',
+      weightKg: Number(petData?.weightKg) || 10,
+      age: petData?.age || '1 año',
       isVip: false,
       photoUrl:
-        petData?.photoUrl ||
+        incomingPhoto ||
         'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
       tutor: {
         name: appointment.tutorName || petData?.tutor?.name || 'Cliente Online',
@@ -518,9 +519,11 @@ export async function addAppointmentToFirestore(
         serviceName: appointment.serviceName,
         price: appointment.price,
         currency: appointment.currency,
-        mood: 'tranquilo',
+        mood: (petData?.habitualMood as any) || 'tranquilo',
         paid: false,
-        photos: {}
+        photos: {
+          beforeUrl: incomingPhoto
+        }
       },
       visitHistory: [],
       recommendedIntervalWeeks: 4

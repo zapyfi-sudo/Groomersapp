@@ -237,19 +237,29 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
         p.name?.toLowerCase() === petData.name?.toLowerCase()
     );
 
+    const incomingPhoto = appointment.beforePhotoUrl || petData.photoUrl || undefined;
+
     const visitEntry = {
       id: `v_${Date.now()}`,
       date: appointment.date || 'Hoy',
       serviceName: appointment.serviceName,
       price: appointment.price,
       currency: appointment.currency,
-      mood: 'tranquilo',
+      mood: petData.habitualMood || 'tranquilo',
       paid: appointment.paymentStatus === 'cobrado',
-      photos: {}
+      photos: {
+        beforeUrl: incomingPhoto
+      }
     };
 
     if (existingPetIdx >= 0) {
       const p = pets[existingPetIdx];
+      p.age = petData.age || p.age || '1 año';
+      p.gender = petData.gender || p.gender || 'Macho';
+      p.weightKg = Number(petData.weightKg) || p.weightKg || 10;
+      if (incomingPhoto) {
+        p.photoUrl = incomingPhoto;
+      }
       p.tutor = {
         name: appointment.tutorName || p.tutor?.name || 'Cliente Online',
         phone: appointment.tutorPhone || p.tutor?.phone || '',
@@ -264,10 +274,10 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
         name: petData.name,
         breed: petData.breed || 'Mestizo',
         gender: petData.gender || 'Macho',
-        weightKg: petData.weightKg || 10,
-        age: '1 año',
+        weightKg: Number(petData.weightKg) || 10,
+        age: petData.age || '1 año',
         isVip: false,
-        photoUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
+        photoUrl: incomingPhoto || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
         tutor: {
           name: appointment.tutorName || 'Cliente Online',
           phone: appointment.tutorPhone || '',
