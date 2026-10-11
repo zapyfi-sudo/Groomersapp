@@ -4,7 +4,7 @@ import { HOTLINK_IMAGES } from '../mockData';
 import { WhatsAppShareModal } from './WhatsAppShareModal';
 import { EditPetModal } from './EditPetModal';
 import { PhotoUploadModal } from './PhotoUploadModal';
-import { formatDateSpanish } from '../utils/storage';
+import { formatDateSpanish, parseSpanishOrIsoDate } from '../utils/storage';
 import { downloadPetReportPdf, cleanPetDisplayName } from '../utils/pdfGenerator';
 
 interface PetProfileViewProps {
@@ -110,8 +110,14 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     setCustomPrice(computedTotalPrice);
   }, [computedTotalPrice]);
 
-  // Comportamiento de la sesión (No deducir del habitual ni predeterminar Tranquilo si no se ha registrado)
-  const [sessionMood, setSessionMood] = useState<BehaviorMood | undefined>(undefined);
+  // Comportamiento de la sesión (Preservar valor guardado: Tranquilo, Inquieto, Difícil)
+  const [sessionMood, setSessionMood] = useState<BehaviorMood | undefined>(() => {
+    return pet.sessionMood || pet.lastVisit?.mood || undefined;
+  });
+
+  useEffect(() => {
+    setSessionMood(pet.sessionMood || pet.lastVisit?.mood || undefined);
+  }, [pet.id, pet.sessionMood, pet.lastVisit?.mood]);
 
   // Fotografías de antes y después
   // Connects with public booking photo if submitted
@@ -123,34 +129,93 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   const [beforePhoto, setBeforePhoto] = useState<string>(initialBeforePhoto);
   const [afterPhoto, setAfterPhoto] = useState<string>(pet.lastVisit?.photos?.afterUrl || '');
 
-  // Keep beforePhoto in sync if pet or appointment loads with a photo
+  // Keep photos in sync if pet loads
   useEffect(() => {
-    if (!beforePhoto && initialBeforePhoto) {
-      setBeforePhoto(initialBeforePhoto);
+    setBeforePhoto(pet.lastVisit?.photos?.beforeUrl || (scheduledAppointment as any)?.beforePhotoUrl || '');
+    setAfterPhoto(pet.lastVisit?.photos?.afterUrl || '');
+  }, [pet.id, pet.lastVisit?.photos, scheduledAppointment]);
+
+  // Notas generales de la sesión (Preservar notas y observaciones persistidas)
+  const [sessionNotes, setSessionNotes] = useState<string>(() => {
+    return pet.sessionNotes ?? pet.lastVisit?.notes ?? '';
+  });
+
+  useEffect(() => {
+    setSessionNotes(pet.sessionNotes ?? pet.lastVisit?.notes ?? '');
+  }, [pet.id, pet.sessionNotes, pet.lastVisit?.notes]);
+
+  const [sessionHealthNotes, setSessionHealthNotes] = useState<string>(() => {
+    return pet.sessionHealthNotes ?? pet.lastVisit?.healthNotes ?? '';
+  });
+
+  useEffect(() => {
+    setSessionHealthNotes(pet.sessionHealthNotes ?? pet.lastVisit?.healthNotes ?? '');
+  }, [pet.id, pet.sessionHealthNotes, pet.lastVisit?.healthNotes]);
+
+  const [sessionHandlingNotes, setSessionHandlingNotes] = useState<string>(() => {
+    return pet.sessionHandlingNotes ?? pet.lastVisit?.handlingNotes ?? '';
+  });
+
+  useEffect(() => {
+    setSessionHandlingNotes(pet.sessionHandlingNotes ?? pet.lastVisit?.handlingNotes ?? '');
+  }, [pet.id, pet.sessionHandlingNotes, pet.lastVisit?.handlingNotes]);
+
+  // Recomendaciones de cuidado personalizadas del groomer para el tutor
+  const [careRecommendations, setCareRecommendations] = useState<string>(() => {
+    return pet.careRecommendations ?? pet.lastVisit?.careRecommendations ?? '';
+  });
+
+  useEffect(() => {
+    setCareRecommendations(pet.careRecommendations ?? pet.lastVisit?.careRecommendations ?? '');
+  }, [pet.id, pet.careRecommendations, pet.lastVisit?.careRecommendations]);
+
+  // Intervalo de retorno (4, 6, 8 o 'custom' con número exacto de semanas)
+  const parsedIntervalInfo = useMemo(() => {
+    if (pet.returnIntervalType === 'custom') {
+      const w = String(pet.customReturnWeeks || pet.recommendedIntervalWeeks || 5);
+      return { interval: 'custom' as const, weeks: w };
     }
-  }, [initialBeforePhoto, beforePhoto]);
+    const num = Number(pet.recommendedIntervalWeeks);
+    if ([4, 6, 8].includes(num)) {
+      return { interval: num, weeks: '6' };
+    }
+    if (!isNaN(num) && num > 0) {
+      return { interval: 'custom' as const, weeks: String(num) };
+    }
+    return { interval: 4, weeks: '6' };
+  }, [pet.returnIntervalType, pet.customReturnWeeks, pet.recommendedIntervalWeeks]);
 
-  // Notas generales de la sesión
-  const [sessionNotes, setSessionNotes] = useState<string>(pet.lastVisit?.notes || '');
-  const [sessionHealthNotes, setSessionHealthNotes] = useState<string>('');
-  const [sessionHandlingNotes, setSessionHandlingNotes] = useState<string>('');
-
-  // Recomendaciones de cuidado personalizadas del groomer (Requirement #4)
-  const [careRecommendations, setCareRecommendations] = useState<string>(
-    pet.lastVisit?.careRecommendations || pet.careRecommendations || ''
-  );
-
-  // Sincronizar recomendaciones cuando cambia la mascota
-  useEffect(() => {
-    setCareRecommendations(pet.lastVisit?.careRecommendations || pet.careRecommendations || '');
-  }, [pet.id, pet.lastVisit?.careRecommendations, pet.careRecommendations]);
-
-  // Intervalo de retorno (Por volver)
-  const [selectedInterval, setSelectedInterval] = useState<number | 'custom'>(
-    typeof pet.recommendedIntervalWeeks === 'number' ? pet.recommendedIntervalWeeks : 4
-  );
-  const [customWeeks, setCustomWeeks] = useState('6');
+  const [selectedInterval, setSelectedInterval] = useState<number | 'custom'>(parsedIntervalInfo.interval);
+  const [customWeeks, setCustomWeeks] = useState<string>(parsedIntervalInfo.weeks);
   const [reminderSavedNotice, setReminderSavedNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelectedInterval(parsedIntervalInfo.interval);
+    setCustomWeeks(parsedIntervalInfo.weeks);
+  }, [parsedIntervalInfo]);
+
+  // Reference date calculation for next visit (Requirement #2)
+  const referenceDate = useMemo(() => {
+    if (pet.lastVisit?.date) {
+      const parsed = parseSpanishOrIsoDate(pet.lastVisit.date);
+      if (parsed) return parsed;
+    }
+    return new Date();
+  }, [pet.lastVisit?.date]);
+
+  // Active weeks number
+  const activeWeeksNum = useMemo(() => {
+    if (selectedInterval === 'custom') {
+      return Math.max(1, Number(customWeeks) || 5);
+    }
+    return Number(selectedInterval) || 4;
+  }, [selectedInterval, customWeeks]);
+
+  // Live calculated next date preview
+  const liveCalculatedNextDate = useMemo(() => {
+    const targetDate = new Date(referenceDate.getTime() + activeWeeksNum * 7 * 24 * 60 * 60 * 1000);
+    return formatDateSpanish(targetDate);
+  }, [referenceDate, activeWeeksNum]);
 
   // UI state & Modals
   const [isSavingVisit, setIsSavingVisit] = useState(false);
@@ -190,6 +255,42 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     });
   };
 
+  // Select session mood with immediate auto-save
+  const handleSessionMoodSelect = (mood: BehaviorMood) => {
+    setSessionMood(mood);
+    onUpdatePet({
+      ...pet,
+      sessionMood: mood,
+      lastVisit: {
+        ...pet.lastVisit,
+        mood
+      }
+    });
+  };
+
+  // Immediate save on blur for notes & care recommendations
+  const handleSessionNotesBlur = () => {
+    onUpdatePet({
+      ...pet,
+      sessionNotes: sessionNotes.trim() || undefined,
+      lastVisit: {
+        ...pet.lastVisit,
+        notes: sessionNotes.trim() || undefined
+      }
+    });
+  };
+
+  const handleCareRecommendationsBlur = () => {
+    onUpdatePet({
+      ...pet,
+      careRecommendations: careRecommendations.trim() || undefined,
+      lastVisit: {
+        ...pet.lastVisit,
+        careRecommendations: careRecommendations.trim() || undefined
+      }
+    });
+  };
+
   // Add / remove additional services
   const handleToggleAdditionalService = (svcId: string) => {
     setAdditionalServiceIds((prev) =>
@@ -201,7 +302,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   const handleSaveVisit = () => {
     setIsSavingVisit(true);
     const visitDateStr = formatDateSpanish(new Date());
-    const weeksToReturn = selectedInterval === 'custom' ? Number(customWeeks) || 4 : selectedInterval;
+    const weeksToReturn = activeWeeksNum;
+    const refDateNow = new Date();
+    const targetDate = new Date(refDateNow.getTime() + weeksToReturn * 7 * 24 * 60 * 60 * 1000);
+    const calculatedNextDateStr = formatDateSpanish(targetDate);
 
     // Service items array
     const serviceItems: VisitServiceItem[] = allSelectedServices.map((s) => ({
@@ -233,7 +337,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
         beforeUrl: beforePhoto || undefined,
         afterUrl: afterPhoto || undefined
       },
-      nextRecommendedWeeks: weeksToReturn
+      nextRecommendedWeeks: weeksToReturn,
+      returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
+      customReturnWeeks: selectedInterval === 'custom' ? weeksToReturn : undefined,
+      nextRecommendedVisitDate: calculatedNextDateStr
     };
 
     setTimeout(() => {
@@ -243,28 +350,53 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       const updatedHistory = [newVisit, ...(pet.visitHistory || [])];
       onUpdatePet({
         ...pet,
+        sessionMood,
+        sessionNotes: sessionNotes.trim() || undefined,
+        sessionHealthNotes: sessionHealthNotes.trim() || undefined,
+        sessionHandlingNotes: sessionHandlingNotes.trim() || undefined,
         careRecommendations: careRecommendations.trim() || undefined,
         lastVisit: newVisit,
         visitHistory: updatedHistory,
-        recommendedIntervalWeeks: weeksToReturn
+        recommendedIntervalWeeks: weeksToReturn,
+        returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
+        customReturnWeeks: selectedInterval === 'custom' ? weeksToReturn : undefined,
+        nextRecommendedVisitDate: calculatedNextDateStr
       });
 
       setTimeout(() => setVisitSavedToast(false), 3000);
     }, 400);
   };
 
-  // Save retention reminder
+  // Save retention reminder (Requirement #2)
   const handleSaveReminder = () => {
-    const weeks = selectedInterval === 'custom' ? Number(customWeeks) || 4 : selectedInterval;
-    const targetDate = new Date();
-    targetDate.setDate(targetDate.getDate() + Number(weeks) * 7);
+    const weeks = activeWeeksNum;
+    const targetDate = new Date(referenceDate.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
     const dateFormatted = formatDateSpanish(targetDate);
 
-    onUpdatePet({
+    const updatedPet: Pet = {
       ...pet,
+      sessionMood,
+      sessionNotes: sessionNotes.trim() || undefined,
+      sessionHealthNotes: sessionHealthNotes.trim() || undefined,
+      sessionHandlingNotes: sessionHandlingNotes.trim() || undefined,
       careRecommendations: careRecommendations.trim() || pet.careRecommendations || undefined,
-      recommendedIntervalWeeks: weeks
-    });
+      recommendedIntervalWeeks: weeks,
+      returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
+      customReturnWeeks: selectedInterval === 'custom' ? weeks : undefined,
+      nextRecommendedVisitDate: dateFormatted,
+      lastVisit: {
+        ...pet.lastVisit,
+        mood: sessionMood || pet.lastVisit?.mood,
+        notes: sessionNotes.trim() || pet.lastVisit?.notes,
+        careRecommendations: careRecommendations.trim() || pet.lastVisit?.careRecommendations,
+        nextRecommendedWeeks: weeks,
+        returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
+        customReturnWeeks: selectedInterval === 'custom' ? weeks : undefined,
+        nextRecommendedVisitDate: dateFormatted
+      }
+    };
+
+    onUpdatePet(updatedPet);
 
     setReminderSavedNotice(`¡Próxima visita sugerida calculada para el ${dateFormatted}! (en ${weeks} semanas)`);
     setTimeout(() => setReminderSavedNotice(null), 4000);
@@ -436,6 +568,11 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-[#f9b900] text-[#261900] font-bold">
                 {pet.weightKg} kg
               </span>
+              {pet.size && (
+                <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/20 text-white font-bold capitalize">
+                  {pet.size === 'pequeno' ? 'Pequeño' : pet.size === 'mediano' ? 'Mediano' : pet.size === 'grande' ? 'Grande' : pet.size}
+                </span>
+              )}
             </div>
           </div>
         </div>

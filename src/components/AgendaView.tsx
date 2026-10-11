@@ -13,7 +13,7 @@ interface AgendaViewProps {
   pets: Pet[];
   onSelectPet: (pet: Pet) => void;
   onNavigateToRetention: () => void;
-  onAddNewAppointment: (newApt: Appointment) => void;
+  onAddNewAppointment: (newApt: Appointment, newPetData?: Partial<Pet>) => void;
   onUpdateAppointmentStatus?: (
     appointmentId: string,
     status: string,
@@ -145,8 +145,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     });
   }, [selectedDayAppointments, allPendingAppointments, filterStatus]);
 
-  const handleAppointmentCreated = (newApt: Appointment) => {
-    onAddNewAppointment(newApt);
+  const handleAppointmentCreated = (newApt: Appointment, newPetData?: Partial<Pet>) => {
+    onAddNewAppointment(newApt, newPetData);
     setToastMessage(`¡Turno de ${newApt.petName} agendado con éxito!`);
     setTimeout(() => setToastMessage(null), 3000);
   };
@@ -758,8 +758,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       {isNewAptModalOpen && (
         <NewAppointmentView
           onClose={() => setIsNewAptModalOpen(false)}
-          onAppointmentCreated={(newApt) => {
-            handleAppointmentCreated(newApt);
+          onAppointmentCreated={(newApt, newPetData) => {
+            handleAppointmentCreated(newApt, newPetData);
             setIsNewAptModalOpen(false);
           }}
           salonName={salonConfig.name}
@@ -767,6 +767,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           salonPhone={salonConfig.phone}
           simultaneousCapacity={effectiveCapacity}
           existingAppointments={appointments}
+          existingPets={pets}
           isOnlineClientPortal={false}
           salonConfig={salonConfig}
         />

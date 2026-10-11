@@ -18,6 +18,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
   const [breed, setBreed] = useState(pet.breed);
   const [age, setAge] = useState(pet.age);
   const [gender, setGender] = useState(pet.gender);
+  const [size, setSize] = useState<'pequeno' | 'mediano' | 'grande' | string>(pet.size || 'mediano');
   const [weightKg, setWeightKg] = useState(pet.weightKg);
   const [isVip, setIsVip] = useState(pet.isVip);
   const [tutorName, setTutorName] = useState(pet.tutor.name);
@@ -38,6 +39,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
       ...pet,
       name,
       breed,
+      size,
       age,
       gender,
       weightKg: Number(weightKg) || pet.weightKg,
@@ -107,6 +109,18 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 placeholder="ej. 3 años"
                 className="w-full bg-white text-[#1a1a26] text-sm px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
               />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">Tamaño</label>
+              <select
+                value={size}
+                onChange={(e) => setSize(e.target.value)}
+                className="w-full bg-white text-[#1a1a26] text-sm px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
+              >
+                <option value="pequeno">Pequeño</option>
+                <option value="mediano">Mediano</option>
+                <option value="grande">Grande</option>
+              </select>
             </div>
             <div>
               <label className="block text-xs font-bold text-[#4c4451] mb-1">Sexo</label>

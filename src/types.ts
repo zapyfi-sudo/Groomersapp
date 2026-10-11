@@ -26,12 +26,16 @@ export interface Visit {
   handlingNotes?: string;
   photos: VisitPhoto;
   nextRecommendedWeeks?: number | string;
+  returnIntervalType?: '4' | '6' | '8' | 'custom';
+  customReturnWeeks?: number | string;
+  nextRecommendedVisitDate?: string;
 }
 
 export interface Pet {
   id: string; // e.g. "#PET-2849"
   name: string;
   breed: string;
+  size?: 'pequeno' | 'mediano' | 'grande' | string;
   age: string; // e.g. "3 años"
   gender: 'Macho' | 'Hembra';
   weightKg: number;
@@ -43,12 +47,19 @@ export interface Pet {
     rawPhone: string;
   };
   habitualMood: BehaviorMood;
+  sessionMood?: BehaviorMood;
   healthAllergies: string;
   handlingObservations: string;
+  sessionNotes?: string;
+  sessionHealthNotes?: string;
+  sessionHandlingNotes?: string;
   careRecommendations?: string;
   lastVisit: Visit;
   visitHistory: Visit[];
   recommendedIntervalWeeks: number | string;
+  returnIntervalType?: '4' | '6' | '8' | 'custom';
+  customReturnWeeks?: number | string;
+  nextRecommendedVisitDate?: string;
 }
 
 export interface UserAccount {
@@ -198,6 +209,7 @@ export interface Appointment {
   petId: string;
   petName: string;
   breed: string;
+  size?: 'pequeno' | 'mediano' | 'grande' | string;
   tutorName: string;
   tutorPhone?: string;
   serviceName: string;
@@ -233,8 +245,11 @@ export interface RetentionPet {
   lastVisitDate: string; // e.g. "15 de sept."
   weeksSinceLastVisit: number; // e.g. 6
   recommendedWeeks: number;
-  urgency: 'esta_semana' | 'urgente' | 'proxima_semana';
-  urgencyLabel: string; // e.g. "! Esta semana"
+  nextRecommendedDate?: string; // e.g. "14 de noviembre de 2026"
+  daysRemaining?: number; // e.g. 35, 14, 7, 3, 1, 0, -4
+  countdownText?: string; // e.g. "Faltan 35 días", "Hoy corresponde su visita", "Vencida hace 4 días"
+  urgency: 'esta_semana' | 'urgente' | 'proxima_semana' | 'mas_adelante';
+  urgencyLabel: string; // e.g. "! Esta semana", "! Urgente (Vencida)", "Próxima semana", "Más adelante"
   suggestedMessage: string;
   templateName: string; // e.g. "Plantilla Spa Premium"
   alreadyBooked?: boolean;

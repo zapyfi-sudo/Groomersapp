@@ -116,7 +116,7 @@ export const PetListView: React.FC<PetListViewProps> = ({
                   </div>
 
                   <p className="text-xs text-[#4c4451] truncate mt-0.5">
-                    {pet.breed} • {pet.age} • {pet.weightKg} kg
+                    {pet.breed} • {pet.size ? `${pet.size === 'pequeno' ? 'Pequeño' : pet.size === 'mediano' ? 'Mediano' : pet.size === 'grande' ? 'Grande' : pet.size} • ` : ''}{pet.age} • {pet.weightKg} kg
                   </p>
 
                   <div className="flex items-center justify-between mt-1 text-xs text-[#7e7482]">

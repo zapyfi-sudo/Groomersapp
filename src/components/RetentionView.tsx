@@ -173,12 +173,12 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                 }`}
               >
                 {/* Pet Header */}
-                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3.5 border-b border-gray-100">
-                  <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
+                <div className="pb-3.5 border-b border-gray-100">
+                  <div className="flex items-start gap-3 sm:gap-4">
                     {/* Pet Photo on the left */}
                     <div
                       onClick={() => onSelectPetForProfile(pet.petId)}
-                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-[#f5f2ff] shrink-0 border border-[#cfc2d2]/40 shadow-2xs cursor-pointer group"
+                      className="w-14 h-14 sm:w-16 sm:h-16 md:w-20 md:h-20 rounded-2xl overflow-hidden bg-[#f5f2ff] shrink-0 border border-[#cfc2d2]/40 shadow-2xs cursor-pointer group"
                     >
                       {pet.photoUrl ? (
                         <img
@@ -187,72 +187,129 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-2xl text-[#7e7482]">
+                        <div className="w-full h-full flex items-center justify-center text-xl sm:text-2xl text-[#7e7482]">
                           🐶
                         </div>
                       )}
                     </div>
 
                     {/* Information Column to the right of the photo */}
-                    <div className="flex-1 min-w-0 space-y-1">
-                      {/* 1. Nombre de la mascota & 2. Raza */}
-                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-                        <h4
-                          onClick={() => onSelectPetForProfile(pet.petId)}
-                          className="font-extrabold text-base sm:text-lg text-[#1a1a26] group-hover:text-[#2e004e] hover:text-[#2e004e] transition-colors cursor-pointer"
-                        >
-                          {pet.name}
-                        </h4>
-                        {pet.breed && (
-                          <span className="text-xs text-[#7e7482] font-medium">
-                            ({pet.breed})
+                    <div className="flex-1 min-w-0">
+                      {/* Top row: Name & Urgency Badge */}
+                      <div className="flex items-start justify-between gap-2 sm:gap-3">
+                        <div className="min-w-0 flex-1">
+                          {/* 1. Nombre de la mascota */}
+                          <h4
+                            onClick={() => onSelectPetForProfile(pet.petId)}
+                            className="font-extrabold text-base sm:text-lg text-[#1a1a26] hover:text-[#2e004e] transition-colors cursor-pointer leading-tight truncate"
+                            title={pet.name}
+                          >
+                            {pet.name}
+                          </h4>
+
+                          {/* 2. Raza, si está disponible */}
+                          {pet.breed && (
+                            <p
+                              className="text-xs sm:text-[13px] text-[#7e7482] font-medium leading-tight mt-0.5 truncate"
+                              title={pet.breed}
+                            >
+                              {pet.breed}
+                            </p>
+                          )}
+                        </div>
+
+                        {/* Urgency Badge & Countdown */}
+                        <div className="shrink-0 flex flex-col items-end gap-1">
+                          <span
+                            className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider whitespace-nowrap shadow-2xs ${
+                              pet.alreadyBooked
+                                ? 'bg-gray-200 text-gray-700'
+                                : pet.urgency === 'urgente'
+                                ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                                : pet.urgency === 'esta_semana'
+                                ? 'bg-[#f9b900] text-[#261900] shadow-xs'
+                                : pet.urgency === 'proxima_semana'
+                                ? 'bg-indigo-100 text-indigo-800 border border-indigo-200'
+                                : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                            }`}
+                          >
+                            {pet.alreadyBooked ? t.alreadyBooked : pet.urgencyLabel}
                           </span>
+
+                          {pet.countdownText && !pet.alreadyBooked && (
+                            <span
+                              className={`text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1 border whitespace-nowrap ${
+                                pet.urgency === 'urgente'
+                                  ? 'bg-rose-50 text-rose-700 border-rose-200'
+                                  : pet.urgency === 'esta_semana'
+                                  ? 'bg-amber-50 text-amber-800 border-amber-200'
+                                  : 'bg-[#f5f2ff] text-[#4b0878] border-[#cfc2d2]/40'
+                              }`}
+                            >
+                              <span className="material-symbols-outlined text-xs">
+                                {pet.daysRemaining !== undefined && pet.daysRemaining <= 0 ? 'warning' : 'hourglass_top'}
+                              </span>
+                              <span>{pet.countdownText}</span>
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Secondary Information Hierarchy: Última visita, Tutor, Teléfono */}
+                      <div className="mt-2 space-y-1 text-xs">
+                        {/* 3. Última visita */}
+                        <div className="flex items-center gap-1.5 text-[#5c5462] leading-relaxed">
+                          <span className="material-symbols-outlined text-[15px] text-[#7e7482] shrink-0">
+                            calendar_today
+                          </span>
+                          <span className="break-normal">
+                            <span className="font-medium text-[#4c4451]">{t.lastVisit}:</span>{' '}
+                            <strong className="font-semibold text-[#1a1a26] whitespace-nowrap">{pet.lastVisitDate}</strong>
+                            {pet.weeksSinceLastVisit ? (
+                              <span className="text-[#7e7482] ml-1.5 whitespace-nowrap inline-block">
+                                (Hace {pet.weeksSinceLastVisit} {t.weeksAgo})
+                              </span>
+                            ) : null}
+                          </span>
+                        </div>
+
+                        {/* Próxima visita recomendada (si existe) */}
+                        {pet.nextRecommendedDate && (
+                          <div className="flex items-center gap-1.5 text-[#2e004e] leading-relaxed">
+                            <span className="material-symbols-outlined text-[15px] text-[#7a5900] shrink-0">
+                              event_upcoming
+                            </span>
+                            <span className="break-normal">
+                              <span className="font-medium text-[#4c4451]">Próxima visita:</span>{' '}
+                              <strong className="font-bold text-[#2e004e] whitespace-nowrap">{pet.nextRecommendedDate}</strong>
+                            </span>
+                          </div>
                         )}
-                      </div>
 
-                      {/* 3. Última visita */}
-                      <div className="flex items-center gap-1.5 text-xs text-[#7e7482] pt-0.5">
-                        <span className="material-symbols-outlined text-sm text-[#7e7482] shrink-0">calendar_today</span>
-                        <span className="truncate">
-                          <strong className="font-semibold text-[#4c4451]">{t.lastVisit}:</strong> {pet.lastVisitDate}
-                          {pet.weeksSinceLastVisit ? (
-                            <span className="text-[#7e7482] ml-1">(Hace {pet.weeksSinceLastVisit} {t.weeksAgo})</span>
-                          ) : null}
-                        </span>
-                      </div>
-
-                      {/* 4. Tutor & 5. Teléfono */}
-                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-xs text-[#4c4451]">
-                        <span className="flex items-center gap-1">
-                          <span className="material-symbols-outlined text-sm text-[#7e7482] shrink-0">person</span>
-                          <span>Tutor: <strong className="text-[#1a1a26]">{pet.tutorName}</strong></span>
-                        </span>
-
-                        {pet.tutorPhone && (
-                          <span className="flex items-center gap-1 font-mono text-[11px] text-[#5c5462] whitespace-nowrap shrink-0">
-                            <span className="material-symbols-outlined text-xs text-[#7e7482]">call</span>
-                            <span>{pet.tutorPhone}</span>
+                        {/* 4. Nombre del tutor */}
+                        <div className="flex items-center gap-1.5 text-[#5c5462] leading-relaxed">
+                          <span className="material-symbols-outlined text-[15px] text-[#7e7482] shrink-0">
+                            person
                           </span>
+                          <span className="break-normal">
+                            <span className="text-[#5c5462]">Tutor:</span>{' '}
+                            <strong className="font-semibold text-[#1a1a26]">{pet.tutorName}</strong>
+                          </span>
+                        </div>
+
+                        {/* 5. Teléfono */}
+                        {pet.tutorPhone && (
+                          <div className="flex items-center gap-1.5 text-[#5c5462] leading-relaxed">
+                            <span className="material-symbols-outlined text-[15px] text-[#7e7482] shrink-0">
+                              call
+                            </span>
+                            <span className="font-mono text-xs font-semibold text-[#1a1a26] whitespace-nowrap tracking-tight select-all">
+                              {pet.tutorPhone}
+                            </span>
+                          </div>
                         )}
                       </div>
                     </div>
-                  </div>
-
-                  {/* Urgency Badge (positioned top-right cleanly without covering content) */}
-                  <div className="self-start sm:self-auto shrink-0 flex items-center sm:items-end">
-                    <span
-                      className={`px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider whitespace-nowrap shadow-2xs ${
-                        pet.alreadyBooked
-                          ? 'bg-gray-200 text-gray-700'
-                          : pet.urgency === 'urgente'
-                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
-                          : pet.urgency === 'esta_semana'
-                          ? 'bg-[#f9b900] text-[#261900] shadow-xs'
-                          : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
-                      }`}
-                    >
-                      {pet.alreadyBooked ? t.alreadyBooked : pet.urgencyLabel}
-                    </span>
                   </div>
                 </div>
 

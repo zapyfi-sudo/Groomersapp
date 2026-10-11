@@ -476,6 +476,62 @@ export function saveBookedRetentions(ids: string[]): void {
   } catch {}
 }
 
+/**
+ * Safely parses dates in ISO format, RFC format, or Spanish text format.
+ * Examples: "10 de octubre de 2026", "15 de Septiembre", "2026-10-10", "4 de octubre"
+ */
+export function parseSpanishOrIsoDate(str?: string): Date | null {
+  if (!str) return null;
+  const trimmed = str.trim();
+  if (!trimmed) return null;
+
+  // 1. Try standard ISO/RFC parse
+  const direct = new Date(trimmed);
+  if (!isNaN(direct.getTime()) && (trimmed.includes('-') || trimmed.includes('/'))) {
+    return direct;
+  }
+
+  // 2. Spanish text parsing
+  const months: Record<string, number> = {
+    enero: 0,
+    febrero: 1,
+    marzo: 2,
+    abril: 3,
+    mayo: 4,
+    junio: 5,
+    julio: 6,
+    agosto: 7,
+    septiembre: 8,
+    setiembre: 8,
+    sept: 8,
+    octubre: 9,
+    oct: 9,
+    noviembre: 10,
+    nov: 10,
+    diciembre: 11,
+    dic: 11
+  };
+
+  const clean = trimmed
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  const match = clean.match(/(\d{1,2})\s+(?:de\s+)?([a-z]+)(?:\s+(?:de\s+)?(\d{4}))?/i);
+  if (match) {
+    const day = parseInt(match[1], 10);
+    const monthKey = match[2];
+    const month = months[monthKey];
+    const year = match[3] ? parseInt(match[3], 10) : new Date().getFullYear();
+
+    if (month !== undefined && !isNaN(day)) {
+      return new Date(year, month, day, 12, 0, 0);
+    }
+  }
+
+  return null;
+}
+
 // Dynamic Retention calculation from REAL pets (single source of truth)
 export function deriveRetentionPets(
   pets: Pet[],
@@ -484,48 +540,107 @@ export function deriveRetentionPets(
 ): RetentionPet[] {
   const results: RetentionPet[] = [];
   const now = new Date();
+  const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
   pets.forEach((pet) => {
-    // Must have a visit and a recommended interval
-    const intervalWeeks = Number(pet.recommendedIntervalWeeks) || 6;
     const lastVisit = pet.lastVisit;
-
     if (!lastVisit) return;
 
-    // Parse date of last visit or calculate relative
-    // If lastVisit has an ISO date or day/month, compute realistic difference
-    let daysSince = 0;
-    const dateParsed = Date.parse(lastVisit.date);
-    if (!isNaN(dateParsed)) {
-      daysSince = Math.max(0, Math.floor((now.getTime() - dateParsed) / (1000 * 60 * 60 * 24)));
-    } else {
-      // Default to matching recommended interval if sample
-      daysSince = intervalWeeks * 7;
+    // 1. Determine interval weeks (custom or standard)
+    let intervalWeeks = 6;
+    if (pet.returnIntervalType === 'custom' && pet.customReturnWeeks) {
+      intervalWeeks = Number(pet.customReturnWeeks) || 5;
+    } else if (pet.recommendedIntervalWeeks) {
+      intervalWeeks = Number(pet.recommendedIntervalWeeks) || 6;
     }
 
-    const weeksSinceLastVisit = Math.max(1, Math.round(daysSince / 7));
-    const targetWeeks = intervalWeeks;
+    // 2. Determine reference date (date of last visit)
+    let refDate = parseSpanishOrIsoDate(lastVisit.date);
+    if (!refDate && pet.visitHistory && pet.visitHistory.length > 0) {
+      refDate = parseSpanishOrIsoDate(pet.visitHistory[0].date);
+    }
+    if (!refDate) {
+      refDate = new Date();
+    }
 
-    let urgency: 'esta_semana' | 'urgente' | 'proxima_semana' = 'esta_semana';
-    let urgencyLabel = '! Esta semana';
+    // 3. Determine next recommended date
+    let targetDate: Date;
+    if (pet.nextRecommendedVisitDate) {
+      const parsedTarget = parseSpanishOrIsoDate(pet.nextRecommendedVisitDate);
+      if (parsedTarget) {
+        targetDate = parsedTarget;
+      } else {
+        targetDate = new Date(refDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
+      }
+    } else {
+      targetDate = new Date(refDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
+    }
 
-    if (weeksSinceLastVisit > targetWeeks) {
+    const nextRecommendedDateFormatted = formatDateSpanish(targetDate);
+
+    // 4. Calculate calendar difference in days
+    const targetZero = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
+    const diffMs = targetZero - todayZero;
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    // 5. Calculate actual weeks elapsed since last visit
+    const refZero = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate()).getTime();
+    const daysSinceLastVisit = Math.max(0, Math.round((todayZero - refZero) / (1000 * 60 * 60 * 24)));
+    const weeksSinceLastVisit = Math.floor(daysSinceLastVisit / 7);
+
+    // 6. Urgency classification & countdown text (Requirements #3 & #4)
+    let urgency: 'esta_semana' | 'urgente' | 'proxima_semana' | 'mas_adelante' = 'esta_semana';
+    let urgencyLabel = '¡Esta semana!';
+    let countdownText = '';
+
+    if (diffDays < 0) {
+      // Overdue
       urgency = 'urgente';
-      urgencyLabel = '! Urgente (Vencido)';
-    } else if (weeksSinceLastVisit === targetWeeks - 1) {
+      const daysOverdue = Math.abs(diffDays);
+      urgencyLabel = '! Urgente (Vencida)';
+      countdownText = daysOverdue === 1 ? 'Vencida hace 1 día' : `Vencida hace ${daysOverdue} días`;
+    } else if (diffDays === 0) {
+      // Today
+      urgency = 'urgente';
+      urgencyLabel = '! Hoy';
+      countdownText = 'Hoy corresponde su visita';
+    } else if (diffDays <= 3) {
+      // Very close (1-3 days)
+      urgency = 'urgente';
+      urgencyLabel = '! Urgente';
+      countdownText = diffDays === 1 ? 'Falta 1 día' : `Faltan ${diffDays} días`;
+    } else if (diffDays <= 7) {
+      // This week (4-7 days)
+      urgency = 'esta_semana';
+      urgencyLabel = '¡Esta semana!';
+      countdownText = `Faltan ${diffDays} días`;
+    } else if (diffDays <= 14) {
+      // Next week (8-14 days)
       urgency = 'proxima_semana';
       urgencyLabel = 'Próxima semana';
-    } else if (weeksSinceLastVisit >= targetWeeks) {
-      urgency = 'esta_semana';
-      urgencyLabel = '! Esta semana';
+      countdownText = `Faltan ${diffDays} días`;
+    } else {
+      // More than 2 weeks ahead (e.g. 5 weeks, 35 days)
+      urgency = 'mas_adelante';
+      urgencyLabel = 'Más adelante';
+      countdownText = `Faltan ${diffDays} días`;
     }
 
     const alreadyBooked = bookedIds.includes(pet.id);
-
-    const tutorFirstName = pet.tutor.name.split(' ')[0] || pet.tutor.name;
+    const tutorFirstName = pet.tutor?.name ? (pet.tutor.name.split(' ')[0] || pet.tutor.name) : 'Tutor';
     const serviceName = lastVisit.serviceName || 'Baño + corte';
 
-    const suggestedMessage = `“Hola ${tutorFirstName} 👋 Han pasado aproximadamente ${weeksSinceLastVisit} semanas desde la última sesión de ${pet.name} en ${salonName}. ¿Quieres reservar su próxima cita de ${serviceName} para mantener su pelaje impecable?”`;
+    // 7. Context-accurate suggested smart message (Requirement #6)
+    let suggestedMessage = '';
+    if (diffDays <= 0) {
+      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Ya es momento de renovar el cuidado de ${pet.name} (${serviceName}) para mantener su manto impecable y saludable. ¿Te gustaría que reservemos su próximo turno esta semana?”`;
+    } else if (diffDays <= 7) {
+      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te saludamos desde ${salonName}. Esta semana corresponde la visita periódica de ${pet.name} para su sesión de ${serviceName}. ¿Qué día y horario te viene mejor para agendar?”`;
+    } else if (diffDays <= 14) {
+      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos de ${salonName} para recordarte que la próxima semana le toca su turno a ${pet.name} (${serviceName}). ¿Deseas coordinar su cita con anticipación?”`;
+    } else {
+      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Según la recomendación de cuidado para ${pet.name}, su próxima sesión de ${serviceName} está prevista para el ${nextRecommendedDateFormatted} (en ${intervalWeeks} semanas). ¡Estamos a tu disposición si gustas reservar con anticipación!”`;
+    }
 
     results.push({
       id: `ret-${pet.id.replace('#', '')}`,
@@ -539,7 +654,10 @@ export function deriveRetentionPets(
       isVip: pet.isVip,
       lastVisitDate: lastVisit.date,
       weeksSinceLastVisit,
-      recommendedWeeks: targetWeeks,
+      recommendedWeeks: intervalWeeks,
+      nextRecommendedDate: nextRecommendedDateFormatted,
+      daysRemaining: diffDays,
+      countdownText,
       urgency,
       urgencyLabel,
       suggestedMessage,

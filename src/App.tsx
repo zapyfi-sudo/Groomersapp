@@ -691,10 +691,15 @@ export default function App() {
             const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || p.lastVisit?.photos?.beforeUrl;
             return {
               ...p,
+              breed: newApt.breed || newPetData?.breed || p.breed,
+              size: (newPetData as any)?.size || newApt.size || p.size || 'mediano',
               age: newPetData?.age || p.age || '1 año',
               gender: newPetData?.gender || p.gender || 'Macho',
               weightKg: Number(newPetData?.weightKg) || p.weightKg || 10,
               photoUrl: incomingPhoto || p.photoUrl,
+              habitualMood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
+              healthAllergies: newPetData?.healthAllergies !== undefined ? newPetData.healthAllergies : p.healthAllergies,
+              handlingObservations: newPetData?.handlingObservations !== undefined ? newPetData.handlingObservations : p.handlingObservations,
               tutor: {
                 ...p.tutor,
                 name: newApt.tutorName || p.tutor.name,
@@ -710,7 +715,7 @@ export default function App() {
                 paid: newApt.paymentStatus === 'cobrado',
                 photos: {
                   ...p.lastVisit?.photos,
-                  beforeUrl: incomingPhoto
+                  beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
                 }
               }
             };
@@ -725,6 +730,7 @@ export default function App() {
         id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
         name: newApt.petName,
         breed: newApt.breed || 'Mestizo',
+        size: (newPetData as any)?.size || newApt.size || 'mediano',
         age: newPetData?.age || '1 año',
         gender: newPetData?.gender || 'Macho',
         weightKg: Number(newPetData?.weightKg) || 10,
