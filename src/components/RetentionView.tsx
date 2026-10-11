@@ -173,12 +173,13 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                 }`}
               >
                 {/* Pet Header */}
-                <div className="flex items-start justify-between gap-3 pb-3 border-b border-gray-100">
-                  <div
-                    onClick={() => onSelectPetForProfile(pet.petId)}
-                    className="flex items-center gap-3 min-w-0 cursor-pointer group"
-                  >
-                    <div className="w-14 h-14 rounded-2xl overflow-hidden bg-[#f5f2ff] shrink-0 border border-[#cfc2d2]/30">
+                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 pb-3.5 border-b border-gray-100">
+                  <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
+                    {/* Pet Photo on the left */}
+                    <div
+                      onClick={() => onSelectPetForProfile(pet.petId)}
+                      className="w-16 h-16 sm:w-20 sm:h-20 rounded-2xl overflow-hidden bg-[#f5f2ff] shrink-0 border border-[#cfc2d2]/40 shadow-2xs cursor-pointer group"
+                    >
                       {pet.photoUrl ? (
                         <img
                           src={pet.photoUrl}
@@ -186,43 +187,71 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                           className="w-full h-full object-cover group-hover:scale-105 transition-transform"
                         />
                       ) : (
-                        <div className="w-full h-full flex items-center justify-center text-xl text-[#7e7482]">
+                        <div className="w-full h-full flex items-center justify-center text-2xl text-[#7e7482]">
                           🐶
                         </div>
                       )}
                     </div>
 
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h4 className="font-extrabold text-base text-[#1a1a26] group-hover:text-[#2e004e] transition-colors truncate">
+                    {/* Information Column to the right of the photo */}
+                    <div className="flex-1 min-w-0 space-y-1">
+                      {/* 1. Nombre de la mascota & 2. Raza */}
+                      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                        <h4
+                          onClick={() => onSelectPetForProfile(pet.petId)}
+                          className="font-extrabold text-base sm:text-lg text-[#1a1a26] group-hover:text-[#2e004e] hover:text-[#2e004e] transition-colors cursor-pointer"
+                        >
                           {pet.name}
                         </h4>
-                        <span className="text-xs text-[#7e7482]">({pet.breed})</span>
+                        {pet.breed && (
+                          <span className="text-xs text-[#7e7482] font-medium">
+                            ({pet.breed})
+                          </span>
+                        )}
                       </div>
-                      <p className="text-xs text-[#4c4451] mt-0.5">
-                        Tutor: <strong>{pet.tutorName}</strong>
-                      </p>
-                      <p className="text-[11px] text-[#7e7482] font-mono">{pet.tutorPhone}</p>
+
+                      {/* 3. Última visita */}
+                      <div className="flex items-center gap-1.5 text-xs text-[#7e7482] pt-0.5">
+                        <span className="material-symbols-outlined text-sm text-[#7e7482] shrink-0">calendar_today</span>
+                        <span className="truncate">
+                          <strong className="font-semibold text-[#4c4451]">{t.lastVisit}:</strong> {pet.lastVisitDate}
+                          {pet.weeksSinceLastVisit ? (
+                            <span className="text-[#7e7482] ml-1">(Hace {pet.weeksSinceLastVisit} {t.weeksAgo})</span>
+                          ) : null}
+                        </span>
+                      </div>
+
+                      {/* 4. Tutor & 5. Teléfono */}
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pt-0.5 text-xs text-[#4c4451]">
+                        <span className="flex items-center gap-1">
+                          <span className="material-symbols-outlined text-sm text-[#7e7482] shrink-0">person</span>
+                          <span>Tutor: <strong className="text-[#1a1a26]">{pet.tutorName}</strong></span>
+                        </span>
+
+                        {pet.tutorPhone && (
+                          <span className="flex items-center gap-1 font-mono text-[11px] text-[#5c5462] whitespace-nowrap shrink-0">
+                            <span className="material-symbols-outlined text-xs text-[#7e7482]">call</span>
+                            <span>{pet.tutorPhone}</span>
+                          </span>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-1.5 shrink-0">
+                  {/* Urgency Badge (positioned top-right cleanly without covering content) */}
+                  <div className="self-start sm:self-auto shrink-0 flex items-center sm:items-end">
                     <span
-                      className={`px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
+                      className={`px-3 py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider whitespace-nowrap shadow-2xs ${
                         pet.alreadyBooked
                           ? 'bg-gray-200 text-gray-700'
                           : pet.urgency === 'urgente'
-                          ? 'bg-rose-100 text-rose-800'
+                          ? 'bg-rose-100 text-rose-800 border border-rose-200'
                           : pet.urgency === 'esta_semana'
-                          ? 'bg-[#f9b900] text-[#261900]'
-                          : 'bg-indigo-100 text-indigo-800'
+                          ? 'bg-[#f9b900] text-[#261900] shadow-xs'
+                          : 'bg-indigo-100 text-indigo-800 border border-indigo-200'
                       }`}
                     >
                       {pet.alreadyBooked ? t.alreadyBooked : pet.urgencyLabel}
-                    </span>
-
-                    <span className="text-[11px] text-[#7e7482]">
-                      {t.lastVisit}: {pet.lastVisitDate} (Hace {pet.weeksSinceLastVisit} {t.weeksAgo})
                     </span>
                   </div>
                 </div>

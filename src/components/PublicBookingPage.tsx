@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../types';
-import { fetchBusinessProfile, createPublicAppointment } from '../utils/api';
+import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood, ClientReview } from '../types';
+import { fetchBusinessProfile, createPublicAppointment, subscribeToBusinessReviews } from '../utils/api';
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
 import { getSyncActiveData } from '../utils/saasDb';
@@ -114,7 +114,39 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     };
   }, [businessIdOrSlug]);
 
+  // Real-time synchronization of reviews from Cloud Firestore (Requirement #5)
+  useEffect(() => {
+    if (!businessData?.businessId) return;
+    const unsub = subscribeToBusinessReviews(businessData.businessId, (incomingReviews) => {
+      if (!incomingReviews) return;
+      setBusinessData((prev) => {
+        if (!prev || !prev.config) return prev;
+        return {
+          ...prev,
+          config: {
+            ...prev.config,
+            reviews: incomingReviews
+          }
+        };
+      });
+    });
+    return () => unsub();
+  }, [businessData?.businessId]);
+
   const config = businessData?.config;
+
+  // Real reviews and reputation metrics
+  const reviewsList = useMemo(() => {
+    return (config?.reviews || []).filter(
+      (r) => r && typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 5
+    );
+  }, [config?.reviews]);
+
+  const totalReviews = reviewsList.length;
+  const sumStars = reviewsList.reduce((acc, r) => acc + r.stars, 0);
+  const rawAvg = totalReviews > 0 ? sumStars / totalReviews : 0;
+  const avgRating = totalReviews > 0 ? (rawAvg % 1 === 0 ? rawAvg.toFixed(1) : rawAvg.toFixed(1).replace('.', ',')) : null;
+
   const services = useMemo(() => {
     return businessData?.services || [];
   }, [businessData]);
@@ -431,6 +463,25 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             <h1 className="text-2xl sm:text-3xl font-black text-[#2e004e] tracking-tight">
               {config.name}
             </h1>
+
+            {/* Indicador compacto de reputación (Requisito 5) */}
+            {totalReviews > 0 ? (
+              <div className="flex items-center justify-center sm:justify-start gap-1.5 mt-1.5 flex-wrap">
+                <div className="flex items-center text-[#f9b900] text-sm">
+                  {[1, 2, 3, 4, 5].map((s) => (
+                    <span key={s} className={s <= Math.round(rawAvg) ? 'text-[#f9b900]' : 'text-gray-300'}>
+                      ★
+                    </span>
+                  ))}
+                </div>
+                <span className="text-xs font-black text-[#1a1a26]">
+                  {avgRating} de 5
+                </span>
+                <span className="text-xs text-[#7e7482]">
+                  ({totalReviews} {totalReviews === 1 ? 'reseña' : 'reseñas'})
+                </span>
+              </div>
+            ) : null}
 
             {/* Ubicación: [Ciudad], [País] y debajo [Dirección del negocio] */}
             {([config.city?.trim(), config.country?.trim()].filter(Boolean).length > 0 || config.address) && (

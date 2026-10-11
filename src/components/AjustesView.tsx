@@ -26,6 +26,7 @@ interface AjustesViewProps {
   config: SalonConfig;
   onUpdateConfig: (updated: SalonConfig) => void;
   onPreviewClientFlow: () => void;
+  onPreviewReviewFlow?: () => void;
   appointments?: Appointment[];
   onAddNewReview?: (review: ClientReview) => void;
   currentLanguage: AppLanguage;
@@ -38,6 +39,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   config,
   onUpdateConfig,
   onPreviewClientFlow,
+  onPreviewReviewFlow,
   appointments = [],
   currentLanguage,
   onUpdateLanguage,
@@ -1713,119 +1715,30 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         <span className="hidden sm:inline">WhatsApp</span>
                       </button>
 
-                      <a
-                        href={realReviewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-3 py-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/60 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1 shadow-xs"
-                        title="Abrir formulario para probarlo"
-                      >
-                        <span className="material-symbols-outlined text-sm">open_in_new</span>
-                        <span className="hidden sm:inline">Probar enlace</span>
-                      </a>
-                    </div>
-                  </div>
-                </div>
-
-                {/* SECCIÓN 6 & 7: SOLICITAR CALIFICACIONES A CLIENTES CON VISITAS COMPLETADAS */}
-                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-lg text-emerald-700">outgoing_mail</span>
-                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
-                        Solicitar calificaciones
-                      </h3>
-                    </div>
-                    <p className="text-xs text-[#7e7482]">
-                      Clientes que completaron un servicio o visita en tu negocio y están listos para recibir una solicitud de opinión por WhatsApp.
-                    </p>
-                  </div>
-
-                  {eligibleClients.length === 0 ? (
-                    <div className="text-center py-6 px-4 bg-[#fcf8ff] rounded-2xl border border-dashed border-[#cfc2d2]/60 space-y-1.5">
-                      <span className="material-symbols-outlined text-2xl text-[#7e7482]">event_available</span>
-                      <p className="text-xs font-bold text-[#1a1a26]">
-                        No hay solicitudes pendientes en este momento
-                      </p>
-                      <p className="text-[11px] text-[#7e7482] max-w-sm mx-auto">
-                        A medida que completes citas en la Agenda, tus clientes aparecerán aquí para solicitarles su calificación.
-                      </p>
-                    </div>
-                  ) : (
-                    <div className="space-y-2.5 max-h-96 overflow-y-auto pr-1">
-                      {eligibleClients.map((item) => (
-                        <div
-                          key={item.id}
-                          className="bg-[#fcf8ff] hover:bg-[#f5f2ff] rounded-2xl p-4 border border-[#cfc2d2]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-colors"
+                      {onPreviewReviewFlow ? (
+                        <button
+                          type="button"
+                          onClick={onPreviewReviewFlow}
+                          className="px-3 py-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/60 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1 shadow-xs cursor-pointer"
+                          title="Abrir vista previa del formulario de calificaciones"
                         >
-                          <div className="space-y-1 min-w-0">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs font-black text-[#1a1a26] truncate">
-                                {item.tutorName}
-                              </span>
-                              {item.petName && (
-                                <span className="text-[11px] text-[#7e7482] bg-white px-2 py-0.5 rounded-full border border-[#cfc2d2]/30 shrink-0">
-                                  🐶 {item.petName}
-                                </span>
-                              )}
-                            </div>
-
-                            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-[#7e7482]">
-                              {item.phone && (
-                                <span className="flex items-center gap-1">
-                                  <span className="material-symbols-outlined text-xs">call</span>
-                                  <span>{item.phone}</span>
-                                </span>
-                              )}
-                              <span>Última visita: {item.lastVisitDate}</span>
-                            </div>
-
-                            <div className="pt-0.5">
-                              {item.state === 'calificado' ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full">
-                                  <span className="material-symbols-outlined text-xs">check</span>
-                                  <span>Calificación recibida</span>
-                                </span>
-                              ) : item.state === 'iniciada' ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full">
-                                  <span className="material-symbols-outlined text-xs">schedule</span>
-                                  <span>Solicitud iniciada</span>
-                                </span>
-                              ) : (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold text-[#2e004e] bg-[#f5f2ff] px-2 py-0.5 rounded-full">
-                                  <span className="material-symbols-outlined text-xs">pending</span>
-                                  <span>Pendiente de solicitar</span>
-                                </span>
-                              )}
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
-                            {item.state !== 'calificado' && (
-                              <button
-                                type="button"
-                                onClick={() => handleRequestReviewViaWhatsApp(item)}
-                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold active:scale-95 transition-all cursor-pointer flex items-center gap-1.5 shadow-xs"
-                                title="Abrir WhatsApp con mensaje personalizado"
-                              >
-                                <span className="material-symbols-outlined text-sm">chat</span>
-                                <span>Solicitar por WhatsApp</span>
-                              </button>
-                            )}
-
-                            <button
-                              type="button"
-                              onClick={handleCopyReviewLink}
-                              className="p-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/40 rounded-xl text-xs font-bold active:scale-95 transition-all cursor-pointer shadow-xs"
-                              title="Copiar enlace"
-                            >
-                              <span className="material-symbols-outlined text-sm">content_copy</span>
-                            </button>
-                          </div>
-                        </div>
-                      ))}
+                          <span className="material-symbols-outlined text-sm">visibility</span>
+                          <span className="hidden sm:inline">Probar enlace</span>
+                        </button>
+                      ) : (
+                        <a
+                          href={realReviewUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/60 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1 shadow-xs"
+                          title="Abrir formulario para probarlo"
+                        >
+                          <span className="material-symbols-outlined text-sm">open_in_new</span>
+                          <span className="hidden sm:inline">Probar enlace</span>
+                        </a>
+                      )}
                     </div>
-                  )}
+                  </div>
                 </div>
 
                 {/* SECCIÓN B: LISTA DE RESEÑAS RECIBIDAS (ORDENADAS DE RECIENTE A ANTIGUA) */}
