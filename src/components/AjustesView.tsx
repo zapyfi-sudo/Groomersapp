@@ -62,10 +62,30 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [selectedCurrency, setSelectedCurrency] = useState<string>(config.currency || 'ARS');
 
   useEffect(() => {
-    if (config.city !== undefined) {
-      setSelectedCity(config.city);
-    }
-  }, [config.city]);
+    if (!config) return;
+    if (config.name !== undefined) setBusinessName(config.name);
+    if (config.logoUrl !== undefined) setLogoUrl(config.logoUrl || HOTLINK_IMAGES.logo);
+    if (config.country !== undefined) setSelectedCountry(config.country);
+    if (config.city !== undefined) setSelectedCity(config.city);
+    if (config.currency !== undefined) setSelectedCurrency(config.currency);
+    if (config.phonePrefix !== undefined) setPhonePrefix(config.phonePrefix);
+    if (config.phone !== undefined) setPhoneNumber(config.phone);
+    if (config.address !== undefined) setAddress(config.address);
+    if (config.activeDays !== undefined) setActiveDays(config.activeDays);
+    if (config.hasDoubleShift !== undefined) setHasDoubleShift(config.hasDoubleShift);
+    if (config.morningOpen !== undefined) setMorningOpen(config.morningOpen);
+    if (config.morningClose !== undefined) setMorningClose(config.morningClose);
+    if (config.afternoonOpen !== undefined) setAfternoonOpen(config.afternoonOpen);
+    if (config.afternoonClose !== undefined) setAfternoonClose(config.afternoonClose);
+    if (config.staffScheduleConfig !== undefined) setStaffScheduleConfig(config.staffScheduleConfig);
+    if (config.allowSimultaneousStaff !== undefined) setAllowSimultaneousStaff(config.allowSimultaneousStaff);
+    if (config.simultaneousCapacity !== undefined) setSimultaneousCapacity(config.simultaneousCapacity);
+    if (config.staffMembers !== undefined) setStaffList(config.staffMembers);
+    if (config.services !== undefined) setServicesList(config.services);
+    if (config.hasMedicationProductsEnabled !== undefined) setHasMedicationProductsEnabled(config.hasMedicationProductsEnabled);
+    if (config.medicationProducts !== undefined) setMedicationProducts(config.medicationProducts);
+    if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
+  }, [config]);
 
   // Contact & Location
   const [phonePrefix, setPhonePrefix] = useState<string>(config.phonePrefix || '+54');
@@ -525,12 +545,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     };
 
     try {
-      const success = await syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments);
-      if (!success) {
-        throw new Error('No se pudo guardar la configuración en la base de datos');
+      // 1. Immediately persist full configuration to local database (IndexedDB + local sync mirror)
+      await persistActiveConfig(updatedConfig);
+
+      // 2. Synchronize to Server API and Cloud Firestore
+      const remoteSuccess = await syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments);
+      if (!remoteSuccess) {
+        console.warn('[SAVE NOTICE] Server/cloud sync returned false, but local database persistence succeeded.');
       }
 
-      await persistActiveConfig(updatedConfig);
+      // 3. Update React parent application state
       onUpdateConfig(updatedConfig);
       setCustomSlug(safeSlug);
 
@@ -545,7 +569,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       const errorMsg =
         err instanceof Error
           ? err.message
-          : 'Error al guardar en el servidor. Por favor intenta nuevamente.';
+          : 'Error al guardar la configuración. Por favor intenta nuevamente.';
       setSavedToast(errorMsg);
       setTimeout(() => setSavedToast(null), 4000);
     } finally {
@@ -1445,7 +1469,6 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 services={servicesList}
                 onChangeServices={(updated) => {
                   setServicesList(updated);
-                  onUpdateConfig({ ...config, services: updated });
                 }}
                 currency={selectedCurrency}
               />
@@ -1455,12 +1478,10 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 enabled={hasMedicationProductsEnabled}
                 onToggleEnabled={(enabled) => {
                   setHasMedicationProductsEnabled(enabled);
-                  onUpdateConfig({ ...config, hasMedicationProductsEnabled: enabled });
                 }}
                 products={medicationProducts}
                 onChangeProducts={(updated) => {
                   setMedicationProducts(updated);
-                  onUpdateConfig({ ...config, medicationProducts: updated });
                 }}
                 currency={selectedCurrency}
               />

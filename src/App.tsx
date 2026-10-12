@@ -210,7 +210,10 @@ export default function App() {
               setSalonConfig((prev) => ({
                 ...prev,
                 ...profile.config,
-                bookingSlug: profile.config.bookingSlug || prev.bookingSlug
+                bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
+                services: (profile.config.services && profile.config.services.length > 0)
+                  ? profile.config.services
+                  : (prev.services || [])
               }));
 
               if (profile.appointments && profile.appointments.length > 0) {

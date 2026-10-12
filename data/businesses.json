@@ -3,12 +3,12 @@
     "businessId": "biz_main",
     "config": {
       "id": "biz_main",
-      "name": "Peluquería Canina Luna",
+      "name": "Peluquería Canina Luna VIP",
       "logoUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCgNdH5Hthy5Yi-fglcEX4qyy4-SEvVu9xcHv_WWfZ35c1EUd2VD0DrJuG9wAleNXW-bzR2vh9V6ET_9gV6vu71YIH_hwdXOlNwRfXAQXgczXcJRVANXrqeuHKQ6kIkUDcUVxkayIIwkFSpKTw3x6CPOgteHP_fPA2WtPu2oCARFuOhxuBRVEstwPARhMQCimBPElnj6HqxDzP1F4o_YHz7YSdnDgJk6MmbEmeSZykQaKqRT0Pv5BvxHQ",
       "country": "Argentina",
       "city": "Buenos Aires",
       "phonePrefix": "+54",
-      "phone": "11 5489 3210",
+      "phone": "11 9999 8888",
       "address": "Av. Corrientes 4520, Almagro, CABA",
       "googleMapsPlaceName": "Peluquería Canina Luna - Almagro, CABA",
       "googleMapsUrl": "https://maps.google.com/?q=-34.603722,-58.423145",
@@ -16,8 +16,8 @@
       "allowSimultaneousStaff": true,
       "maxSimultaneousAppointments": 2,
       "workingDays": "Lunes a Sábado",
-      "openTime": "08:00",
-      "closeTime": "19:30",
+      "openTime": "08:00 hs",
+      "closeTime": "19:30 hs",
       "currency": "ARS",
       "simultaneousCapacity": 2,
       "staffMembers": [
@@ -48,14 +48,13 @@
       "afternoonOpen": "14:00",
       "afternoonClose": "19:30",
       "hasDoubleShift": true,
-      "bookingSlug": "pelo",
+      "bookingSlug": "peluquerialuna",
       "activeDays": [
         "L",
         "M",
         "X",
         "J",
-        "V",
-        "S"
+        "V"
       ],
       "staffScheduleConfig": {
         "allDay": {
@@ -75,22 +74,66 @@
         {
           "id": "s-1",
           "name": "Baño + corte",
-          "price": 25000,
           "durationMin": 90,
-          "active": true
+          "price": 25000,
+          "pricingType": "tamano",
+          "priceBySize": {
+            "pequeno": 20000,
+            "mediano": 25000,
+            "grande": 30000,
+            "extraGrande": 35000
+          },
+          "desc": "Corte higiénico, estética de raza, corte de uñas y limpieza de oídos.",
+          "badge": "Popular",
+          "icon": "content_cut",
+          "active": true,
+          "rating": 5,
+          "reviewCount": 64
         },
         {
           "id": "s-2",
           "name": "Baño completo",
-          "price": 18000,
           "durationMin": 45,
-          "active": true
+          "price": 18000,
+          "pricingType": "unico",
+          "desc": "Higiene profunda con champú hipoalergénico, secado y perfume.",
+          "icon": "bathtub",
+          "active": true,
+          "rating": 4.9,
+          "reviewCount": 42
         },
         {
           "id": "s-3",
           "name": "Deslanado premium",
-          "price": 22000,
           "durationMin": 75,
+          "price": 22000,
+          "pricingType": "unico",
+          "desc": "Eliminación exhaustiva de manto muerto con cardina y cepillado profundo.",
+          "icon": "pets",
+          "active": true,
+          "rating": 4.9,
+          "reviewCount": 28
+        },
+        {
+          "id": "s-4",
+          "name": "Corte de uñas y almohadillas",
+          "durationMin": 20,
+          "price": 8000,
+          "pricingType": "unico",
+          "desc": "Corte y limado de uñas, despeje de pelo interdigital.",
+          "icon": "spa",
+          "active": true,
+          "rating": 4.8,
+          "reviewCount": 19
+        },
+        {
+          "id": "svc-test-1791780063255",
+          "businessId": "biz_main",
+          "name": "Corte Ejecutivo Canino",
+          "desc": "Corte especializado con tijera y arreglo premium.",
+          "durationMin": 75,
+          "price": 32500,
+          "pricingType": "unico",
           "active": true
         }
       ],
@@ -132,8 +175,38 @@
           "petName": "Toby",
           "serviceName": "Baño + corte",
           "stars": 5,
-          "comment": "¡Increíble atención! Toby quedó súper suave y con un aroma riquísimo.",
-          "date": "4 de octubre de 2026",
+          "comment": "¡Increíble atención! Toby quedó súper suave y con un aroma riquísimo. Súper pacientes con su carácter inquieto.",
+          "date": "14 Octubre 2024",
+          "verified": true
+        },
+        {
+          "id": "rev-2",
+          "clientName": "Carlos Benítez",
+          "petName": "Luna",
+          "serviceName": "Baño completo",
+          "stars": 5,
+          "comment": "Mariana es un amor. Luna nunca se deja cortar las uñas pero con ella estuvo tranquila. 100% recomendado.",
+          "date": "12 Octubre 2024",
+          "verified": true
+        },
+        {
+          "id": "rev-3",
+          "clientName": "Lucía Fernández",
+          "petName": "Rocky",
+          "serviceName": "Deslanado premium",
+          "stars": 5,
+          "comment": "Le sacaron una cantidad impresionante de pelo muerto a Rocky. Muy profesionales y puntuales.",
+          "date": "10 Octubre 2024",
+          "verified": true
+        },
+        {
+          "id": "rev-4",
+          "clientName": "Martín Peralta",
+          "petName": "Milo",
+          "serviceName": "Baño + corte",
+          "stars": 4,
+          "comment": "Muy buen corte y rápido. La reserva online por WhatsApp fue súper cómoda.",
+          "date": "08 Octubre 2024",
           "verified": true
         }
       ],
@@ -478,7 +551,7 @@
       }
     ],
     "bookedRetentions": [],
-    "updatedAt": "2026-10-09T21:17:15.430Z"
+    "updatedAt": "2026-10-12T04:41:03.552Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

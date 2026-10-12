@@ -11,6 +11,18 @@ const PORT = Number(process.env.PORT) || 3000;
 
 app.use(express.json({ limit: '20mb' }));
 
+// CORS middleware to ensure seamless requests from iframe preview and all client origins
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+    return;
+  }
+  next();
+});
+
 // Persistent server-side data directory
 const DATA_DIR = path.resolve(__dirname, 'data');
 const DB_FILE = path.resolve(DATA_DIR, 'businesses.json');
@@ -203,17 +215,18 @@ businessId: ${business ? business.businessId : 'null'}`);
     return;
   }
 
-  // Return public business profile with its own services, appointments, and pets
+  // Return complete business profile with all services, appointments, and pets
+  const allServices = business.config?.services || [];
   const publicConfig = {
     ...business.config,
     id: business.businessId,
-    services: (business.config?.services || []).filter((s: any) => s.active !== false)
+    services: allServices
   };
 
   res.json({
     businessId: business.businessId,
     config: publicConfig,
-    services: publicConfig.services,
+    services: allServices,
     appointments: business.appointments || [],
     pets: business.pets || []
   });
@@ -235,7 +248,8 @@ app.post('/api/businesses', (req, res) => {
   const cleanConfig = {
     ...config,
     id,
-    bookingSlug: cleanSlug
+    bookingSlug: cleanSlug,
+    services: config.services !== undefined ? config.services : (existing.config?.services || [])
   };
 
   db[id] = {
@@ -256,9 +270,10 @@ app.post('/api/businesses', (req, res) => {
 businessId: ${id}
 businessName: ${cleanConfig.name}
 bookingSlug: ${cleanSlug}
+services count: ${(cleanConfig.services || []).length}
 successfully persisted to db`);
 
-  res.json({ success: true, businessId: id, slug: cleanSlug });
+  res.json({ success: true, businessId: id, slug: cleanSlug, config: cleanConfig });
 });
 
 app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {

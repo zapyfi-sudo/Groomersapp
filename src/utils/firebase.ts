@@ -11,7 +11,8 @@ import {
   where,
   getDocs,
   getDocFromServer,
-  onSnapshot
+  onSnapshot,
+  writeBatch
 } from 'firebase/firestore';
 import firebaseConfigRaw from '../../firebase-applet-config.json';
 import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState } from '../types';
@@ -153,8 +154,8 @@ export async function saveBusinessToFirestore(
 ): Promise<boolean> {
   const cleanId = businessId || config.id || 'biz_main';
   const cleanSlug =
-    cleanSlugInput(config.bookingSlug) ||
     extractSlugOnly(config.bookingSlug) ||
+    cleanSlugInput(config.bookingSlug) ||
     slugify(config.name || 'salon', 'salon');
 
   const now = new Date().toISOString();
@@ -203,108 +204,75 @@ export async function saveBusinessToFirestore(
     name: cleanConfig.name,
     bookingSlug: cleanSlug,
     config: cleanConfig,
-    services: sanitizedServices.filter((s) => s.active !== false),
-    medicationProducts: sanitizedMedications.filter((m) => m.active !== false),
+    services: sanitizedServices,
+    medicationProducts: sanitizedMedications,
     updatedAt: now
   };
 
-  try {
-    const bizRef = doc(db, 'businesses', cleanId);
-
-    // Merge existing appointments & pets in Firestore to never overwrite new client bookings
-    const aptsMap = new Map<string, Appointment>();
-    for (const a of (appointments || [])) {
-      if (a?.id) aptsMap.set(a.id, a);
-    }
-
-    const petsMap = new Map<string, Pet>();
-    for (const p of (pets || [])) {
-      if (p?.id) petsMap.set(p.id, p);
-    }
-
+  const executeSave = async (): Promise<boolean> => {
     try {
-      const existingBizSnap = await getDoc(bizRef);
-      if (existingBizSnap.exists()) {
-        const existingData = existingBizSnap.data();
-        const existingApts: Appointment[] = existingData?.appointments || [];
-        for (const a of existingApts) {
-          if (a?.id && !aptsMap.has(a.id)) {
-            aptsMap.set(a.id, a);
+      const bizRef = doc(db, 'businesses', cleanId);
+      const payloadToSave = cleanFirestoreData(businessData);
+
+      // 1. Save main business document with full config and services
+      await setDoc(bizRef, payloadToSave, { merge: true });
+
+      // 2. Persist services and medications to subcollections
+      try {
+        const batch = writeBatch(db);
+        for (const svc of sanitizedServices) {
+          if (svc.id) {
+            const svcRef = doc(db, 'businesses', cleanId, 'services', svc.id);
+            batch.set(svcRef, cleanFirestoreData(svc), { merge: true });
           }
         }
-
-        const existingPets: Pet[] = existingData?.pets || [];
-        for (const p of existingPets) {
-          if (p?.id && !petsMap.has(p.id)) {
-            petsMap.set(p.id, p);
+        for (const med of sanitizedMedications) {
+          if (med.id) {
+            const medRef = doc(db, 'businesses', cleanId, 'medications', med.id);
+            batch.set(medRef, cleanFirestoreData(med), { merge: true });
           }
         }
+        await batch.commit();
+      } catch (subErr) {
+        console.warn('[FIRESTORE SUBCOLLECTIONS WARN]', subErr);
       }
-    } catch {}
 
-    businessData.appointments = Array.from(aptsMap.values());
-    businessData.pets = Array.from(petsMap.values());
-
-    const payloadToSave = cleanFirestoreData(businessData);
-
-    // 1. Save main business document
-    await setDoc(bizRef, payloadToSave, { merge: true });
-
-    // 2. Persist services to subcollection and purge removed ones
-    const activeServiceIds = new Set(sanitizedServices.map((s) => s.id));
-    try {
-      const existingSubSnap = await getDocs(collection(db, 'businesses', cleanId, 'services'));
-      for (const d of existingSubSnap.docs) {
-        if (!activeServiceIds.has(d.id)) {
-          await deleteDoc(d.ref);
+      // 3. Save slug mapping document for O(1) public booking URL resolution
+      if (cleanSlug) {
+        try {
+          const slugRef = doc(db, 'slugs', cleanSlug);
+          await setDoc(
+            slugRef,
+            {
+              slug: cleanSlug,
+              businessId: cleanId,
+              businessName: cleanConfig.name,
+              updatedAt: now
+            },
+            { merge: true }
+          );
+        } catch (slugErr) {
+          console.warn('[FIRESTORE SLUG MAPPING WARN]', slugErr);
         }
       }
-    } catch {}
 
-    for (const svc of sanitizedServices) {
-      if (svc.id) {
-        const svcRef = doc(db, 'businesses', cleanId, 'services', svc.id);
-        await setDoc(svcRef, cleanFirestoreData(svc), { merge: true });
-      }
+      console.log(`[FIRESTORE SUCCESS] Business "${cleanConfig.name}" (${cleanId}) saved with ${sanitizedServices.length} services and slug "${cleanSlug}".`);
+      return true;
+    } catch (err) {
+      console.error('[FIRESTORE SAVE ERROR]', err);
+      return false;
     }
+  };
 
-    // 3. Persist medications to subcollection and purge removed ones
-    const activeMedIds = new Set(sanitizedMedications.map((m) => m.id));
-    try {
-      const existingMedsSnap = await getDocs(collection(db, 'businesses', cleanId, 'medications'));
-      for (const d of existingMedsSnap.docs) {
-        if (!activeMedIds.has(d.id)) {
-          await deleteDoc(d.ref);
-        }
-      }
-    } catch {}
+  // 4.5-second timeout race to prevent UI freeze under unstable networks
+  const timeoutPromise = new Promise<boolean>((resolve) => {
+    setTimeout(() => {
+      console.warn('[FIRESTORE SAVE TIMEOUT] Remote Firestore save exceeded 4500ms');
+      resolve(false);
+    }, 4500);
+  });
 
-    for (const med of sanitizedMedications) {
-      if (med.id) {
-        const medRef = doc(db, 'businesses', cleanId, 'medications', med.id);
-        await setDoc(medRef, cleanFirestoreData(med), { merge: true });
-      }
-    }
-
-    // 4. Save slug mapping document for O(1) slug resolution
-    const slugRef = doc(db, 'slugs', cleanSlug);
-    await setDoc(
-      slugRef,
-      {
-        slug: cleanSlug,
-        businessId: cleanId,
-        businessName: cleanConfig.name,
-        updatedAt: now
-      },
-      { merge: true }
-    );
-
-    console.log(`[FIRESTORE SUCCESS] Business "${cleanConfig.name}" (${cleanId}) saved with ${sanitizedServices.length} services and slug "${cleanSlug}".`);
-    return true;
-  } catch (err) {
-    console.error('[FIRESTORE SAVE ERROR]', err);
-    return false;
-  }
+  return Promise.race([executeSave(), timeoutPromise]);
 }
 
 /**

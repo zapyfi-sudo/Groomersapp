@@ -27,6 +27,14 @@ export interface PublicBusinessResult {
   pets?: Pet[];
 }
 
+export function getApiUrl(path: string): string {
+  if (typeof window !== 'undefined') {
+    return path;
+  }
+  const port = process.env.PORT || '3000';
+  return `http://localhost:${port}${path.startsWith('/') ? path : '/' + path}`;
+}
+
 /**
  * Universal resolution of a business profile for public booking:
  * 1. Query Cloud Firestore (shared cloud database across all devices, Vercel, browsers)
@@ -82,7 +90,7 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
 
     for (const target of targetsToTry) {
-      const res = await fetch(`/api/businesses/${encodeURIComponent(target)}`);
+      const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(target)}`));
       const contentType = res.headers.get('content-type') || '';
 
       // Ensure the response is valid JSON and not an HTML fallback page from static routing
@@ -206,33 +214,41 @@ export async function syncBusinessToServer(
   appointments?: Appointment[],
   bookedRetentions?: string[]
 ): Promise<boolean> {
-  let firestoreSuccess = false;
-  let serverSuccess = false;
+  const targetId = businessId || config.id || 'biz_main';
 
-  // 1. Primary: Save to Cloud Firestore (guarantees cross-device / Vercel persistence)
-  try {
-    firestoreSuccess = await saveBusinessToFirestore(businessId, config, appointments, pets);
-  } catch (fbErr) {
-    console.warn('[FIRESTORE SYNC ERROR]', fbErr);
-  }
+  // Run Cloud Firestore (primary) and Server API (mirror) concurrently
+  const [firestoreRes, serverRes] = await Promise.allSettled([
+    saveBusinessToFirestore(targetId, config, appointments, pets),
+    (async () => {
+      try {
+        const res = await fetch(getApiUrl('/api/businesses'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            businessId: targetId,
+            config,
+            pets,
+            appointments,
+            bookedRetentions
+          })
+        });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          console.warn('[SERVER SYNC FAILED]', res.status, errText);
+          return false;
+        }
+        return true;
+      } catch (err) {
+        console.warn('Server API sync not reachable (standard on static CDNs/Vercel):', err);
+        return false;
+      }
+    })()
+  ]);
 
-  // 2. Secondary: Mirror to Server API if available
-  try {
-    const res = await fetch('/api/businesses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        businessId,
-        config,
-        pets,
-        appointments,
-        bookedRetentions
-      })
-    });
-    serverSuccess = res.ok;
-  } catch (err) {
-    console.warn('Server API sync not reachable (standard on static CDNs/Vercel):', err);
-  }
+  const firestoreSuccess = firestoreRes.status === 'fulfilled' && firestoreRes.value === true;
+  const serverSuccess = serverRes.status === 'fulfilled' && serverRes.value === true;
+
+  console.log(`[SYNC REPORT] Business ${targetId}: Firestore=${firestoreSuccess}, Server=${serverSuccess}`);
 
   // Operation succeeds if either the cloud database or the server accepted it
   return firestoreSuccess || serverSuccess;
