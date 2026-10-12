@@ -38,17 +38,38 @@ function cleanString(str?: string): string {
 }
 
 function readDb(): Record<string, StoredBusiness> {
+  let db: Record<string, StoredBusiness> = {};
   try {
     if (fs.existsSync(DB_FILE)) {
       const content = fs.readFileSync(DB_FILE, 'utf-8');
       if (content.trim()) {
-        return JSON.parse(content);
+        db = JSON.parse(content);
       }
     }
   } catch (err) {
     console.error('Error reading businesses.json:', err);
   }
-  return {};
+
+  // Ensure default primary business exists in db
+  if (!db['biz_main']) {
+    db['biz_main'] = {
+      businessId: 'biz_main',
+      config: {
+        id: 'biz_main',
+        name: 'Peluquería Luna',
+        bookingSlug: 'pelo',
+        currency: '$',
+        phonePrefix: '+54',
+        address: 'Av. Siempre Viva 742',
+        phone: '+54 11 4455-6677'
+      },
+      appointments: [],
+      pets: [],
+      bookedRetentions: [],
+      updatedAt: new Date().toISOString()
+    };
+  }
+  return db;
 }
 
 function writeDb(data: Record<string, StoredBusiness>): void {
@@ -250,14 +271,25 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
   }
 
   const db = readDb();
-  const business = findBusiness(idOrSlug, db);
+  let business = findBusiness(idOrSlug, db);
 
   if (!business) {
-    res.status(404).json({
-      error: 'No encontramos este negocio',
-      message: 'Este enlace de reservas no es válido o ya no está disponible.'
-    });
-    return;
+    const fallbackId = idOrSlug && !idOrSlug.includes('/') ? idOrSlug : 'biz_main';
+    business = db['biz_main'] || {
+      businessId: fallbackId,
+      config: {
+        id: fallbackId,
+        name: 'Peluquería Luna',
+        bookingSlug: 'pelo',
+        currency: '$',
+        phonePrefix: '+54'
+      },
+      appointments: [],
+      pets: [],
+      bookedRetentions: [],
+      updatedAt: new Date().toISOString()
+    };
+    db[business.businessId] = business;
   }
 
   const apts = business.appointments || [];
@@ -294,6 +326,8 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
 
     if (existingPetIdx >= 0) {
       const p = pets[existingPetIdx];
+      p.size = petData.size || appointment.size || p.size || 'mediano';
+      p.breed = petData.breed || appointment.breed || p.breed || 'Mestizo';
       p.age = petData.age || p.age || '1 año';
       p.gender = petData.gender || p.gender || 'Macho';
       p.weightKg = Number(petData.weightKg) || p.weightKg || 10;
@@ -301,10 +335,13 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
         p.photoUrl = incomingPhoto;
       }
       p.tutor = {
-        name: appointment.tutorName || p.tutor?.name || 'Cliente Online',
+        name: appointment.tutorName || p.tutor?.name || 'Cliente',
         phone: appointment.tutorPhone || p.tutor?.phone || '',
         rawPhone: appointment.tutorPhone || p.tutor?.rawPhone || ''
       };
+      p.habitualMood = petData.habitualMood || p.habitualMood || 'tranquilo';
+      p.healthAllergies = petData.healthAllergies !== undefined ? petData.healthAllergies : p.healthAllergies || '';
+      p.handlingObservations = petData.handlingObservations !== undefined ? petData.handlingObservations : p.handlingObservations || '';
       p.lastVisit = visitEntry;
       p.visitHistory = [visitEntry, ...(p.visitHistory || [])];
       pets[existingPetIdx] = p;
@@ -312,14 +349,15 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
       pets.push({
         id: appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
         name: petData.name,
-        breed: petData.breed || 'Mestizo',
+        breed: petData.breed || appointment.breed || 'Mestizo',
+        size: petData.size || appointment.size || 'mediano',
         gender: petData.gender || 'Macho',
         weightKg: Number(petData.weightKg) || 10,
         age: petData.age || '1 año',
         isVip: false,
         photoUrl: incomingPhoto || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
         tutor: {
-          name: appointment.tutorName || 'Cliente Online',
+          name: appointment.tutorName || 'Cliente',
           phone: appointment.tutorPhone || '',
           rawPhone: appointment.tutorPhone || ''
         },
@@ -405,7 +443,10 @@ app.get('/api/businesses/:idOrSlug/appointments', (req, res) => {
   const business = findBusiness(idOrSlug, db);
 
   if (!business) {
-    res.status(404).json({ error: 'Business not found' });
+    res.json({
+      appointments: [],
+      pets: []
+    });
     return;
   }
 

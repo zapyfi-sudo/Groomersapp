@@ -4,7 +4,7 @@ import { formatDateSpanish, compressImage } from '../utils/storage';
 
 interface NewAppointmentViewProps {
   onClose: () => void;
-  onAppointmentCreated: (newApt: Appointment, newPetData?: Partial<Pet>) => void;
+  onAppointmentCreated: (newApt: Appointment, newPetData?: Partial<Pet>) => Promise<boolean | void> | boolean | void;
   salonName?: string;
   salonAddress?: string;
   salonPhone?: string;
@@ -236,7 +236,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!activeService) {
       setFormError('Por favor selecciona un servicio.');
@@ -331,10 +331,20 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       recommendedIntervalWeeks: 4
     };
 
-    setTimeout(() => {
+    try {
+      const res = await onAppointmentCreated(newApt, newPetData);
+      if (res === false) {
+        setFormError('Hubo un error al guardar la cita en la base de datos persistente. Por favor, intenta de nuevo.');
+        setIsSubmitting(false);
+      } else {
+        setIsSubmitting(false);
+        onClose();
+      }
+    } catch (err) {
+      console.error('Error al guardar cita interna:', err);
+      setFormError('No se pudo guardar la cita de forma persistente. Intente nuevamente.');
       setIsSubmitting(false);
-      onAppointmentCreated(newApt, newPetData);
-    }, 250);
+    }
   };
 
   return (

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData, WhatsAppTemplate } from './types';
 import {
   deriveRetentionPets,
@@ -13,7 +13,8 @@ import {
   persistActiveConfig,
   persistActivePets,
   persistActiveAppointments,
-  persistActiveBookedRetentions
+  persistActiveBookedRetentions,
+  persistActiveBusinessData
 } from './utils/saasDb';
 import {
   syncBusinessToServer,
@@ -22,7 +23,8 @@ import {
   subscribeToBusinessPets,
   subscribeToBusinessReviews,
   updateAppointmentStatusOnServer,
-  fetchLatestAppointmentsAndPets
+  fetchLatestAppointmentsAndPets,
+  createInternalAppointment
 } from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
@@ -155,6 +157,32 @@ export default function App() {
   // Navigation tabs
   const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'mascotas'>('agenda');
 
+  // Guard ref to prevent initial mount from overwriting IndexedDB with stale fallback state
+  const isDbInitialized = useRef<boolean>(false);
+
+  // Helper to merge pet records preserving rich existing groomer details
+  const mergePetRecords = (existing: Pet, incoming: Pet): Pet => {
+    return {
+      ...incoming,
+      ...existing,
+      size: existing.size || incoming.size || 'mediano',
+      weightKg: existing.weightKg || incoming.weightKg || 10,
+      habitualMood: existing.habitualMood || incoming.habitualMood || 'tranquilo',
+      healthAllergies: existing.healthAllergies || incoming.healthAllergies || '',
+      handlingObservations: existing.handlingObservations || incoming.handlingObservations || '',
+      photoUrl: existing.photoUrl || incoming.photoUrl || '',
+      tutor: {
+        ...incoming.tutor,
+        ...existing.tutor
+      },
+      lastVisit: existing.lastVisit || incoming.lastVisit,
+      visitHistory: (existing.visitHistory && existing.visitHistory.length > 0)
+        ? existing.visitHistory
+        : (incoming.visitHistory || []),
+      recommendedIntervalWeeks: existing.recommendedIntervalWeeks || incoming.recommendedIntervalWeeks || 4
+    };
+  };
+
   // Initialize IndexedDB & multi-account database on startup (with automatic migration of legacy data)
   useEffect(() => {
     initSaasDatabase().then((res) => {
@@ -172,6 +200,7 @@ export default function App() {
         if (res.activeData.pets.length > 0) {
           setSelectedPetId(res.activeData.pets[0].id);
         }
+        isDbInitialized.current = true;
 
         // Fetch from persistent cloud database (Firestore / Server API) to ensure latest slug, appointments, and pets
         const bizId = res.activeData.config?.id || res.activeData.businessId || 'biz_main';
@@ -255,7 +284,15 @@ export default function App() {
                 setPets((prev) => {
                   const map = new Map<string, Pet>();
                   for (const p of prev) if (p?.id) map.set(p.id, p);
-                  for (const p of profile.pets!) if (p?.id) map.set(p.id, p);
+                  for (const incoming of profile.pets!) {
+                    if (!incoming?.id) continue;
+                    const existing = map.get(incoming.id);
+                    if (existing) {
+                      map.set(incoming.id, mergePetRecords(existing, incoming));
+                    } else {
+                      map.set(incoming.id, incoming);
+                    }
+                  }
                   const merged = Array.from(map.values());
                   persistActivePets(merged);
                   return merged;
@@ -367,7 +404,15 @@ export default function App() {
       setPets((prev) => {
         const map = new Map<string, Pet>();
         for (const p of prev) if (p?.id) map.set(p.id, p);
-        for (const p of incomingPets) if (p?.id) map.set(p.id, p);
+        for (const incoming of incomingPets) {
+          if (!incoming?.id) continue;
+          const existing = map.get(incoming.id);
+          if (existing) {
+            map.set(incoming.id, mergePetRecords(existing, incoming));
+          } else {
+            map.set(incoming.id, incoming);
+          }
+        }
         const merged = Array.from(map.values());
         persistActivePets(merged);
         return merged;
@@ -480,7 +525,15 @@ export default function App() {
             setPets((prev) => {
               const map = new Map<string, Pet>();
               for (const p of prev) if (p?.id) map.set(p.id, p);
-              for (const p of latest.pets) if (p?.id && !map.has(p.id)) map.set(p.id, p);
+              for (const incoming of latest.pets) {
+                if (!incoming?.id) continue;
+                const existing = map.get(incoming.id);
+                if (existing) {
+                  map.set(incoming.id, mergePetRecords(existing, incoming));
+                } else {
+                  map.set(incoming.id, incoming);
+                }
+              }
               const merged = Array.from(map.values());
               persistActivePets(merged);
               return merged;
@@ -511,24 +564,29 @@ export default function App() {
 
   // Immediate Persistent Auto-Save to IndexedDB, Mirror, and Server API
   useEffect(() => {
+    if (!isDbInitialized.current) return;
     if (salonConfig) {
       persistActiveConfig(salonConfig);
     }
   }, [salonConfig]);
 
   useEffect(() => {
+    if (!isDbInitialized.current) return;
     persistActivePets(pets);
   }, [pets]);
 
   useEffect(() => {
+    if (!isDbInitialized.current) return;
     persistActiveAppointments(appointments);
   }, [appointments]);
 
   useEffect(() => {
+    if (!isDbInitialized.current) return;
     saveLanguage(currentLanguage);
   }, [currentLanguage]);
 
   useEffect(() => {
+    if (!isDbInitialized.current) return;
     persistActiveBookedRetentions(bookedRetentions);
   }, [bookedRetentions]);
 
@@ -675,93 +733,139 @@ export default function App() {
     }));
   };
 
-  // Cross-Module Automation: When an appointment is created, automatically add/update Pet & Tutor
-  const handleAddNewAppointment = (newApt: Appointment, newPetData?: Partial<Pet>) => {
-    setAppointments((prev) => [newApt, ...prev]);
+  // Cross-Module Automation: When an appointment is created, automatically add/update Pet & Tutor & PERSIST
+  const handleAddNewAppointment = async (
+    newApt: Appointment,
+    newPetData?: Partial<Pet>
+  ): Promise<boolean> => {
+    try {
+      const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
 
-    // Check if pet already exists in pets by ID or name
-    setPets((prevPets) => {
-      const existing = prevPets.find(
-        (p) => p.id === newApt.petId || (p.name.toLowerCase() === newApt.petName.toLowerCase() && p.tutor.name.toLowerCase() === newApt.tutorName.toLowerCase())
+      // 1. Calculate updated appointments
+      const updatedAppointments = [newApt, ...appointments.filter((a) => a.id !== newApt.id)];
+      setAppointments(updatedAppointments);
+
+      // 2. Calculate updated pets
+      const existing = pets.find(
+        (p) =>
+          p.id === newApt.petId ||
+          (p.name.toLowerCase() === newApt.petName.toLowerCase() &&
+            p.tutor.name.toLowerCase() === newApt.tutorName.toLowerCase())
       );
 
+      const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || existing?.photoUrl;
+      const parsedWeight = Number(newPetData?.weightKg) || existing?.weightKg || 10;
+      const parsedSize = (newPetData as any)?.size || newApt.size || existing?.size || 'mediano';
+
+      const visitEntry = {
+        id: `v-${Date.now()}`,
+        date: newApt.date || 'Hoy',
+        serviceName: newApt.serviceName,
+        price: newApt.price,
+        currency: newApt.currency,
+        mood: (newPetData?.habitualMood as any) || existing?.habitualMood || 'tranquilo',
+        paid: newApt.paymentStatus === 'cobrado',
+        photos: {
+          beforeUrl: incomingPhoto || existing?.lastVisit?.photos?.beforeUrl
+        }
+      };
+
+      let updatedPets: Pet[] = [];
+
       if (existing) {
-        return prevPets.map((p) => {
+        updatedPets = pets.map((p) => {
           if (p.id === existing.id) {
-            const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || p.lastVisit?.photos?.beforeUrl;
             return {
               ...p,
               breed: newApt.breed || newPetData?.breed || p.breed,
-              size: (newPetData as any)?.size || newApt.size || p.size || 'mediano',
+              size: parsedSize,
               age: newPetData?.age || p.age || '1 año',
               gender: newPetData?.gender || p.gender || 'Macho',
-              weightKg: Number(newPetData?.weightKg) || p.weightKg || 10,
+              weightKg: parsedWeight,
               photoUrl: incomingPhoto || p.photoUrl,
               habitualMood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
-              healthAllergies: newPetData?.healthAllergies !== undefined ? newPetData.healthAllergies : p.healthAllergies,
-              handlingObservations: newPetData?.handlingObservations !== undefined ? newPetData.handlingObservations : p.handlingObservations,
+              healthAllergies:
+                newPetData?.healthAllergies !== undefined
+                  ? newPetData.healthAllergies
+                  : p.healthAllergies,
+              handlingObservations:
+                newPetData?.handlingObservations !== undefined
+                  ? newPetData.handlingObservations
+                  : p.handlingObservations,
               tutor: {
                 ...p.tutor,
                 name: newApt.tutorName || p.tutor.name,
-                phone: newApt.tutorPhone || p.tutor.phone
+                phone: newApt.tutorPhone || p.tutor.phone,
+                rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
               },
-              lastVisit: {
-                id: `v-${Date.now()}`,
-                date: newApt.date || 'Hoy',
-                serviceName: newApt.serviceName,
-                price: newApt.price,
-                currency: newApt.currency,
-                mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
-                paid: newApt.paymentStatus === 'cobrado',
-                photos: {
-                  ...p.lastVisit?.photos,
-                  beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
-                }
-              }
+              lastVisit: visitEntry,
+              visitHistory: [visitEntry, ...(p.visitHistory || [])],
+              recommendedIntervalWeeks: p.recommendedIntervalWeeks || 4
             };
           }
           return p;
         });
+      } else {
+        const createdPet: Pet = {
+          id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
+          name: newApt.petName,
+          breed: newApt.breed || newPetData?.breed || 'Mestizo',
+          size: parsedSize,
+          age: newPetData?.age || '1 año',
+          gender: newPetData?.gender || 'Macho',
+          weightKg: parsedWeight,
+          isVip: false,
+          photoUrl:
+            incomingPhoto ||
+            'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
+          tutor: {
+            name: newApt.tutorName,
+            phone: newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`,
+            rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
+          },
+          habitualMood: (newPetData?.habitualMood as any) || 'tranquilo',
+          healthAllergies: newPetData?.healthAllergies || '',
+          handlingObservations: newPetData?.handlingObservations || '',
+          lastVisit: visitEntry,
+          visitHistory: [visitEntry],
+          recommendedIntervalWeeks: 4
+        };
+        updatedPets = [createdPet, ...pets];
       }
 
-      // Create new Pet record from appointment data
-      const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || '';
-      const createdPet: Pet = {
-        id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: newApt.petName,
-        breed: newApt.breed || 'Mestizo',
-        size: (newPetData as any)?.size || newApt.size || 'mediano',
-        age: newPetData?.age || '1 año',
-        gender: newPetData?.gender || 'Macho',
-        weightKg: Number(newPetData?.weightKg) || 10,
-        isVip: false,
-        photoUrl: incomingPhoto || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
-        tutor: {
-          name: newApt.tutorName,
-          phone: newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`,
-          rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
-        },
-        habitualMood: (newPetData?.habitualMood as any) || 'tranquilo',
-        healthAllergies: newPetData?.healthAllergies || '',
-        handlingObservations: newPetData?.handlingObservations || '',
-        lastVisit: {
-          id: `v-${Date.now()}`,
-          date: newApt.date || 'Hoy',
-          serviceName: newApt.serviceName,
-          price: newApt.price,
-          currency: newApt.currency,
-          mood: (newPetData?.habitualMood as any) || 'tranquilo',
-          paid: newApt.paymentStatus === 'cobrado',
-          photos: {
-            beforeUrl: incomingPhoto || undefined
-          }
-        },
-        visitHistory: [],
-        recommendedIntervalWeeks: 4
-      };
+      setPets(updatedPets);
 
-      return [createdPet, ...prevPets];
-    });
+      // 3. Atomically persist to IndexedDB AND local mirror immediately
+      await persistActiveBusinessData({
+        appointments: updatedAppointments,
+        pets: updatedPets
+      });
+
+      // 4. Save to Cloud Firestore & Server API
+      await createInternalAppointment(currentBizId, newApt, {
+        id: newApt.petId,
+        name: newApt.petName,
+        breed: newApt.breed,
+        size: parsedSize,
+        weightKg: parsedWeight,
+        gender: newPetData?.gender,
+        age: newPetData?.age,
+        photoUrl: incomingPhoto,
+        habitualMood: newPetData?.habitualMood,
+        healthAllergies: newPetData?.healthAllergies,
+        handlingObservations: newPetData?.handlingObservations,
+        tutor: {
+          name: newApt.tutorName || '',
+          phone: newApt.tutorPhone || '',
+          rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
+        }
+      });
+
+      return true;
+    } catch (err) {
+      console.error('[HANDLE ADD APPOINTMENT ERROR]', err);
+      return false;
+    }
   };
 
   const handleUpdateAppointmentStatus = async (

@@ -13,7 +13,7 @@ interface AgendaViewProps {
   pets: Pet[];
   onSelectPet: (pet: Pet) => void;
   onNavigateToRetention: () => void;
-  onAddNewAppointment: (newApt: Appointment, newPetData?: Partial<Pet>) => void;
+  onAddNewAppointment: (newApt: Appointment, newPetData?: Partial<Pet>) => Promise<boolean | void> | boolean | void;
   onUpdateAppointmentStatus?: (
     appointmentId: string,
     status: string,
@@ -145,10 +145,23 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     });
   }, [selectedDayAppointments, allPendingAppointments, filterStatus]);
 
-  const handleAppointmentCreated = (newApt: Appointment, newPetData?: Partial<Pet>) => {
-    onAddNewAppointment(newApt, newPetData);
-    setToastMessage(`¡Turno de ${newApt.petName} agendado con éxito!`);
-    setTimeout(() => setToastMessage(null), 3000);
+  const handleAppointmentCreated = async (
+    newApt: Appointment,
+    newPetData?: Partial<Pet>
+  ): Promise<boolean> => {
+    const res = await onAddNewAppointment(newApt, newPetData);
+    if (res !== false) {
+      // Auto-navigate to appointment date so it immediately displays on the calendar
+      if (newApt.date) {
+        setSelectedDateFormatted(newApt.date);
+        const offset = findWeekOffsetForDate(newApt.date);
+        setWeekOffset(offset);
+      }
+      setToastMessage(`¡Turno de ${newApt.petName} agendado y guardado con éxito!`);
+      setTimeout(() => setToastMessage(null), 3500);
+      return true;
+    }
+    return false;
   };
 
   // Helper to find the week offset corresponding to a given formatted date
@@ -758,9 +771,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       {isNewAptModalOpen && (
         <NewAppointmentView
           onClose={() => setIsNewAptModalOpen(false)}
-          onAppointmentCreated={(newApt, newPetData) => {
-            handleAppointmentCreated(newApt, newPetData);
-            setIsNewAptModalOpen(false);
+          onAppointmentCreated={async (newApt, newPetData) => {
+            const success = await handleAppointmentCreated(newApt, newPetData);
+            if (success !== false) {
+              setIsNewAptModalOpen(false);
+            }
+            return success;
           }}
           salonName={salonConfig.name}
           salonAddress={salonConfig.address}

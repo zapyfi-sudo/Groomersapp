@@ -301,6 +301,54 @@ export async function createPublicAppointment(
 }
 
 /**
+ * Submits an internal appointment created from Agenda to Cloud Firestore and Server API.
+ * Preserves the exact status ('confirmada') and ensures persistence across reloads and multi-devices.
+ */
+export async function createInternalAppointment(
+  businessIdOrSlug: string,
+  appointment: Appointment,
+  petData?: Partial<Pet>
+): Promise<boolean> {
+  const targetBizId = businessIdOrSlug || 'biz_main';
+
+  // 1. Primary: Save to Cloud Firestore
+  const firestoreTask = addAppointmentToFirestore(targetBizId, appointment, petData)
+    .catch((err) => {
+      console.warn('[FIRESTORE INTERNAL APPOINTMENT ERROR]', err);
+      return false;
+    });
+
+  // 2. Secondary: Submit to Server API
+  const serverTask = fetch(`/api/businesses/${encodeURIComponent(targetBizId)}/appointments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      appointment,
+      petData
+    })
+  })
+    .then((res) => res.ok)
+    .catch((err) => {
+      console.warn('Could not post appointment to server API:', err);
+      return false;
+    });
+
+  // 3. Update local cache mirror
+  if (typeof window !== 'undefined') {
+    try {
+      const key = `agendacan_public_apts_${targetBizId}`;
+      const existingRaw = localStorage.getItem(key);
+      const existing: Appointment[] = existingRaw ? JSON.parse(existingRaw) : [];
+      const updated = [appointment, ...existing.filter((a) => a.id !== appointment.id)];
+      localStorage.setItem(key, JSON.stringify(updated.slice(0, 50)));
+    } catch {}
+  }
+
+  const [firestoreSuccess, serverSuccess] = await Promise.all([firestoreTask, serverTask]);
+  return firestoreSuccess || serverSuccess;
+}
+
+/**
  * Updates an appointment's status on the backend server and Firestore,
  * ensuring synchronization across devices, reloads, and offline recovery.
  */
