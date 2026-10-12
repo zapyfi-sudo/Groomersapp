@@ -13,6 +13,7 @@ interface PetProfileViewProps {
   onNavigateOnboarding: () => void;
   salonConfig?: SalonConfig;
   appointments?: Appointment[];
+  onAppointmentCompleted?: (appointmentId: string) => Promise<boolean | void> | void;
 }
 
 export const PetProfileView: React.FC<PetProfileViewProps> = ({
@@ -20,7 +21,8 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   onUpdatePet,
   onNavigateOnboarding,
   salonConfig,
-  appointments = []
+  appointments = [],
+  onAppointmentCompleted
 }) => {
   const currency = salonConfig?.currency || pet.lastVisit?.currency || 'ARS';
   const salonServices = useMemo(() => {
@@ -362,6 +364,11 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
         customReturnWeeks: selectedInterval === 'custom' ? weeksToReturn : undefined,
         nextRecommendedVisitDate: calculatedNextDateStr
       });
+
+      // Mark the scheduled appointment as completed in Agenda & Cloud
+      if (scheduledAppointment?.id && onAppointmentCompleted) {
+        onAppointmentCompleted(scheduledAppointment.id);
+      }
 
       setTimeout(() => setVisitSavedToast(false), 3000);
     }, 400);

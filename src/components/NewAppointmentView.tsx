@@ -13,6 +13,8 @@ interface NewAppointmentViewProps {
   existingPets?: Pet[];
   isOnlineClientPortal?: boolean;
   salonConfig?: SalonConfig;
+  initialPet?: Pet;
+  initialDate?: string;
 }
 
 export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
@@ -21,7 +23,9 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   simultaneousCapacity = 2,
   existingAppointments = [],
   existingPets = [],
-  salonConfig
+  salonConfig,
+  initialPet,
+  initialDate
 }) => {
   const currency = salonConfig?.currency || 'ARS';
 
@@ -32,13 +36,28 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
     return salonConfig?.services || [];
   }, [salonConfig]);
 
+  // Determine initial service from initialPet's last visit or first service
+  const preloadedServiceId = useMemo(() => {
+    if (initialPet?.lastVisit?.serviceName) {
+      const match = services.find(
+        (s) => s.name.trim().toLowerCase() === initialPet.lastVisit?.serviceName?.trim().toLowerCase()
+      );
+      if (match) return match.id;
+    }
+    return services[0]?.id || '';
+  }, [initialPet, services]);
+
   // Step 1: Services
   const [selectedServiceId, setSelectedServiceId] = useState<string>(
-    services[0]?.id || ''
+    preloadedServiceId
   );
 
   // Requirement #2: Tamaño de la mascota con las mismas 3 opciones que el enlace público (Pequeño, Mediano, Grande)
-  const [selectedDogSize, setSelectedDogSize] = useState<'pequeno' | 'mediano' | 'grande'>('mediano');
+  const initialDogSize: 'pequeno' | 'mediano' | 'grande' =
+    initialPet?.size === 'pequeno' || initialPet?.size === 'mediano' || initialPet?.size === 'grande'
+      ? initialPet.size
+      : 'mediano';
+  const [selectedDogSize, setSelectedDogSize] = useState<'pequeno' | 'mediano' | 'grande'>(initialDogSize);
 
   const activeService = useMemo(() => {
     return services.find((s) => s.id === selectedServiceId) || services[0];
@@ -101,9 +120,13 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   }, [today, activeDayLetters]);
 
   const defaultSelectedDate = useMemo(() => {
+    if (initialDate) {
+      const match = availableDates.find((d) => d.formatted === initialDate);
+      if (match) return match.formatted;
+    }
     const firstWorking = availableDates.find((d) => d.isWorkingDay);
     return firstWorking ? firstWorking.formatted : availableDates[0]?.formatted || formatDateSpanish(today);
-  }, [availableDates, today]);
+  }, [availableDates, today, initialDate]);
 
   const [selectedDate, setSelectedDate] = useState<string>(defaultSelectedDate);
 
@@ -181,25 +204,25 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   }, [timeSlots, selectedDate]);
 
   // Step 4: Tutor & Pet Info (Unified fields matching public booking)
-  const [tutorName, setTutorName] = useState('');
-  const [whatsappPhone, setWhatsappPhone] = useState('');
-  const [petName, setPetName] = useState('');
-  const [breed, setBreed] = useState('');
-  const [age, setAge] = useState('');
-  const [gender, setGender] = useState<'Macho' | 'Hembra'>('Macho');
+  const [tutorName, setTutorName] = useState(initialPet?.tutor?.name || '');
+  const [whatsappPhone, setWhatsappPhone] = useState(initialPet?.tutor?.phone || '');
+  const [petName, setPetName] = useState(initialPet?.name || '');
+  const [breed, setBreed] = useState(initialPet?.breed || '');
+  const [age, setAge] = useState(initialPet?.age || '');
+  const [gender, setGender] = useState<'Macho' | 'Hembra'>(initialPet?.gender || 'Macho');
   // Requirement #2: Peso aproximado como campo independiente
-  const [weightKg, setWeightKg] = useState('10');
+  const [weightKg, setWeightKg] = useState(initialPet?.weightKg ? String(initialPet.weightKg) : '10');
   // Requirement #4: Fotografía de la mascota
-  const [petPhoto, setPetPhoto] = useState<string>('');
+  const [petPhoto, setPetPhoto] = useState<string>(initialPet?.photoUrl || '');
   const [isPhotoCompressing, setIsPhotoCompressing] = useState<boolean>(false);
   // Requirement #3: Exactamente 3 opciones (Tranquilo, Inquieto, Difícil)
-  const [behavior, setBehavior] = useState<BehaviorMood>('tranquilo');
+  const [behavior, setBehavior] = useState<BehaviorMood>(initialPet?.habitualMood || 'tranquilo');
   // Requirement #1: Salud o alergias de la piel
-  const [healthNotes, setHealthNotes] = useState('');
-  const [handlingNotes, setHandlingNotes] = useState('');
+  const [healthNotes, setHealthNotes] = useState(initialPet?.healthAllergies || '');
+  const [handlingNotes, setHandlingNotes] = useState(initialPet?.handlingObservations || '');
 
   // Selected existing pet linking (Requirement #6: reutilizar registro correcto si ya existe)
-  const [selectedExistingPetId, setSelectedExistingPetId] = useState<string | null>(null);
+  const [selectedExistingPetId, setSelectedExistingPetId] = useState<string | null>(initialPet?.id || null);
 
   const matchedExistingPet = useMemo(() => {
     if (selectedExistingPetId) {

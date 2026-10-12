@@ -611,7 +611,7 @@ export function calculatePetReturnStats(
   // First visit is initial visit. Returns = totalCompletedVisits - 1 (min 0)
   const returnCount = Math.max(0, totalCompletedVisits - 1);
 
-  let returnCountLabel = 'Sin regresos registrados';
+  let returnCountLabel = 'Ha vuelto 0 veces';
   if (returnCount === 1) {
     returnCountLabel = 'Ha vuelto 1 vez';
   } else if (returnCount > 1) {
@@ -637,9 +637,6 @@ export function deriveRetentionPets(
   const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
   pets.forEach((pet) => {
-    const lastVisit = pet.lastVisit;
-    if (!lastVisit) return;
-
     // 1. Determine interval weeks (custom or standard)
     let intervalWeeks = 6;
     if (pet.returnIntervalType === 'custom' && pet.customReturnWeeks) {
@@ -648,14 +645,26 @@ export function deriveRetentionPets(
       intervalWeeks = Number(pet.recommendedIntervalWeeks) || 6;
     }
 
-    // 2. Determine reference date (date of last visit)
-    let refDate = parseSpanishOrIsoDate(lastVisit.date);
+    // 2. Determine reference date and last visit
+    const hasCompletedVisit = Boolean(
+      pet.lastVisit?.date || (pet.visitHistory && pet.visitHistory.length > 0)
+    );
+    const lastVisit = pet.lastVisit || (pet.visitHistory && pet.visitHistory.length > 0 ? pet.visitHistory[0] : null);
+
+    let refDate: Date | null = null;
+    if (lastVisit?.date) {
+      refDate = parseSpanishOrIsoDate(lastVisit.date);
+    }
     if (!refDate && pet.visitHistory && pet.visitHistory.length > 0) {
       refDate = parseSpanishOrIsoDate(pet.visitHistory[0].date);
     }
-    if (!refDate) {
-      refDate = new Date();
-    }
+
+    const lastVisitDateText = hasCompletedVisit && lastVisit?.date
+      ? lastVisit.date
+      : 'Sin visitas registradas';
+
+    // If no visit exists, base reference date on today
+    const effectiveRefDate = refDate || new Date();
 
     // 3. Determine next recommended date
     let targetDate: Date;
@@ -664,10 +673,10 @@ export function deriveRetentionPets(
       if (parsedTarget) {
         targetDate = parsedTarget;
       } else {
-        targetDate = new Date(refDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
+        targetDate = new Date(effectiveRefDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
       }
     } else {
-      targetDate = new Date(refDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
+      targetDate = new Date(effectiveRefDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
     }
 
     const nextRecommendedDateFormatted = formatDateSpanish(targetDate);
@@ -678,53 +687,66 @@ export function deriveRetentionPets(
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
     // 5. Calculate actual weeks elapsed since last visit
-    const refZero = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate()).getTime();
-    const daysSinceLastVisit = Math.max(0, Math.round((todayZero - refZero) / (1000 * 60 * 60 * 24)));
-    const weeksSinceLastVisit = Math.floor(daysSinceLastVisit / 7);
+    let weeksSinceLastVisit = 0;
+    if (refDate) {
+      const refZero = new Date(refDate.getFullYear(), refDate.getMonth(), refDate.getDate()).getTime();
+      const daysSinceLastVisit = Math.max(0, Math.round((todayZero - refZero) / (1000 * 60 * 60 * 24)));
+      weeksSinceLastVisit = Math.floor(daysSinceLastVisit / 7);
+    }
 
-    // 6. Urgency classification & countdown text (Requirements #3 & #4)
+    // 6. Urgency classification & countdown text
     let urgency: 'esta_semana' | 'urgente' | 'proxima_semana' | 'mas_adelante' = 'esta_semana';
     let urgencyLabel = '¡Esta semana!';
     let countdownText = '';
 
     if (diffDays < 0) {
-      // Overdue
       urgency = 'urgente';
       const daysOverdue = Math.abs(diffDays);
       urgencyLabel = '! Urgente (Vencida)';
       countdownText = daysOverdue === 1 ? 'Vencida hace 1 día' : `Vencida hace ${daysOverdue} días`;
     } else if (diffDays === 0) {
-      // Today
       urgency = 'urgente';
       urgencyLabel = '! Hoy';
       countdownText = 'Hoy corresponde su visita';
     } else if (diffDays <= 3) {
-      // Very close (1-3 days)
       urgency = 'urgente';
       urgencyLabel = '! Urgente';
       countdownText = diffDays === 1 ? 'Falta 1 día' : `Faltan ${diffDays} días`;
     } else if (diffDays <= 7) {
-      // This week (4-7 days)
       urgency = 'esta_semana';
       urgencyLabel = '¡Esta semana!';
       countdownText = `Faltan ${diffDays} días`;
     } else if (diffDays <= 14) {
-      // Next week (8-14 days)
       urgency = 'proxima_semana';
       urgencyLabel = 'Próxima semana';
       countdownText = `Faltan ${diffDays} días`;
     } else {
-      // More than 2 weeks ahead (e.g. 5 weeks, 35 days)
       urgency = 'mas_adelante';
       urgencyLabel = 'Más adelante';
       countdownText = `Faltan ${diffDays} días`;
     }
 
-    const alreadyBooked = bookedIds.includes(pet.id);
-    const tutorFirstName = pet.tutor?.name ? (pet.tutor.name.split(' ')[0] || pet.tutor.name) : 'Tutor';
-    const serviceName = lastVisit.serviceName || 'Baño + corte';
+    // Check if pet is marked as booked via bookedRetentions OR has a scheduled active appointment
+    const isManuallyBooked = bookedIds.includes(pet.id);
+    const hasScheduledAppointment = Array.isArray(appointments) && appointments.some((a) => {
+      const matchesPet =
+        a.petId === pet.id ||
+        (a.petName?.trim().toLowerCase() === pet.name?.trim().toLowerCase() &&
+          a.tutorName?.trim().toLowerCase() === pet.tutor?.name?.trim().toLowerCase());
+      if (!matchesPet) return false;
+      // An active scheduled appointment (not cancelled, not completed yet)
+      const isActive =
+        a.status !== 'cancelada' &&
+        a.status !== 'completado' &&
+        (a.status as any) !== 'completed';
+      return isActive;
+    });
 
-    // 7. Context-accurate suggested smart message (Requirement #6)
+    const alreadyBooked = isManuallyBooked || hasScheduledAppointment;
+    const tutorFirstName = pet.tutor?.name ? (pet.tutor.name.split(' ')[0] || pet.tutor.name) : 'Tutor';
+    const serviceName = lastVisit?.serviceName || 'Baño + corte';
+
+    // 7. Context-accurate suggested smart message
     let suggestedMessage = '';
     if (diffDays <= 0) {
       suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Ya es momento de renovar el cuidado de ${pet.name} (${serviceName}) para mantener su manto impecable y saludable. ¿Te gustaría que reservemos su próximo turno esta semana?”`;
@@ -736,7 +758,7 @@ export function deriveRetentionPets(
       suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Según la recomendación de cuidado para ${pet.name}, su próxima sesión de ${serviceName} está prevista para el ${nextRecommendedDateFormatted} (en ${intervalWeeks} semanas). ¡Estamos a tu disposición si gustas reservar con anticipación!”`;
     }
 
-    // 8. Fidelidad / Regresos de la mascota (Requirement: Indicador de fidelidad "Ha vuelto X veces")
+    // 8. Fidelidad / Regresos de la mascota
     const { returnCount, returnCountLabel } = calculatePetReturnStats(pet, appointments);
 
     results.push({
@@ -749,7 +771,7 @@ export function deriveRetentionPets(
       rawPhone: pet.tutor.rawPhone,
       photoUrl: pet.photoUrl,
       isVip: pet.isVip,
-      lastVisitDate: lastVisit.date,
+      lastVisitDate: lastVisitDateText,
       weeksSinceLastVisit,
       recommendedWeeks: intervalWeeks,
       nextRecommendedDate: nextRecommendedDateFormatted,

@@ -54,7 +54,7 @@ export interface Pet {
   sessionHealthNotes?: string;
   sessionHandlingNotes?: string;
   careRecommendations?: string;
-  lastVisit: Visit;
+  lastVisit?: Visit;
   visitHistory: Visit[];
   recommendedIntervalWeeks: number | string;
   returnIntervalType?: '4' | '6' | '8' | 'custom';

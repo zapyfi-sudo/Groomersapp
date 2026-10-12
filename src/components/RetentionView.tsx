@@ -7,6 +7,7 @@ interface RetentionViewProps {
   onSelectPetForProfile: (petId: string) => void;
   onMarkAsBooked: (id: string) => void;
   onOpenWhatsApp: (pet: RetentionPet) => void;
+  onBookAppointment?: (pet: RetentionPet) => void;
   currentLanguage?: AppLanguage;
 }
 
@@ -15,6 +16,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
   onSelectPetForProfile,
   onMarkAsBooked,
   onOpenWhatsApp,
+  onBookAppointment,
   currentLanguage = 'es-LA'
 }) => {
   const [filter, setFilter] = useState<'todos' | 'urgentes' | 'proxima'>('todos');
@@ -273,7 +275,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                             >
                               {(pet.returnCount ?? 0) > 0 ? 'repeat' : 'history'}
                             </span>
-                            <span>{pet.returnCountLabel || 'Sin regresos registrados'}</span>
+                            <span>{pet.returnCountLabel || 'Ha vuelto 0 veces'}</span>
                           </span>
                         </div>
                       </div>
@@ -364,23 +366,21 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2">
                     <button
                       type="button"
-                      onClick={() => handleBookedClick(pet.id, pet.name)}
-                      className={`w-full sm:w-auto py-2 px-3.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-                        pet.alreadyBooked
-                          ? 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                          : 'bg-[#efecfd] text-[#2e004e] hover:bg-[#e3e0f1]'
-                      }`}
+                      onClick={() => onBookAppointment && onBookAppointment(pet)}
+                      className="w-full sm:w-auto py-2 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] shadow-xs active:scale-95"
+                      title="Abrir formulario para programar una nueva cita para esta mascota"
                     >
-                      <span className="material-symbols-outlined text-sm">
-                        {pet.alreadyBooked ? 'undo' : 'check_circle'}
+                      <span className="material-symbols-outlined text-sm font-bold">
+                        calendar_add_on
                       </span>
-                      <span>{pet.alreadyBooked ? 'Desmarcar agendado' : t.markBooked}</span>
+                      <span>Agendar cita</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={() => onOpenWhatsApp(pet)}
-                      className="w-full sm:w-auto py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                      className="w-full sm:w-auto py-2 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                      title="Contactar al tutor por WhatsApp con el mensaje sugerido"
                     >
                       <span className="material-symbols-outlined text-sm">chat</span>
                       <span>{t.sendWhatsApp}</span>

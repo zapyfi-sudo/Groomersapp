@@ -38,6 +38,7 @@ import { AccountAuthModal } from './components/AccountAuthModal';
 import { LoginScreen } from './components/LoginScreen';
 import { PublicBookingPage } from './components/PublicBookingPage';
 import { PublicReviewPage } from './components/PublicReviewPage';
+import { NewAppointmentView } from './components/NewAppointmentView';
 
 import { decodePublicProfileToken, extractSlugOnly } from './utils/slugUtils';
 
@@ -149,6 +150,16 @@ export default function App() {
   // Selected pet for profile view
   const [selectedPetId, setSelectedPetId] = useState<string>(() => {
     return initialData.pets[0]?.id || '#PET-2849';
+  });
+
+  // Booking from Por Volver
+  const [bookingFromRetention, setBookingFromRetention] = useState<{
+    isOpen: boolean;
+    pet: Pet | null;
+    targetDate?: string;
+  }>({
+    isOpen: false,
+    pet: null
   });
 
   // Real-time notification for incoming public bookings
@@ -684,6 +695,23 @@ export default function App() {
     });
   };
 
+  const handleBookFromRetention = (retPet: RetentionPet) => {
+    // Find real pet by petId or name
+    const cleanPetId = retPet.petId.replace('#', '').toLowerCase();
+    const matched =
+      pets.find((p) => p.id.replace('#', '').toLowerCase() === cleanPetId) ||
+      pets.find((p) => p.name.trim().toLowerCase() === retPet.name.trim().toLowerCase()) ||
+      null;
+
+    if (matched) {
+      setBookingFromRetention({
+        isOpen: true,
+        pet: matched,
+        targetDate: retPet.nextRecommendedDate
+      });
+    }
+  };
+
   const handleOpenWhatsApp = (retPet: RetentionPet) => {
     const textEncoded = encodeURIComponent(retPet.suggestedMessage);
     const cleanPhone = retPet.rawPhone || retPet.tutorPhone.replace(/\D/g, '');
@@ -710,16 +738,7 @@ export default function App() {
       habitualMood: 'tranquilo',
       healthAllergies: 'Sin afecciones registradas.',
       handlingObservations: 'Manejo habitual sin restricciones.',
-      lastVisit: {
-        id: 'v-' + Date.now(),
-        date: 'Hoy',
-        serviceName: salonConfig.services[0]?.name || 'Baño + corte',
-        price: salonConfig.services[0]?.price || 25,
-        currency: salonConfig.currency,
-        mood: 'tranquilo',
-        paid: true,
-        photos: {}
-      },
+      lastVisit: undefined,
       visitHistory: [],
       recommendedIntervalWeeks: 6
     };
@@ -760,18 +779,8 @@ export default function App() {
       const parsedWeight = Number(newPetData?.weightKg) || existing?.weightKg || 10;
       const parsedSize = (newPetData as any)?.size || newApt.size || existing?.size || 'mediano';
 
-      const visitEntry = {
-        id: `v-${Date.now()}`,
-        date: newApt.date || 'Hoy',
-        serviceName: newApt.serviceName,
-        price: newApt.price,
-        currency: newApt.currency,
-        mood: (newPetData?.habitualMood as any) || existing?.habitualMood || 'tranquilo',
-        paid: newApt.paymentStatus === 'cobrado',
-        photos: {
-          beforeUrl: incomingPhoto || existing?.lastVisit?.photos?.beforeUrl
-        }
-      };
+      const isAptCompleted =
+        newApt.status === 'completado' || (newApt.status as any) === 'completed';
 
       let updatedPets: Pet[] = [];
 
@@ -801,8 +810,38 @@ export default function App() {
                 phone: newApt.tutorPhone || p.tutor.phone,
                 rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
               },
-              lastVisit: visitEntry,
-              visitHistory: [visitEntry, ...(p.visitHistory || [])],
+              // Only update lastVisit and visitHistory if the appointment was actually marked completed
+              lastVisit: isAptCompleted
+                ? {
+                    id: `v-${Date.now()}`,
+                    date: newApt.date || 'Hoy',
+                    serviceName: newApt.serviceName,
+                    price: newApt.price,
+                    currency: newApt.currency,
+                    mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
+                    paid: newApt.paymentStatus === 'cobrado',
+                    photos: {
+                      beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
+                    }
+                  }
+                : p.lastVisit,
+              visitHistory: isAptCompleted
+                ? [
+                    {
+                      id: `v-${Date.now()}`,
+                      date: newApt.date || 'Hoy',
+                      serviceName: newApt.serviceName,
+                      price: newApt.price,
+                      currency: newApt.currency,
+                      mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
+                      paid: newApt.paymentStatus === 'cobrado',
+                      photos: {
+                        beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
+                      }
+                    },
+                    ...(p.visitHistory || [])
+                  ]
+                : (p.visitHistory || []),
               recommendedIntervalWeeks: p.recommendedIntervalWeeks || 4
             };
           }
@@ -829,8 +868,37 @@ export default function App() {
           habitualMood: (newPetData?.habitualMood as any) || 'tranquilo',
           healthAllergies: newPetData?.healthAllergies || '',
           handlingObservations: newPetData?.handlingObservations || '',
-          lastVisit: visitEntry,
-          visitHistory: [visitEntry],
+          // An initial scheduled appointment does NOT count as a completed visit
+          lastVisit: isAptCompleted
+            ? {
+                id: `v-${Date.now()}`,
+                date: newApt.date || 'Hoy',
+                serviceName: newApt.serviceName,
+                price: newApt.price,
+                currency: newApt.currency,
+                mood: (newPetData?.habitualMood as any) || 'tranquilo',
+                paid: newApt.paymentStatus === 'cobrado',
+                photos: {
+                  beforeUrl: incomingPhoto
+                }
+              }
+            : undefined,
+          visitHistory: isAptCompleted
+            ? [
+                {
+                  id: `v-${Date.now()}`,
+                  date: newApt.date || 'Hoy',
+                  serviceName: newApt.serviceName,
+                  price: newApt.price,
+                  currency: newApt.currency,
+                  mood: (newPetData?.habitualMood as any) || 'tranquilo',
+                  paid: newApt.paymentStatus === 'cobrado',
+                  photos: {
+                    beforeUrl: incomingPhoto
+                  }
+                }
+              ]
+            : [],
           recommendedIntervalWeeks: 4
         };
         updatedPets = [createdPet, ...pets];
@@ -1112,6 +1180,7 @@ export default function App() {
               onSelectPetForProfile={handleSelectPetForProfile}
               onMarkAsBooked={handleMarkAsBooked}
               onOpenWhatsApp={handleOpenWhatsApp}
+              onBookAppointment={handleBookFromRetention}
               currentLanguage={currentLanguage}
             />
           )}
@@ -1124,6 +1193,9 @@ export default function App() {
               onNavigateOnboarding={() => setCurrentTab('onboarding')}
               salonConfig={salonConfig}
               appointments={appointments}
+              onAppointmentCompleted={async (appointmentId: string) => {
+                await handleUpdateAppointmentStatus(appointmentId, 'completado', 'COMPLETADO');
+              }}
             />
           )}
 
@@ -1138,6 +1210,35 @@ export default function App() {
           )}
         </main>
       </div>
+
+      {/* Modal Agendar Cita desde Por Volver */}
+      {bookingFromRetention.isOpen && bookingFromRetention.pet && (
+        <NewAppointmentView
+          onClose={() => setBookingFromRetention({ isOpen: false, pet: null })}
+          onAppointmentCreated={async (newApt, newPetData) => {
+            const success = await handleAddNewAppointment(newApt, newPetData);
+            if (success !== false) {
+              // Ensure this pet is marked in bookedRetentions so it disappears from pending retentions immediately
+              const petKey = bookingFromRetention.pet?.id || newApt.petId;
+              if (petKey) {
+                setBookedRetentions((prev) => (prev.includes(petKey) ? prev : [...prev, petKey]));
+              }
+              setBookingFromRetention({ isOpen: false, pet: null });
+            }
+            return success;
+          }}
+          salonName={salonConfig.name}
+          salonAddress={salonConfig.address}
+          salonPhone={salonConfig.phone}
+          simultaneousCapacity={salonConfig.allowSimultaneousStaff === false ? 1 : salonConfig.simultaneousCapacity || 2}
+          existingAppointments={appointments}
+          existingPets={pets}
+          isOnlineClientPortal={false}
+          salonConfig={salonConfig}
+          initialPet={bookingFromRetention.pet}
+          initialDate={bookingFromRetention.targetDate}
+        />
+      )}
 
       {/* Account Switcher & SaaS Management Modal */}
       <AccountAuthModal
