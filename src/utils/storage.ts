@@ -532,11 +532,105 @@ export function parseSpanishOrIsoDate(str?: string): Date | null {
   return null;
 }
 
+// Helper to calculate total real completed visits and returns for a pet
+export function calculatePetReturnStats(
+  pet: Pet,
+  appointments?: Appointment[]
+): { totalCompletedVisits: number; returnCount: number; returnCountLabel: string } {
+  // Use a map/set of unique visit keys to avoid double counting
+  // We record both visit id and date to cross-reference with appointments
+  const recordedVisitIds = new Set<string>();
+  const recordedDates = new Set<string>();
+  let visitCount = 0;
+
+  const registerVisit = (id?: string, date?: string) => {
+    const cleanId = id?.trim();
+    const cleanDate = date?.trim().toLowerCase();
+
+    // If we've already registered this exact visit ID, skip
+    if (cleanId && recordedVisitIds.has(cleanId)) {
+      return;
+    }
+
+    if (cleanId) recordedVisitIds.add(cleanId);
+    if (cleanDate) recordedDates.add(cleanDate);
+    visitCount++;
+  };
+
+  // 1. Check pet.visitHistory
+  if (Array.isArray(pet.visitHistory)) {
+    pet.visitHistory.forEach((v) => {
+      if (v) {
+        registerVisit(v.id, v.date);
+      }
+    });
+  }
+
+  // 2. Check pet.lastVisit (if not already counted in visitHistory)
+  if (pet.lastVisit) {
+    registerVisit(pet.lastVisit.id, pet.lastVisit.date);
+  }
+
+  // 3. Check completed appointments for this pet (ONLY status === 'completado' or 'completed')
+  // We NEVER count scheduled, pending, or cancelled appointments
+  if (Array.isArray(appointments)) {
+    const cleanPetId = (pet.id || '').replace('#', '').toLowerCase();
+    const cleanPetName = (pet.name || '').toLowerCase().trim();
+
+    appointments.forEach((apt) => {
+      const isCompleted =
+        apt.status === 'completado' || (apt.status as any) === 'completed';
+      if (!isCompleted) return;
+
+      const aptCleanPetId = (apt.petId || '').replace('#', '').toLowerCase();
+      const aptCleanPetName = (apt.petName || '').toLowerCase().trim();
+
+      const matchesPet =
+        (aptCleanPetId && aptCleanPetId === cleanPetId) ||
+        (!aptCleanPetId && aptCleanPetName && aptCleanPetName === cleanPetName);
+
+      if (matchesPet) {
+        const aptDate = apt.date?.trim().toLowerCase();
+        // If this appointment's date is already recorded in visitHistory / lastVisit,
+        // it means the appointment was already converted into a Visit. Avoid double-counting.
+        if (aptDate && recordedDates.has(aptDate)) {
+          return;
+        }
+
+        // Also check if appointment ID was somehow used as visit ID
+        if (apt.id && recordedVisitIds.has(apt.id)) {
+          return;
+        }
+
+        registerVisit(apt.id, apt.date);
+      }
+    });
+  }
+
+  const totalCompletedVisits = visitCount;
+  // First visit is initial visit. Returns = totalCompletedVisits - 1 (min 0)
+  const returnCount = Math.max(0, totalCompletedVisits - 1);
+
+  let returnCountLabel = 'Sin regresos registrados';
+  if (returnCount === 1) {
+    returnCountLabel = 'Ha vuelto 1 vez';
+  } else if (returnCount > 1) {
+    returnCountLabel = `Ha vuelto ${returnCount} veces`;
+  }
+
+  return {
+    totalCompletedVisits,
+    returnCount,
+    returnCountLabel
+  };
+}
+
 // Dynamic Retention calculation from REAL pets (single source of truth)
 export function deriveRetentionPets(
   pets: Pet[],
   salonName: string,
-  bookedIds: string[]
+  bookedIds: string[],
+  appointments?: Appointment[]
 ): RetentionPet[] {
   const results: RetentionPet[] = [];
   const now = new Date();
@@ -642,6 +736,9 @@ export function deriveRetentionPets(
       suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Según la recomendación de cuidado para ${pet.name}, su próxima sesión de ${serviceName} está prevista para el ${nextRecommendedDateFormatted} (en ${intervalWeeks} semanas). ¡Estamos a tu disposición si gustas reservar con anticipación!”`;
     }
 
+    // 8. Fidelidad / Regresos de la mascota (Requirement: Indicador de fidelidad "Ha vuelto X veces")
+    const { returnCount, returnCountLabel } = calculatePetReturnStats(pet, appointments);
+
     results.push({
       id: `ret-${pet.id.replace('#', '')}`,
       petId: pet.id,
@@ -662,7 +759,9 @@ export function deriveRetentionPets(
       urgencyLabel,
       suggestedMessage,
       templateName: `Servicio ${serviceName}`,
-      alreadyBooked
+      alreadyBooked,
+      returnCount,
+      returnCountLabel
     });
   });
 

@@ -595,8 +595,8 @@ export default function App() {
 
   // Derived dynamic Retention Pets directly from real Pet state
   const retentionPets: RetentionPet[] = useMemo(() => {
-    return deriveRetentionPets(pets, salonConfig.name, bookedRetentions);
-  }, [pets, salonConfig.name, bookedRetentions]);
+    return deriveRetentionPets(pets, salonConfig.name, bookedRetentions, appointments);
+  }, [pets, salonConfig.name, bookedRetentions, appointments]);
 
   // Active selected pet (fallback to first pet or clean default)
   const currentPet: Pet = useMemo(() => {

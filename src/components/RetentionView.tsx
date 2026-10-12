@@ -218,7 +218,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                           )}
                         </div>
 
-                        {/* Urgency Badge & Countdown */}
+                        {/* Urgency Badge, Countdown & Fidelidad Indicator */}
                         <div className="shrink-0 flex flex-col items-end gap-1">
                           <span
                             className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider whitespace-nowrap shadow-2xs ${
@@ -252,6 +252,29 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                               <span>{pet.countdownText}</span>
                             </span>
                           )}
+
+                          {/* Indicador de fidelidad: Ha vuelto X veces */}
+                          <span
+                            className={`text-[10px] sm:text-[11px] font-medium px-2 py-0.5 rounded-lg flex items-center gap-1 whitespace-nowrap transition-colors ${
+                              (pet.returnCount ?? 0) > 0
+                                ? 'bg-[#f3edf7] text-[#4a2870] border border-[#cfc2d2]/50 font-semibold'
+                                : 'bg-gray-100/90 text-[#79747e] border border-gray-200/60'
+                            }`}
+                            title={
+                              (pet.returnCount ?? 0) > 0
+                                ? `Historial de fidelidad: ${pet.returnCountLabel}`
+                                : 'Aún no registra visitas posteriores a su visita inicial'
+                            }
+                          >
+                            <span
+                              className={`material-symbols-outlined text-xs shrink-0 ${
+                                (pet.returnCount ?? 0) > 0 ? 'text-[#7a5900]' : 'text-gray-400'
+                              }`}
+                            >
+                              {(pet.returnCount ?? 0) > 0 ? 'repeat' : 'history'}
+                            </span>
+                            <span>{pet.returnCountLabel || 'Sin regresos registrados'}</span>
+                          </span>
                         </div>
                       </div>
 

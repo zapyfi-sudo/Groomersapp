@@ -253,4 +253,6 @@ export interface RetentionPet {
   suggestedMessage: string;
   templateName: string; // e.g. "Plantilla Spa Premium"
   alreadyBooked?: boolean;
+  returnCount?: number; // Total completed return visits (totalCompleted - 1, 0 if <= 1)
+  returnCountLabel?: string; // "Sin regresos registrados", "Ha vuelto 1 vez", "Ha vuelto X veces"
 }
