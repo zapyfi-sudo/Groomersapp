@@ -25,6 +25,7 @@ interface AgendaViewProps {
   urgentRetentionCount?: number;
   totalRetentionCount?: number;
   currentLanguage?: AppLanguage;
+  onNavigateToInSalon?: () => void;
 }
 
 export const AgendaView: React.FC<AgendaViewProps> = ({
@@ -38,7 +39,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   onSaveWhatsAppTemplate,
   urgentRetentionCount = 0,
   totalRetentionCount = 0,
-  currentLanguage = 'es-LA'
+  currentLanguage = 'es-LA',
+  onNavigateToInSalon
 }) => {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [isNewAptModalOpen, setIsNewAptModalOpen] = useState(false);
@@ -94,17 +96,25 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
     return list;
   }, [today, appointments, weekOffset]);
 
-  // Today's specific appointments
+  // Today's specific appointments (excluding cancelled)
   const todayAppointments = useMemo(() => {
-    return appointments.filter((a) => a.date === todayFormatted);
+    return appointments.filter((a) => a.date === todayFormatted && a.status !== 'cancelada');
   }, [appointments, todayFormatted]);
 
   const totalAppointmentsToday = todayAppointments.length;
   const inSalonCount = todayAppointments.filter(
-    (a) => a.status === 'en_salon' || a.status === 'en_corte'
+    (a) =>
+      a.status === 'en_salon' ||
+      a.status === 'en_corte' ||
+      a.statusLabel === 'EN SALÓN' ||
+      a.statusLabel === 'EN CORTE'
   ).length;
   const pickupCount = todayAppointments.filter(
-    (a) => a.status === 'completado' || (a.status as any) === 'completed'
+    (a) =>
+      a.status === 'por_retirar' ||
+      a.statusLabel === 'POR RETIRAR' ||
+      a.statusLabel === 'LISTO PARA RETIRAR' ||
+      (a.subStatus && a.subStatus.toLowerCase().includes('retirar'))
   ).length;
 
   // Selected date's appointments
@@ -324,11 +334,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
               </span>
             </div>
 
-            {/* Greeting Headline - Fully Dynamic Calculation */}
+            {/* Mensaje dinámico de citas programadas para hoy */}
             <div className="pt-1 pb-4">
-              <h1 className="text-2xl font-black text-white tracking-tight">{t.goodMorning}</h1>
-              <p className="text-xs text-[#e3e0f1] mt-0.5">
-                Hoy tienes <strong className="text-[#f9b900] font-extrabold">{totalAppointmentsToday} {t.todayAppointmentsCount}</strong> programadas.
+              <p className="text-sm font-semibold text-white/90">
+                Hoy tienes{' '}
+                <strong className="text-[#f9b900] font-black text-base">
+                  {totalAppointmentsToday} {totalAppointmentsToday === 1 ? 'cita programada' : 'citas programadas'}
+                </strong>{' '}
+                para la fecha actual.
               </p>
             </div>
 
@@ -698,6 +711,8 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                         className={`self-start md:self-end px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                           apt.status === 'completado'
                             ? 'bg-emerald-100 text-emerald-800'
+                            : apt.status === 'por_retirar' || apt.statusLabel === 'LISTO PARA RETIRAR'
+                            ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
                             : apt.status === 'en_salon' || apt.status === 'en_corte'
                             ? 'bg-[#f9b900] text-[#261900]'
                             : isPending
@@ -705,8 +720,46 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                             : 'bg-[#efecfd] text-[#2e004e]'
                         }`}
                       >
-                        {apt.statusLabel || (isPending ? 'POR CONFIRMAR' : apt.status)}
+                        {apt.status === 'por_retirar' ? 'LISTO PARA RETIRAR' : apt.statusLabel || (isPending ? 'POR CONFIRMAR' : apt.status)}
                       </span>
+
+                      {/* Paso 1: Comenzar servicio para citas confirmadas */}
+                      {(apt.status === 'confirmada' || (apt.status as any) === 'confirmed') && onUpdateAppointmentStatus && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <button
+                            type="button"
+                            onClick={async (e) => {
+                              e.stopPropagation();
+                              await onUpdateAppointmentStatus(apt.id, 'en_salon', 'EN SALÓN');
+                              setToastMessage(`¡Servicio iniciado para ${apt.petName}! Ahora puedes gestionarlo en "En salón".`);
+                              setTimeout(() => setToastMessage(null), 3500);
+                            }}
+                            className="px-3 py-1.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] rounded-xl text-xs font-black shadow-xs active:scale-95 transition-all cursor-pointer flex items-center gap-1.5"
+                            title="Marcar llegada de la mascota y comenzar el servicio"
+                          >
+                            <span className="material-symbols-outlined text-sm font-bold">content_cut</span>
+                            <span>Comenzar servicio</span>
+                          </button>
+                        </div>
+                      )}
+
+                      {/* Botón rápido si ya está en salón */}
+                      {(apt.status === 'en_salon' || apt.status === 'en_corte') && onNavigateToInSalon && (
+                        <div className="flex items-center gap-1.5 mt-1">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onNavigateToInSalon();
+                            }}
+                            className="px-2.5 py-1 bg-[#2e004e] hover:bg-[#4b0878] text-[#f9b900] rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center gap-1"
+                            title="Ver y gestionar en el módulo En salón"
+                          >
+                            <span className="material-symbols-outlined text-xs">storefront</span>
+                            <span>Ver en En salón</span>
+                          </button>
+                        </div>
+                      )}
 
                       {/* Quick Confirm Actions for Public Appointments (Requirement #13) */}
                       {isPending && onUpdateAppointmentStatus && (

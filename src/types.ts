@@ -215,8 +215,8 @@ export interface Appointment {
   serviceName: string;
   time: string; // e.g. "09:00 AM"
   date?: string; // e.g. "15 de Octubre 2024"
-  status: 'completado' | 'en_salon' | 'en_corte' | 'pendiente' | 'pendiente_confirmacion' | 'confirmada' | 'confirmed' | 'cancelada';
-  statusLabel: string; // e.g. "COMPLETADO", "EN SALÓN", "EN CORTE", "PENDIENTE", "POR CONFIRMAR", "CONFIRMADA", "CANCELADA"
+  status: 'completado' | 'en_salon' | 'en_corte' | 'pendiente' | 'pendiente_confirmacion' | 'confirmada' | 'confirmed' | 'cancelada' | 'por_retirar';
+  statusLabel: string; // e.g. "COMPLETADO", "EN SALÓN", "EN CORTE", "PENDIENTE", "POR CONFIRMAR", "CONFIRMADA", "CANCELADA", "LISTO PARA RETIRAR"
   groomer: string; // e.g. "Carlos Morales", "Mariana V."
   price: number;
   currency: string;

@@ -4,11 +4,12 @@ import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { UserAccount } from '../types';
 
 interface HeaderProps {
-  currentTab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding';
-  onSelectTab: (tab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding') => void;
+  currentTab: 'retencion' | 'ficha' | 'agenda' | 'en_salon' | 'mascotas' | 'onboarding';
+  onSelectTab: (tab: 'retencion' | 'ficha' | 'agenda' | 'en_salon' | 'mascotas' | 'onboarding') => void;
   salonName?: string;
   logoUrl?: string;
   urgentCount?: number;
+  inSalonCount?: number;
   currentLanguage?: AppLanguage;
   activeAccount?: UserAccount | null;
   onOpenAccountModal?: () => void;
@@ -20,6 +21,7 @@ export const Header: React.FC<HeaderProps> = ({
   salonName = 'Peluquería Canina Luna',
   logoUrl,
   urgentCount = 0,
+  inSalonCount = 0,
   currentLanguage = 'es-LA',
   activeAccount,
   onOpenAccountModal
@@ -53,10 +55,11 @@ export const Header: React.FC<HeaderProps> = ({
 
           {/* Desktop Navigation Tabs */}
           <nav className="flex items-center gap-1.5 bg-white/10 p-1.5 rounded-2xl backdrop-blur-md">
+            {/* 1. Agenda */}
             <button
               type="button"
               onClick={() => onSelectTab('agenda')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 currentTab === 'agenda'
                   ? 'bg-[#f9b900] text-[#261900] shadow-sm'
                   : 'text-white/80 hover:text-white hover:bg-white/5'
@@ -66,11 +69,31 @@ export const Header: React.FC<HeaderProps> = ({
               <span>{t.agenda}</span>
             </button>
 
+            {/* 2. En salón */}
+            <button
+              type="button"
+              onClick={() => onSelectTab('en_salon')}
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                currentTab === 'en_salon'
+                  ? 'bg-[#f9b900] text-[#261900] shadow-sm'
+                  : 'text-white/80 hover:text-white hover:bg-white/5'
+              }`}
+            >
+              <span className="material-symbols-outlined text-base">storefront</span>
+              <span>{t.inSalonNav || 'En salón'}</span>
+              {inSalonCount > 0 && (
+                <span className="bg-[#2e004e] text-[#f9b900] text-[10px] px-1.5 rounded-full font-black">
+                  {inSalonCount}
+                </span>
+              )}
+            </button>
+
+            {/* 3. Clientes */}
             <button
               type="button"
               onClick={() => onSelectTab('mascotas')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                currentTab === 'mascotas'
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                currentTab === 'mascotas' || currentTab === 'ficha'
                   ? 'bg-[#f9b900] text-[#261900] shadow-sm'
                   : 'text-white/80 hover:text-white hover:bg-white/5'
               }`}
@@ -79,10 +102,11 @@ export const Header: React.FC<HeaderProps> = ({
               <span>{t.clients}</span>
             </button>
 
+            {/* 4. Por volver */}
             <button
               type="button"
               onClick={() => onSelectTab('retencion')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 currentTab === 'retencion'
                   ? 'bg-[#f9b900] text-[#261900] shadow-sm'
                   : 'text-white/80 hover:text-white hover:bg-white/5'
@@ -97,23 +121,11 @@ export const Header: React.FC<HeaderProps> = ({
               )}
             </button>
 
-            <button
-              type="button"
-              onClick={() => onSelectTab('ficha')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
-                currentTab === 'ficha'
-                  ? 'bg-[#f9b900] text-[#261900] shadow-sm'
-                  : 'text-white/80 hover:text-white hover:bg-white/5'
-              }`}
-            >
-              <span className="material-symbols-outlined text-base">badge</span>
-              <span>{t.petProfile}</span>
-            </button>
-
+            {/* 5. Ajustes */}
             <button
               type="button"
               onClick={() => onSelectTab('onboarding')}
-              className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+              className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
                 currentTab === 'onboarding'
                   ? 'bg-[#f9b900] text-[#261900] shadow-sm'
                   : 'text-white/80 hover:text-white hover:bg-white/5'

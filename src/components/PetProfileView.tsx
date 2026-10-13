@@ -9,7 +9,7 @@ import { downloadPetReportPdf, cleanPetDisplayName } from '../utils/pdfGenerator
 
 interface PetProfileViewProps {
   pet: Pet;
-  onUpdatePet: (updated: Pet) => void;
+  onUpdatePet: (updated: Pet) => Promise<void> | void;
   onNavigateOnboarding: () => void;
   salonConfig?: SalonConfig;
   appointments?: Appointment[];
@@ -29,15 +29,45 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     return (salonConfig?.services || []).filter((s) => s.active !== false);
   }, [salonConfig?.services]);
 
-  // Check if pet has a scheduled appointment from public booking or agenda
+  // Check if pet has an active scheduled appointment from public booking or agenda
   const scheduledAppointment = useMemo(() => {
     if (!appointments || appointments.length === 0) return null;
-    return appointments.find(
-      (a) =>
-        a.petId === pet.id ||
-        (a.petName?.trim().toLowerCase() === pet.name?.trim().toLowerCase() &&
-          a.tutorName?.trim().toLowerCase() === pet.tutor?.name?.trim().toLowerCase())
-    );
+    const cleanPetId = (pet.id || '').replace('#', '').toLowerCase();
+    const cleanPetName = (pet.name || '').trim().toLowerCase();
+    const cleanTutorName = (pet.tutor?.name || '').trim().toLowerCase();
+
+    // 1. Prioritize active appointments (not completed, not cancelled)
+    const activeMatch = appointments.find((a) => {
+      if (!a) return false;
+      const aCleanPetId = (a.petId || '').replace('#', '').toLowerCase();
+      const aCleanPetName = (a.petName || '').trim().toLowerCase();
+      const aCleanTutor = (a.tutorName || '').trim().toLowerCase();
+
+      const matches =
+        (aCleanPetId && aCleanPetId === cleanPetId) ||
+        (aCleanPetName && aCleanPetName === cleanPetName && aCleanTutor && aCleanTutor === cleanTutorName);
+
+      if (!matches) return false;
+      return (
+        a.status !== 'completado' &&
+        (a.status as any) !== 'completed' &&
+        a.status !== 'cancelada'
+      );
+    });
+
+    if (activeMatch) return activeMatch;
+
+    // 2. Fallback to any appointment matching pet
+    return appointments.find((a) => {
+      if (!a) return false;
+      const aCleanPetId = (a.petId || '').replace('#', '').toLowerCase();
+      const aCleanPetName = (a.petName || '').trim().toLowerCase();
+      const aCleanTutor = (a.tutorName || '').trim().toLowerCase();
+      return (
+        (aCleanPetId && aCleanPetId === cleanPetId) ||
+        (aCleanPetName && aCleanPetName === cleanPetName && aCleanTutor && aCleanTutor === cleanTutorName)
+      );
+    }) || null;
   }, [appointments, pet]);
 
   // Determine initial service based on scheduled appointment or first configured service
@@ -314,7 +344,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   };
 
   // Save new visit
-  const handleSaveVisit = () => {
+  const handleSaveVisit = async () => {
     setIsSavingVisit(true);
     const visitDateStr = formatDateSpanish(new Date());
     const weeksToReturn = activeWeeksNum;
@@ -358,37 +388,61 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       nextRecommendedVisitDate: calculatedNextDateStr
     };
 
-    setTimeout(() => {
-      setIsSavingVisit(false);
-      setVisitSavedToast(true);
+    const updatedHistory = [newVisit, ...(pet.visitHistory || [])];
+    const updatedPet: Pet = {
+      ...pet,
+      sessionMood,
+      sessionNotes: sessionNotes.trim() || undefined,
+      sessionHealthNotes: sessionHealthNotes.trim() || undefined,
+      sessionHandlingNotes: sessionHandlingNotes.trim() || undefined,
+      careRecommendations: careRecommendations.trim() || undefined,
+      lastVisit: newVisit,
+      visitHistory: updatedHistory,
+      recommendedIntervalWeeks: weeksToReturn,
+      returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
+      customReturnWeeks: selectedInterval === 'custom' ? weeksToReturn : undefined,
+      nextRecommendedVisitDate: calculatedNextDateStr
+    };
 
-      const updatedHistory = [newVisit, ...(pet.visitHistory || [])];
-      onUpdatePet({
-        ...pet,
-        sessionMood,
-        sessionNotes: sessionNotes.trim() || undefined,
-        sessionHealthNotes: sessionHealthNotes.trim() || undefined,
-        sessionHandlingNotes: sessionHandlingNotes.trim() || undefined,
-        careRecommendations: careRecommendations.trim() || undefined,
-        lastVisit: newVisit,
-        visitHistory: updatedHistory,
-        recommendedIntervalWeeks: weeksToReturn,
-        returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
-        customReturnWeeks: selectedInterval === 'custom' ? weeksToReturn : undefined,
-        nextRecommendedVisitDate: calculatedNextDateStr
-      });
+    // Guarantee persistence is fully completed before notifying success
+    await onUpdatePet(updatedPet);
 
-      // Mark the scheduled appointment as completed in Agenda & Cloud
-      if (scheduledAppointment?.id && onAppointmentCompleted) {
-        onAppointmentCompleted(scheduledAppointment.id);
+    // Mark all active scheduled appointments for this pet as completed in Agenda & Cloud
+    const cleanPetId = (pet.id || '').replace('#', '').toLowerCase();
+    const cleanPetName = (pet.name || '').trim().toLowerCase();
+    const cleanTutor = (pet.tutor?.name || '').trim().toLowerCase();
+
+    const activeApts = (appointments || []).filter((a) => {
+      if (!a) return false;
+      const aCleanPetId = (a.petId || '').replace('#', '').toLowerCase();
+      const aCleanPetName = (a.petName || '').trim().toLowerCase();
+      const aCleanTutor = (a.tutorName || '').trim().toLowerCase();
+
+      const matches =
+        (aCleanPetId && aCleanPetId === cleanPetId) ||
+        (aCleanPetName && aCleanPetName === cleanPetName && aCleanTutor && aCleanTutor === cleanTutor);
+
+      if (!matches) return false;
+      return (
+        a.status !== 'completado' &&
+        (a.status as any) !== 'completed' &&
+        a.status !== 'cancelada'
+      );
+    });
+
+    if (onAppointmentCompleted && activeApts.length > 0) {
+      for (const apt of activeApts) {
+        await onAppointmentCompleted(apt.id);
       }
+    }
 
-      setTimeout(() => setVisitSavedToast(false), 3000);
-    }, 400);
+    setIsSavingVisit(false);
+    setVisitSavedToast(true);
+    setTimeout(() => setVisitSavedToast(false), 3000);
   };
 
   // Save retention reminder (Requirement #2)
-  const handleSaveReminder = () => {
+  const handleSaveReminder = async () => {
     const weeks = activeWeeksNum;
     const targetDate = new Date(referenceDate.getTime() + weeks * 7 * 24 * 60 * 60 * 1000);
     const dateFormatted = formatDateSpanish(targetDate);
@@ -420,7 +474,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
         : {})
     };
 
-    onUpdatePet(updatedPet);
+    await onUpdatePet(updatedPet);
 
     setReminderSavedNotice(`¡Próxima visita sugerida calculada para el ${dateFormatted}! (en ${weeks} semanas)`);
     setTimeout(() => setReminderSavedNotice(null), 4000);

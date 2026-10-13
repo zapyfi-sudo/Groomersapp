@@ -33,6 +33,7 @@ import { RetentionView } from './components/RetentionView';
 import { PetProfileView } from './components/PetProfileView';
 import { AjustesView } from './components/AjustesView';
 import { AgendaView } from './components/AgendaView';
+import { InSalonView } from './components/InSalonView';
 import { PetListView } from './components/PetListView';
 import { AccountAuthModal } from './components/AccountAuthModal';
 import { LoginScreen } from './components/LoginScreen';
@@ -165,8 +166,8 @@ export default function App() {
   // Real-time notification for incoming public bookings
   const [newBookingNotification, setNewBookingNotification] = useState<string | null>(null);
 
-  // Navigation tabs
-  const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'mascotas'>('agenda');
+  // Navigation tabs: Agenda, En salón, Clientes, Por volver, Ajustes
+  const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'en_salon' | 'mascotas'>('agenda');
 
   // Guard ref to prevent initial mount from overwriting IndexedDB with stale fallback state
   const isDbInitialized = useRef<boolean>(false);
@@ -190,7 +191,10 @@ export default function App() {
       visitHistory: (existing.visitHistory && existing.visitHistory.length > 0)
         ? existing.visitHistory
         : (incoming.visitHistory || []),
-      recommendedIntervalWeeks: existing.recommendedIntervalWeeks || incoming.recommendedIntervalWeeks || 4
+      recommendedIntervalWeeks: existing.recommendedIntervalWeeks || incoming.recommendedIntervalWeeks || 4,
+      returnIntervalType: existing.returnIntervalType || incoming.returnIntervalType,
+      customReturnWeeks: existing.customReturnWeeks || incoming.customReturnWeeks,
+      nextRecommendedVisitDate: existing.nextRecommendedVisitDate || incoming.nextRecommendedVisitDate
     };
   };
 
@@ -355,42 +359,51 @@ export default function App() {
           if (!existing) {
             map.set(incoming.id, incoming);
           } else {
-            // Never overwrite a confirmed or completed appointment back to pending!
-            const isConfirmed =
-              existing.status === 'confirmada' ||
-              (existing.status as any) === 'confirmed' ||
-              incoming.status === 'confirmada' ||
-              (incoming.status as any) === 'confirmed';
+            // Never overwrite a progressed appointment status backwards
             const isCompleted =
               existing.status === 'completado' ||
               (existing.status as any) === 'completed' ||
               incoming.status === 'completado' ||
               (incoming.status as any) === 'completed';
+            const isPorRetirar =
+              existing.status === 'por_retirar' ||
+              existing.statusLabel === 'LISTO PARA RETIRAR' ||
+              incoming.status === 'por_retirar' ||
+              incoming.statusLabel === 'LISTO PARA RETIRAR';
             const isInSalon =
               existing.status === 'en_salon' ||
               existing.status === 'en_corte' ||
               incoming.status === 'en_salon' ||
               incoming.status === 'en_corte';
+            const isConfirmed =
+              existing.status === 'confirmada' ||
+              (existing.status as any) === 'confirmed' ||
+              incoming.status === 'confirmada' ||
+              (incoming.status as any) === 'confirmed';
             const isCancelled =
               existing.status === 'cancelada' ||
               incoming.status === 'cancelada';
 
-            const resolvedStatus = isConfirmed
-              ? 'confirmada'
-              : isCompleted
+            const resolvedStatus = isCompleted
               ? 'completado'
+              : isPorRetirar
+              ? 'por_retirar'
               : isInSalon
               ? 'en_salon'
+              : isConfirmed
+              ? 'confirmada'
               : isCancelled
               ? 'cancelada'
               : (incoming.status || existing.status || 'pendiente');
 
-            const resolvedLabel = resolvedStatus === 'confirmada'
-              ? 'CONFIRMADA'
-              : resolvedStatus === 'completado'
+            const resolvedLabel = resolvedStatus === 'completado'
               ? 'COMPLETADO'
+              : resolvedStatus === 'por_retirar'
+              ? 'LISTO PARA RETIRAR'
               : resolvedStatus === 'en_salon'
               ? 'EN SALÓN'
+              : resolvedStatus === 'confirmada'
+              ? 'CONFIRMADA'
               : resolvedStatus === 'cancelada'
               ? 'CANCELADA'
               : (incoming.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
@@ -478,42 +491,51 @@ export default function App() {
                   if (!existing) {
                     prevMap.set(a.id, a);
                   } else {
-                    // Confirmed status must ALWAYS take precedence and never revert to pending
-                    const isConfirmed =
-                      existing.status === 'confirmada' ||
-                      (existing.status as any) === 'confirmed' ||
-                      a.status === 'confirmada' ||
-                      (a.status as any) === 'confirmed';
+                    // Progressed status must ALWAYS take precedence and never revert
                     const isCompleted =
                       existing.status === 'completado' ||
                       (existing.status as any) === 'completed' ||
                       a.status === 'completado' ||
                       (a.status as any) === 'completed';
+                    const isPorRetirar =
+                      existing.status === 'por_retirar' ||
+                      existing.statusLabel === 'LISTO PARA RETIRAR' ||
+                      a.status === 'por_retirar' ||
+                      a.statusLabel === 'LISTO PARA RETIRAR';
                     const isInSalon =
                       existing.status === 'en_salon' ||
                       existing.status === 'en_corte' ||
                       a.status === 'en_salon' ||
                       a.status === 'en_corte';
+                    const isConfirmed =
+                      existing.status === 'confirmada' ||
+                      (existing.status as any) === 'confirmed' ||
+                      a.status === 'confirmada' ||
+                      (a.status as any) === 'confirmed';
                     const isCancelled =
                       existing.status === 'cancelada' ||
                       a.status === 'cancelada';
 
-                    const resolvedStatus = isConfirmed
-                      ? 'confirmada'
-                      : isCompleted
+                    const resolvedStatus = isCompleted
                       ? 'completado'
+                      : isPorRetirar
+                      ? 'por_retirar'
                       : isInSalon
                       ? 'en_salon'
+                      : isConfirmed
+                      ? 'confirmada'
                       : isCancelled
                       ? 'cancelada'
                       : (a.status || existing.status || 'pendiente');
 
-                    const resolvedLabel = resolvedStatus === 'confirmada'
-                      ? 'CONFIRMADA'
-                      : resolvedStatus === 'completado'
+                    const resolvedLabel = resolvedStatus === 'completado'
                       ? 'COMPLETADO'
+                      : resolvedStatus === 'por_retirar'
+                      ? 'LISTO PARA RETIRAR'
                       : resolvedStatus === 'en_salon'
                       ? 'EN SALÓN'
+                      : resolvedStatus === 'confirmada'
+                      ? 'CONFIRMADA'
                       : resolvedStatus === 'cancelada'
                       ? 'CANCELADA'
                       : (a.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
@@ -662,18 +684,41 @@ export default function App() {
     setActiveAccount(null);
   };
 
-  const handleUpdatePet = (updated: Pet) => {
+  const handleUpdatePet = async (updated: Pet): Promise<void> => {
+    let nextPets: Pet[] = [];
     setPets((prev) => {
       const exists = prev.some((p) => p.id === updated.id);
       if (exists) {
-        return prev.map((p) => (p.id === updated.id ? updated : p));
+        nextPets = prev.map((p) => (p.id === updated.id ? updated : p));
+      } else {
+        nextPets = [updated, ...prev];
       }
-      return [updated, ...prev];
+      return nextPets;
     });
 
     // When a pet receives a new completed visit or recommendation, clear it from bookedRetentions
     // so it naturally re-enters the Por Volver cycle for its NEXT cycle!
-    setBookedRetentions((prev) => prev.filter((id) => id !== updated.id && id !== updated.id.replace('#', '')));
+    const cleanId = updated.id.replace('#', '');
+    const updatedBooked = bookedRetentions.filter((id) => id !== updated.id && id !== cleanId);
+    setBookedRetentions(updatedBooked);
+
+    // Atomically persist to IndexedDB AND local sync mirror immediately
+    await persistActiveBusinessData({
+      pets: nextPets.length > 0 ? nextPets : [updated, ...pets.filter((p) => p.id !== updated.id)],
+      bookedRetentions: updatedBooked
+    });
+
+    // Background sync to Cloud Firestore & Server API
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+    syncBusinessToServer(
+      currentBizId,
+      salonConfig,
+      nextPets.length > 0 ? nextPets : [updated, ...pets.filter((p) => p.id !== updated.id)],
+      appointments,
+      updatedBooked
+    ).catch((err) => {
+      console.warn('Background server sync warning on pet update:', err);
+    });
   };
 
   const handleSelectPetForProfile = (petId: string) => {
@@ -1007,6 +1052,20 @@ export default function App() {
     return retentionPets.filter((p) => (p.urgency === 'esta_semana' || p.urgency === 'urgente') && !p.alreadyBooked).length;
   }, [retentionPets]);
 
+  const inSalonAppointmentsCount = useMemo(() => {
+    return appointments.filter(
+      (a) =>
+        a.status === 'en_salon' ||
+        a.status === 'en_corte' ||
+        a.status === 'por_retirar' ||
+        a.statusLabel === 'EN SALÓN' ||
+        a.statusLabel === 'EN CORTE' ||
+        a.statusLabel === 'POR RETIRAR' ||
+        a.statusLabel === 'LISTO PARA RETIRAR' ||
+        (a.subStatus && a.subStatus.toLowerCase().includes('retirar'))
+    ).length;
+  }, [appointments]);
+
   // 1. PUBLIC REVIEWS FLOW (Independent public rating form for customers - Requirement #1 & #2)
   if (urlReviewId) {
     const targetSlugOrId =
@@ -1099,6 +1158,7 @@ export default function App() {
         salonName={salonConfig.name}
         logoUrl={salonConfig.logoUrl}
         urgentCount={urgentCount}
+        inSalonCount={inSalonAppointmentsCount}
         currentLanguage={currentLanguage}
         activeAccount={activeAccount}
         onOpenAccountModal={() => setIsAccountModalOpen(true)}
@@ -1151,6 +1211,24 @@ export default function App() {
               urgentRetentionCount={urgentCount}
               totalRetentionCount={retentionPets.filter((p) => !p.alreadyBooked).length}
               currentLanguage={currentLanguage}
+              onNavigateToInSalon={() => setCurrentTab('en_salon')}
+            />
+          )}
+
+          {/* Screen: En Salón (Módulo operativo de mascotas en proceso o por retirar) */}
+          {currentTab === 'en_salon' && (
+            <InSalonView
+              appointments={appointments}
+              pets={pets}
+              salonConfig={salonConfig}
+              currentLanguage={currentLanguage}
+              onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+              onSelectPetForProfile={handleSelectPetForProfile}
+              onNavigateToAgenda={() => setCurrentTab('agenda')}
+              onCompleteAndRegisterVisit={(apt, pet) => {
+                setSelectedPetId(pet.id);
+                setCurrentTab('ficha');
+              }}
             />
           )}
 
@@ -1259,6 +1337,7 @@ export default function App() {
         currentTab={currentTab}
         onSelectTab={setCurrentTab}
         urgentCount={urgentCount}
+        inSalonCount={inSalonAppointmentsCount}
         currentLanguage={currentLanguage}
       />
     </div>

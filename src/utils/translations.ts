@@ -3,6 +3,7 @@ export type AppLanguage = 'es-LA' | 'es-ES' | 'en' | 'pt';
 export interface Translations {
   // Navigation
   agenda: string;
+  inSalonNav: string;
   clients: string;
   retention: string;
   settings: string;
@@ -145,6 +146,7 @@ export interface Translations {
 export const TRANSLATIONS: Record<AppLanguage, Translations> = {
   'es-LA': {
     agenda: 'Agenda',
+    inSalonNav: 'En salón',
     clients: 'Clientes',
     retention: 'Por volver',
     settings: 'Ajustes',
@@ -276,6 +278,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
   },
   'es-ES': {
     agenda: 'Agenda',
+    inSalonNav: 'En salón',
     clients: 'Clientes',
     retention: 'Por volver',
     settings: 'Ajustes',
@@ -407,6 +410,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
   },
   'en': {
     agenda: 'Schedule',
+    inSalonNav: 'In Salon',
     clients: 'Clients',
     retention: 'Due for Visit',
     settings: 'Settings',
@@ -538,6 +542,7 @@ export const TRANSLATIONS: Record<AppLanguage, Translations> = {
   },
   'pt': {
     agenda: 'Agenda',
+    inSalonNav: 'No Salão',
     clients: 'Clientes',
     retention: 'A Retornar',
     settings: 'Ajustes',

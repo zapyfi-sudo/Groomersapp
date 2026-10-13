@@ -2,9 +2,10 @@ import React from 'react';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 
 interface BottomNavProps {
-  currentTab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding';
-  onSelectTab: (tab: 'retencion' | 'ficha' | 'agenda' | 'mascotas' | 'onboarding') => void;
+  currentTab: 'retencion' | 'ficha' | 'agenda' | 'en_salon' | 'mascotas' | 'onboarding';
+  onSelectTab: (tab: 'retencion' | 'ficha' | 'agenda' | 'en_salon' | 'mascotas' | 'onboarding') => void;
   urgentCount?: number;
+  inSalonCount?: number;
   currentLanguage?: AppLanguage;
 }
 
@@ -12,6 +13,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   currentTab,
   onSelectTab,
   urgentCount = 0,
+  inSalonCount = 0,
   currentLanguage = 'es-LA'
 }) => {
   const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
@@ -21,6 +23,12 @@ export const BottomNav: React.FC<BottomNavProps> = ({
       id: 'agenda' as const,
       label: t.agenda,
       icon: 'calendar_month'
+    },
+    {
+      id: 'en_salon' as const,
+      label: t.inSalonNav || 'En salón',
+      icon: 'storefront',
+      badge: inSalonCount
     },
     {
       id: 'mascotas' as const,
@@ -42,7 +50,7 @@ export const BottomNav: React.FC<BottomNavProps> = ({
 
   return (
     <nav className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 backdrop-blur-md border-t border-[#cfc2d2]/40 shadow-[0_-4px_20px_rgba(46,0,78,0.06)] md:hidden">
-      <div className="max-w-md mx-auto grid grid-cols-4 h-16 divide-x divide-dashed divide-[#5b95ff]/40">
+      <div className="max-w-md mx-auto grid grid-cols-5 h-16 divide-x divide-dashed divide-[#5b95ff]/30">
         {tabs.map((tab) => {
           const isActive =
             currentTab === tab.id || (tab.id === 'mascotas' && currentTab === 'ficha');

@@ -19,7 +19,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
   onBookAppointment,
   currentLanguage = 'es-LA'
 }) => {
-  const [filter, setFilter] = useState<'todos' | 'urgentes' | 'proxima'>('todos');
+  const [filter, setFilter] = useState<'todos' | 'urgentes' | 'proxima' | 'mas_adelante'>('todos');
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -29,6 +29,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
   const totalCount = unbookedPets.length;
   const urgentCount = unbookedPets.filter((p) => p.urgency === 'esta_semana' || p.urgency === 'urgente').length;
   const nextWeekCount = unbookedPets.filter((p) => p.urgency === 'proxima_semana').length;
+  const laterCount = unbookedPets.filter((p) => p.urgency === 'mas_adelante').length;
 
   const filteredPets = unbookedPets.filter((p) => {
     if (filter === 'urgentes') {
@@ -36,6 +37,9 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
     }
     if (filter === 'proxima') {
       return p.urgency === 'proxima_semana';
+    }
+    if (filter === 'mas_adelante') {
+      return p.urgency === 'mas_adelante';
     }
     return true;
   });
@@ -146,6 +150,18 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
           }`}
         >
           <span>{t.filterNextWeek} ({nextWeekCount})</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setFilter('mas_adelante')}
+          className={`py-2 px-3.5 rounded-full text-xs font-semibold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            filter === 'mas_adelante'
+              ? 'bg-[#2e004e] text-white shadow-sm'
+              : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
+          }`}
+        >
+          <span>Más adelante ({laterCount})</span>
         </button>
       </div>
 
