@@ -30,7 +30,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
   const urgentCount = unbookedPets.filter((p) => p.urgency === 'esta_semana' || p.urgency === 'urgente').length;
   const nextWeekCount = unbookedPets.filter((p) => p.urgency === 'proxima_semana').length;
 
-  const filteredPets = retentionPets.filter((p) => {
+  const filteredPets = unbookedPets.filter((p) => {
     if (filter === 'urgentes') {
       return p.urgency === 'esta_semana' || p.urgency === 'urgente';
     }
@@ -120,7 +120,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
               filter === 'todos' ? 'bg-[#f9b900] text-[#261900]' : 'bg-white/60 text-[#4c4451]'
             }`}
           >
-            {retentionPets.length}
+            {totalCount}
           </span>
         </button>
 
@@ -167,9 +167,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
               <div
                 key={pet.id}
                 className={`bg-white rounded-2xl p-4 sm:p-5 shadow-sm border transition-all ${
-                  pet.alreadyBooked
-                    ? 'border-gray-200 opacity-60 bg-gray-50'
-                    : pet.urgency === 'urgente'
+                  pet.urgency === 'urgente'
                     ? 'border-[#ba1a1a]/30 ring-1 ring-[#ba1a1a]/20'
                     : 'border-[#cfc2d2]/40'
                 }`}
@@ -224,9 +222,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                         <div className="shrink-0 flex flex-col items-end gap-1">
                           <span
                             className={`px-2.5 py-1 sm:px-3 sm:py-1 rounded-full text-[10px] sm:text-[11px] font-black uppercase tracking-wider whitespace-nowrap shadow-2xs ${
-                              pet.alreadyBooked
-                                ? 'bg-gray-200 text-gray-700'
-                                : pet.urgency === 'urgente'
+                              pet.urgency === 'urgente'
                                 ? 'bg-rose-100 text-rose-800 border border-rose-200'
                                 : pet.urgency === 'esta_semana'
                                 ? 'bg-[#f9b900] text-[#261900] shadow-xs'
@@ -235,10 +231,10 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                                 : 'bg-emerald-50 text-emerald-800 border border-emerald-200'
                             }`}
                           >
-                            {pet.alreadyBooked ? t.alreadyBooked : pet.urgencyLabel}
+                            {pet.urgencyLabel}
                           </span>
 
-                          {pet.countdownText && !pet.alreadyBooked && (
+                          {pet.countdownText && (
                             <span
                               className={`text-[10px] sm:text-[11px] font-bold px-2 py-0.5 rounded-lg flex items-center gap-1 border whitespace-nowrap ${
                                 pet.urgency === 'urgente'
@@ -362,29 +358,36 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                     {pet.suggestedMessage}
                   </div>
 
-                  {/* Actions */}
-                  <div className="flex flex-col sm:flex-row items-center justify-between gap-2.5 pt-2">
+                  {/* Actions: Orden y presentación requerida */}
+                  <div className="flex flex-col gap-2 pt-2">
+                    {/* 1. Enviar por WhatsApp en la parte superior */}
+                    <button
+                      type="button"
+                      onClick={() => onOpenWhatsApp(pet)}
+                      className="w-full py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs sm:text-sm font-bold shadow-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
+                      title="Contactar al tutor por WhatsApp con el mensaje sugerido"
+                    >
+                      <span className="material-symbols-outlined text-base">chat</span>
+                      <span>{t.sendWhatsApp}</span>
+                    </button>
+
+                    {/* 2. Agendar cita debajo */}
                     <button
                       type="button"
                       onClick={() => onBookAppointment && onBookAppointment(pet)}
-                      className="w-full sm:w-auto py-2 px-4 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] shadow-xs active:scale-95"
+                      className="w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] shadow-xs active:scale-[0.98]"
                       title="Abrir formulario para programar una nueva cita para esta mascota"
                     >
-                      <span className="material-symbols-outlined text-sm font-bold">
+                      <span className="material-symbols-outlined text-base font-bold">
                         calendar_add_on
                       </span>
                       <span>Agendar cita</span>
                     </button>
 
-                    <button
-                      type="button"
-                      onClick={() => onOpenWhatsApp(pet)}
-                      className="w-full sm:w-auto py-2 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold shadow-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                      title="Contactar al tutor por WhatsApp con el mensaje sugerido"
-                    >
-                      <span className="material-symbols-outlined text-sm">chat</span>
-                      <span>{t.sendWhatsApp}</span>
-                    </button>
+                    {/* Indicación informativa breve, discreta y fácil de entender */}
+                    <p className="text-[11px] sm:text-xs text-[#7e7482] text-center pt-0.5 leading-snug">
+                      Envía primero el recordatorio por WhatsApp. Cuando el cliente confirme que desea volver, agenda su cita para la fecha acordada.
+                    </p>
                   </div>
                 </div>
               </div>

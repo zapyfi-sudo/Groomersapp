@@ -670,6 +670,10 @@ export default function App() {
       }
       return [updated, ...prev];
     });
+
+    // When a pet receives a new completed visit or recommendation, clear it from bookedRetentions
+    // so it naturally re-enters the Por Volver cycle for its NEXT cycle!
+    setBookedRetentions((prev) => prev.filter((id) => id !== updated.id && id !== updated.id.replace('#', '')));
   };
 
   const handleSelectPetForProfile = (petId: string) => {

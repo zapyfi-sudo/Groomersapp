@@ -727,20 +727,30 @@ export function deriveRetentionPets(
     }
 
     // Check if pet is marked as booked via bookedRetentions OR has a scheduled active appointment
-    const isManuallyBooked = bookedIds.includes(pet.id);
-    const hasScheduledAppointment = Array.isArray(appointments) && appointments.some((a) => {
-      const matchesPet =
-        a.petId === pet.id ||
-        (a.petName?.trim().toLowerCase() === pet.name?.trim().toLowerCase() &&
-          a.tutorName?.trim().toLowerCase() === pet.tutor?.name?.trim().toLowerCase());
-      if (!matchesPet) return false;
-      // An active scheduled appointment (not cancelled, not completed yet)
-      const isActive =
-        a.status !== 'cancelada' &&
-        a.status !== 'completado' &&
-        (a.status as any) !== 'completed';
-      return isActive;
-    });
+    const isManuallyBooked =
+      bookedIds.includes(pet.id) ||
+      (pet.id.startsWith('#') && bookedIds.includes(pet.id.replace('#', '')));
+    const hasScheduledAppointment =
+      Array.isArray(appointments) &&
+      appointments.some((a) => {
+        if (!a) return false;
+        const matchesPetId = Boolean(a.petId && pet.id && a.petId === pet.id);
+        const matchesName = Boolean(
+          a.petName &&
+            pet.name &&
+            a.tutorName &&
+            pet.tutor?.name &&
+            a.petName.trim().toLowerCase() === pet.name.trim().toLowerCase() &&
+            a.tutorName.trim().toLowerCase() === pet.tutor.name.trim().toLowerCase()
+        );
+        if (!matchesPetId && !matchesName) return false;
+        // An active scheduled appointment (not cancelled, not completed yet)
+        const isActive =
+          a.status !== 'cancelada' &&
+          a.status !== 'completado' &&
+          (a.status as any) !== 'completed';
+        return isActive;
+      });
 
     const alreadyBooked = isManuallyBooked || hasScheduledAppointment;
     const tutorFirstName = pet.tutor?.name ? (pet.tutor.name.split(' ')[0] || pet.tutor.name) : 'Tutor';

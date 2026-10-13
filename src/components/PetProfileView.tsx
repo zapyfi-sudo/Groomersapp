@@ -49,9 +49,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       if (match) return match;
     }
     // Check if pet last visit matches
-    if (pet.lastVisit?.serviceName) {
+    const lastServiceName = pet.lastVisit?.serviceName;
+    if (lastServiceName) {
       const match = salonServices.find(
-        (s) => s.name.trim().toLowerCase() === pet.lastVisit.serviceName.trim().toLowerCase()
+        (s) => s.name.trim().toLowerCase() === lastServiceName.trim().toLowerCase()
       );
       if (match) return match;
     }
@@ -263,10 +264,14 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     onUpdatePet({
       ...pet,
       sessionMood: mood,
-      lastVisit: {
-        ...pet.lastVisit,
-        mood
-      }
+      ...(pet.lastVisit
+        ? {
+            lastVisit: {
+              ...pet.lastVisit,
+              mood
+            }
+          }
+        : {})
     });
   };
 
@@ -275,10 +280,14 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     onUpdatePet({
       ...pet,
       sessionNotes: sessionNotes.trim() || undefined,
-      lastVisit: {
-        ...pet.lastVisit,
-        notes: sessionNotes.trim() || undefined
-      }
+      ...(pet.lastVisit
+        ? {
+            lastVisit: {
+              ...pet.lastVisit,
+              notes: sessionNotes.trim() || undefined
+            }
+          }
+        : {})
     });
   };
 
@@ -286,10 +295,14 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     onUpdatePet({
       ...pet,
       careRecommendations: careRecommendations.trim() || undefined,
-      lastVisit: {
-        ...pet.lastVisit,
-        careRecommendations: careRecommendations.trim() || undefined
-      }
+      ...(pet.lastVisit
+        ? {
+            lastVisit: {
+              ...pet.lastVisit,
+              careRecommendations: careRecommendations.trim() || undefined
+            }
+          }
+        : {})
     });
   };
 
@@ -391,16 +404,20 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
       customReturnWeeks: selectedInterval === 'custom' ? weeks : undefined,
       nextRecommendedVisitDate: dateFormatted,
-      lastVisit: {
-        ...pet.lastVisit,
-        mood: sessionMood || pet.lastVisit?.mood,
-        notes: sessionNotes.trim() || pet.lastVisit?.notes,
-        careRecommendations: careRecommendations.trim() || pet.lastVisit?.careRecommendations,
-        nextRecommendedWeeks: weeks,
-        returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
-        customReturnWeeks: selectedInterval === 'custom' ? weeks : undefined,
-        nextRecommendedVisitDate: dateFormatted
-      }
+      ...(pet.lastVisit
+        ? {
+            lastVisit: {
+              ...pet.lastVisit,
+              mood: sessionMood || pet.lastVisit.mood,
+              notes: sessionNotes.trim() || pet.lastVisit.notes,
+              careRecommendations: careRecommendations.trim() || pet.lastVisit.careRecommendations,
+              nextRecommendedWeeks: weeks,
+              returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
+              customReturnWeeks: selectedInterval === 'custom' ? weeks : undefined,
+              nextRecommendedVisitDate: dateFormatted
+            }
+          }
+        : {})
     };
 
     onUpdatePet(updatedPet);
