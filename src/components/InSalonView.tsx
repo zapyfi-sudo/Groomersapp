@@ -145,30 +145,25 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
               <div className="text-2xl font-black text-emerald-400">{readyForPickupAppointments.length}</div>
               <div className="text-[10px] font-bold text-white/80 uppercase tracking-wider">Por retirar</div>
             </div>
-
-            <div className="bg-[#3e066a] border border-white/10 rounded-2xl px-4 py-2.5 text-center shrink-0">
-              <div className="text-2xl font-black text-white">{inSalonAppointments.length}</div>
-              <div className="text-[10px] font-bold text-white/80 uppercase tracking-wider">Total en salón</div>
-            </div>
           </div>
         </div>
       </div>
 
       {/* Filter Tabs Bar */}
-      <div className="flex items-center justify-between gap-2 overflow-x-auto pb-1 pt-1">
-        <div className="flex items-center gap-2">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2.5 pt-1 pb-1">
+        <div className="grid grid-cols-3 gap-1.5 sm:flex sm:items-center sm:gap-2 w-full sm:w-auto">
           <button
             type="button"
             onClick={() => setFilterState('todos')}
-            className={`py-2 px-3.5 rounded-full text-xs font-bold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            className={`py-2 px-2 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               filterState === 'todos'
                 ? 'bg-[#2e004e] text-white shadow-sm'
                 : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
             }`}
           >
-            <span>Todos en salón</span>
+            <span className="truncate sm:whitespace-normal">Todos en salón</span>
             <span
-              className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
                 filterState === 'todos' ? 'bg-[#f9b900] text-[#261900]' : 'bg-white/60 text-[#4c4451]'
               }`}
             >
@@ -179,34 +174,48 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
           <button
             type="button"
             onClick={() => setFilterState('en_servicio')}
-            className={`py-2 px-3.5 rounded-full text-xs font-semibold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            className={`py-2 px-2 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               filterState === 'en_servicio'
                 ? 'bg-[#2e004e] text-white shadow-sm'
                 : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-[#f9b900]"></span>
-            <span>En servicio ({inServiceAppointments.length})</span>
+            <span className="w-2 h-2 rounded-full bg-[#f9b900] shrink-0"></span>
+            <span className="truncate sm:whitespace-normal">En servicio</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                filterState === 'en_servicio' ? 'bg-white/20 text-white' : 'bg-white/60 text-[#4c4451]'
+              }`}
+            >
+              {inServiceAppointments.length}
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => setFilterState('por_retirar')}
-            className={`py-2 px-3.5 rounded-full text-xs font-semibold transition-all shrink-0 flex items-center gap-1.5 cursor-pointer ${
+            className={`py-2 px-2 sm:px-3.5 rounded-full text-[11px] sm:text-xs font-semibold transition-all flex items-center justify-center gap-1.5 cursor-pointer text-center ${
               filterState === 'por_retirar'
                 ? 'bg-[#2e004e] text-white shadow-sm'
                 : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
             }`}
           >
-            <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-            <span>Por retirar ({readyForPickupAppointments.length})</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
+            <span className="truncate sm:whitespace-normal">Por retirar</span>
+            <span
+              className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
+                filterState === 'por_retirar' ? 'bg-white/20 text-white' : 'bg-white/60 text-[#4c4451]'
+              }`}
+            >
+              {readyForPickupAppointments.length}
+            </span>
           </button>
         </div>
 
         <button
           type="button"
           onClick={onNavigateToAgenda}
-          className="text-xs font-bold text-[#4b0878] hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
+          className="text-xs font-bold text-[#4b0878] hover:underline flex items-center gap-1 self-end sm:self-center shrink-0 cursor-pointer py-1"
         >
           <span className="material-symbols-outlined text-sm">calendar_month</span>
           <span>Ver Agenda</span>
