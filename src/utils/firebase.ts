@@ -15,7 +15,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 import firebaseConfigRaw from '../../firebase-applet-config.json';
-import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState } from '../types';
+import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState, SaleRecord } from '../types';
 import { slugify, cleanSlugInput, extractSlugOnly } from './slugUtils';
 
 const firebaseConfig = {
@@ -777,4 +777,84 @@ export async function updateReviewRequestStateInFirestore(
     return false;
   }
 }
+
+/**
+ * Persists a Sale record in Firestore under businesses/{businessId}/sales/{saleId}
+ * and atomically adds it to the parent business document sales array.
+ */
+export async function recordSaleInFirestore(
+  businessId: string,
+  sale: SaleRecord
+): Promise<boolean> {
+  if (!businessId || !sale || !sale.id) return false;
+  try {
+    const saleRef = doc(db, 'businesses', businessId, 'sales', sale.id);
+    await setDoc(saleRef, cleanFirestoreData(sale), { merge: true });
+
+    // Also update parent business doc
+    const bizRef = doc(db, 'businesses', businessId);
+    const bizSnap = await getDoc(bizRef);
+    if (bizSnap.exists()) {
+      const existingSales: SaleRecord[] = bizSnap.data()?.sales || [];
+      const updated = existingSales.filter((s) => s.id !== sale.id);
+      updated.unshift(sale);
+      await setDoc(bizRef, cleanFirestoreData({ sales: updated }), { merge: true });
+    }
+    return true;
+  } catch (err) {
+    console.warn('[FIRESTORE RECORD SALE ERROR]', err);
+    return false;
+  }
+}
+
+/**
+ * Subscribes to real-time sales collection for a business.
+ */
+export function subscribeToBusinessSales(
+  businessId: string,
+  onUpdate: (sales: SaleRecord[]) => void
+): () => void {
+  if (!businessId) return () => {};
+  try {
+    const salesCol = collection(db, 'businesses', businessId, 'sales');
+    return onSnapshot(
+      salesCol,
+      (snapshot) => {
+        const list: SaleRecord[] = [];
+        snapshot.forEach((d) => {
+          list.push({ ...(d.data() as SaleRecord), id: d.id });
+        });
+        list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        onUpdate(list);
+      },
+      (err) => {
+        console.warn('[FIRESTORE SALES LISTENER ERROR]', err);
+      }
+    );
+  } catch (err) {
+    console.warn('[FIRESTORE SUBSCRIBE SALES ERROR]', err);
+    return () => {};
+  }
+}
+
+/**
+ * Fetches all sales from Firestore for a business.
+ */
+export async function fetchSalesFromFirestore(businessId: string): Promise<SaleRecord[]> {
+  if (!businessId) return [];
+  try {
+    const salesCol = collection(db, 'businesses', businessId, 'sales');
+    const snapshot = await getDocs(salesCol);
+    const list: SaleRecord[] = [];
+    snapshot.forEach((d) => {
+      list.push({ ...(d.data() as SaleRecord), id: d.id });
+    });
+    list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+    return list;
+  } catch (err) {
+    console.warn('[FIRESTORE FETCH SALES ERROR]', err);
+    return [];
+  }
+}
+
 

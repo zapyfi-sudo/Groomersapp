@@ -71,6 +71,30 @@ export interface UserAccount {
   lastLoginAt: string;
 }
 
+export interface SaleRecord {
+  id: string; // unique sale ID, e.g. "sale_1729..." or "sale_apt-1"
+  businessId?: string;
+  appointmentId: string;
+  tutorName: string;
+  tutorPhone?: string;
+  petId?: string;
+  petName: string;
+  breed?: string;
+  serviceName: string;
+  amount: number; // Historical revenue amount locked upon service start
+  servicePrice?: number; // alias
+  finalPrice?: number;
+  currency: string;
+  groomer?: string;
+  serviceStartedAt?: string; // ISO date string e.g. "2026-10-14T15:30:00.000Z"
+  date: string; // e.g. "2026-10-14" or "14 de Octubre"
+  time?: string; // e.g. "09:30 AM"
+  paymentStatus?: 'cobrado' | 'en_proceso' | 'por_cobrar';
+  paymentMethod?: 'efectivo' | 'transferencia' | 'tarjeta' | 'otro';
+  createdAt?: string; // ISO timestamp
+  status: 'generado' | 'iniciado' | 'en_salon' | 'por_retirar' | 'listo' | 'entregado' | 'completado' | 'cancelado';
+}
+
 export interface BusinessAccountData {
   businessId: string;
   userId: string;
@@ -78,6 +102,7 @@ export interface BusinessAccountData {
   pets: Pet[];
   appointments: Appointment[];
   bookedRetentions: string[];
+  sales?: SaleRecord[];
   updatedAt: string;
 }
 
@@ -187,6 +212,9 @@ export interface SalonConfig {
   afternoonOpen: string; // e.g. '14:00'
   afternoonClose: string; // e.g. '19:30'
   hasDoubleShift: boolean;
+  appointmentIntervalMinutes?: 15 | 30 | 45 | 60 | 90 | 120 | number; // e.g. 15, 30, 45, 60, 90, 120 or -1 (duration)
+  bookingSlotInterval?: number; // alias
+  bookingSlotMode?: 'fixed' | 'service_duration';
   bookingSlug: string;
   activeDays: string[];
   hasMedicationProductsEnabled?: boolean;
@@ -230,6 +258,9 @@ export interface Appointment {
   rating?: number;
   reviewComment?: string;
   createdAt?: string;
+  serviceStartedAt?: string; // ISO date when "Comenzar servicio" was clicked
+  salesRecordedAmount?: number; // Exact price recorded upon service initiation
+  saleRecordId?: string; // ID of the associated sale record
 }
 
 export interface RetentionPet {
@@ -256,3 +287,4 @@ export interface RetentionPet {
   returnCount?: number; // Total completed return visits (totalCompleted - 1, 0 if <= 1)
   returnCountLabel?: string; // "Sin regresos registrados", "Ha vuelto 1 vez", "Ha vuelto X veces"
 }
+

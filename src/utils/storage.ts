@@ -1,4 +1,4 @@
-import { Pet, SalonConfig, Appointment, RetentionPet } from '../types';
+import { Pet, SalonConfig, Appointment, RetentionPet, SaleRecord } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage } from './translations';
 import { DEFAULT_WHATSAPP_TEMPLATES } from './phoneUtils';
@@ -8,6 +8,7 @@ const STORAGE_KEY_PETS = 'agendacan_pets_v2';
 const STORAGE_KEY_APPOINTMENTS = 'agendacan_appointments_v2';
 const STORAGE_KEY_LANGUAGE = 'agendacan_language_v2';
 const STORAGE_KEY_BOOKED_RETENTIONS = 'agendacan_booked_retentions_v2';
+const STORAGE_KEY_SALES = 'agendacan_sales_v2';
 
 // Helper to format ISO date or relative date string
 export function formatDateSpanish(date: Date): string {
@@ -65,6 +66,7 @@ export const DEFAULT_SALON_CONFIG: SalonConfig = {
   afternoonOpen: '14:00',
   afternoonClose: '19:30',
   hasDoubleShift: true,
+  appointmentIntervalMinutes: 30,
   bookingSlug: 'pelo',
   activeDays: ['L', 'M', 'X', 'J', 'V', 'S'],
   staffScheduleConfig: {
@@ -834,4 +836,26 @@ export async function compressImage(file: File, maxWidth = 800, quality = 0.82):
     reader.onerror = reject;
     reader.readAsDataURL(file);
   });
+}
+
+export function getStoredSales(): SaleRecord[] {
+  if (typeof window === 'undefined') return [];
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY_SALES);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (err) {
+    console.warn('Error reading stored sales:', err);
+    return [];
+  }
+}
+
+export function saveStoredSales(sales: SaleRecord[]): void {
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(STORAGE_KEY_SALES, JSON.stringify(sales || []));
+  } catch (err) {
+    console.warn('Error saving sales to localStorage:', err);
+  }
 }

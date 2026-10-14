@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData, WhatsAppTemplate } from './types';
+import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData, WhatsAppTemplate, SaleRecord } from './types';
 import {
   deriveRetentionPets,
   loadLanguage,
@@ -14,7 +14,8 @@ import {
   persistActivePets,
   persistActiveAppointments,
   persistActiveBookedRetentions,
-  persistActiveBusinessData
+  persistActiveBusinessData,
+  persistActiveSales
 } from './utils/saasDb';
 import {
   syncBusinessToServer,
@@ -24,7 +25,9 @@ import {
   subscribeToBusinessReviews,
   updateAppointmentStatusOnServer,
   fetchLatestAppointmentsAndPets,
-  createInternalAppointment
+  createInternalAppointment,
+  subscribeToBusinessSales,
+  recordSaleInFirestore
 } from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
@@ -163,8 +166,20 @@ export default function App() {
     pet: null
   });
 
-  // Real-time notification for incoming public bookings
-  const [newBookingNotification, setNewBookingNotification] = useState<string | null>(null);
+  // Real-time sales records state (Mejora 3)
+  const [sales, setSales] = useState<SaleRecord[]>(() => {
+    return initialData.sales || [];
+  });
+
+  // Real-time notification for incoming public bookings (Mejora 1)
+  const [newBookingNotification, setNewBookingNotification] = useState<{
+    id?: string;
+    tutorName: string;
+    petName: string;
+    serviceName: string;
+    time?: string;
+    date?: string;
+  } | null>(null);
 
   // Navigation tabs: Agenda, En salón, Clientes, Por volver, Ajustes
   const [currentTab, setCurrentTab] = useState<'retencion' | 'ficha' | 'onboarding' | 'agenda' | 'en_salon' | 'mascotas'>('agenda');
@@ -344,9 +359,14 @@ export default function App() {
 
         if (brandNew.length > 0) {
           const latest = brandNew[0];
-          setNewBookingNotification(
-            `¡Nueva reserva online de ${latest.tutorName} para ${latest.petName} (${latest.serviceName})!`
-          );
+          setNewBookingNotification({
+            id: latest.id,
+            tutorName: latest.tutorName || 'Cliente',
+            petName: latest.petName || 'Mascota',
+            serviceName: latest.serviceName || 'Servicio de peluquería',
+            time: latest.time,
+            date: latest.date
+          });
           setTimeout(() => setNewBookingNotification(null), 8000);
         }
 
@@ -463,6 +483,20 @@ export default function App() {
       });
     });
 
+    // 2c. Subscribe to real-time incoming sales via Firestore (Mejora 3)
+    const unsubSales = subscribeToBusinessSales(currentBizId, (incomingSales) => {
+      if (!incomingSales) return;
+      setSales((prev) => {
+        const map = new Map<string, SaleRecord>();
+        for (const s of prev) if (s?.id) map.set(s.id, s);
+        for (const s of incomingSales) if (s?.id) map.set(s.id, s);
+        const merged = Array.from(map.values());
+        merged.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
+        persistActiveSales(merged);
+        return merged;
+      });
+    });
+
     // 3. Periodic server polling (every 8 seconds + window focus) to ensure zero desync across all environments
     const pollServerSync = async () => {
       try {
@@ -479,9 +513,14 @@ export default function App() {
 
               if (brandNew.length > 0) {
                 const newest = brandNew[0];
-                setNewBookingNotification(
-                  `¡Nueva reserva online de ${newest.tutorName} para ${newest.petName} (${newest.serviceName})!`
-                );
+                setNewBookingNotification({
+                  id: newest.id,
+                  tutorName: newest.tutorName || 'Cliente',
+                  petName: newest.petName || 'Mascota',
+                  serviceName: newest.serviceName || 'Servicio de peluquería',
+                  time: newest.time,
+                  date: newest.date
+                });
                 setTimeout(() => setNewBookingNotification(null), 8000);
               }
 
@@ -592,6 +631,7 @@ export default function App() {
       unsubApts();
       unsubPets();
       unsubReviews();
+      unsubSales();
       clearInterval(pollInterval);
       window.removeEventListener('focus', onFocus);
       document.removeEventListener('visibilitychange', onFocus);
@@ -997,21 +1037,88 @@ export default function App() {
     const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
 
     let updatedList: Appointment[] = [];
+    let createdSale: SaleRecord | null = null;
+    let salePatch: Partial<Appointment> = {};
+
     setAppointments((prev) => {
+      const targetApt = prev.find((a) => a.id === appointmentId);
+
+      // MEJORA 3: Fuente de ingresos al pulsar «Comenzar servicio» (en_salon)
+      if (status === 'en_salon' && targetApt) {
+        // Garantizar idempotencia: verificar que no haya sido registrada previamente
+        const alreadyHasSale = targetApt.saleRecordId || targetApt.salesRecordedAmount !== undefined;
+        if (!alreadyHasSale) {
+          const matchedService = salonConfig.services?.find(
+            (s) => s.name?.toLowerCase().trim() === targetApt.serviceName?.toLowerCase().trim()
+          );
+          const historicalPrice = targetApt.price || matchedService?.price || 0;
+          const saleId = `sale_${appointmentId}_${Date.now()}`;
+          const nowIso = new Date().toISOString();
+
+          createdSale = {
+            id: saleId,
+            appointmentId: targetApt.id,
+            businessId: currentBizId,
+            petId: targetApt.petId,
+            petName: targetApt.petName,
+            breed: targetApt.breed,
+            tutorName: targetApt.tutorName,
+            tutorPhone: targetApt.tutorPhone,
+            serviceName: targetApt.serviceName,
+            amount: historicalPrice,
+            servicePrice: historicalPrice,
+            finalPrice: historicalPrice,
+            currency: targetApt.currency || salonConfig.currency || '$',
+            groomer: targetApt.groomer || 'Personal de turno',
+            paymentStatus: targetApt.paymentStatus || 'cobrado',
+            date: targetApt.date || nowIso.split('T')[0],
+            time: targetApt.time || 'En servicio',
+            createdAt: nowIso,
+            serviceStartedAt: nowIso,
+            status: 'en_salon'
+          };
+
+          salePatch = {
+            serviceStartedAt: nowIso,
+            salesRecordedAmount: historicalPrice,
+            saleRecordId: saleId
+          };
+        }
+      }
+
+      const mergedPatch = { ...(extraPatch || {}), ...salePatch };
+
       updatedList = prev.map((a) =>
-        a.id === appointmentId ? { ...a, status: status as any, statusLabel, ...(extraPatch || {}) } : a
+        a.id === appointmentId ? { ...a, status: status as any, statusLabel, ...mergedPatch } : a
       );
       return updatedList;
     });
 
-    // 1. Guarantee persistence in local IndexedDB & localStorage cache first
+    // 1. Guardar la venta registrada permanentemente si fue creada
+    if (createdSale) {
+      setSales((prev) => {
+        const next = [createdSale!, ...prev.filter((s) => s.id !== createdSale!.id)];
+        persistActiveSales(next);
+        return next;
+      });
+
+      // Persistir en Firestore y en Server API
+      recordSaleInFirestore(currentBizId, createdSale).catch(() => {});
+      fetch(`/api/businesses/${encodeURIComponent(currentBizId)}/sales`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sale: createdSale })
+      }).catch(() => {});
+    }
+
+    // 2. Guarantee persistence in local IndexedDB & localStorage cache first
     if (updatedList.length > 0) {
       await persistActiveAppointments(updatedList);
     }
 
-    // 2. Guarantee persistence in Backend Server API & Cloud Firestore
+    // 3. Guarantee persistence in Backend Server API & Cloud Firestore
     try {
-      await updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel, extraPatch);
+      await updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel, { ...(extraPatch || {}), ...salePatch });
     } catch (err) {
       console.warn('Error syncing appointment status update:', err);
     }
@@ -1164,34 +1271,74 @@ export default function App() {
         onOpenAccountModal={() => setIsAccountModalOpen(true)}
       />
 
-      {/* Floating Real-Time New Booking Notification Banner */}
+      {/* Floating Real-Time New Booking Notification Banner (Mejora 1: Dimensión, Bordes y Jerarquía) */}
       {newBookingNotification && (
-        <div className="fixed top-18 left-1/2 -translate-x-1/2 z-50 bg-[#2e004e] text-white px-5 py-3 rounded-2xl shadow-2xl flex items-center gap-3 border-2 border-[#f9b900] animate-in fade-in slide-in-from-top-4 duration-300 max-w-lg mx-4">
-          <div className="w-8 h-8 rounded-full bg-[#f9b900] text-[#261900] flex items-center justify-center shrink-0 font-bold">
-            <span className="material-symbols-outlined text-lg">notifications_active</span>
+        <aside
+          role="alert"
+          aria-live="polite"
+          className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] sm:w-full max-w-lg bg-[#2e004e] text-white rounded-2xl shadow-2xl border-2 border-[#f9b900] p-3.5 sm:p-4 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto box-border"
+        >
+          <div className="flex items-start gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#f9b900] text-[#261900] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+              <span className="material-symbols-outlined text-xl">notifications_active</span>
+            </div>
+
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-[#f9b900]">
+                  ¡Nueva Solicitud de Cita Online!
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setNewBookingNotification(null)}
+                  className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+                  title="Cerrar notificación"
+                >
+                  <span className="material-symbols-outlined text-base">close</span>
+                </button>
+              </div>
+
+              <div className="mt-1 space-y-0.5 text-xs">
+                <div className="font-black text-white break-words">
+                  <span className="text-white/70 font-medium">Cliente: </span>
+                  {newBookingNotification.tutorName}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-white/90">
+                  <span className="font-extrabold text-[#ffdea1] break-words">
+                    🐾 {newBookingNotification.petName}
+                  </span>
+                  <span className="text-white/40">•</span>
+                  <span className="text-white break-words font-medium">
+                    ✂️ {newBookingNotification.serviceName}
+                  </span>
+                  {newBookingNotification.time && (
+                    <>
+                      <span className="text-white/40">•</span>
+                      <span className="text-emerald-300 font-bold whitespace-nowrap">
+                        🕒 {newBookingNotification.time}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                <span className="text-[10px] text-white/60">Recibida en tiempo real</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCurrentTab('agenda');
+                    setNewBookingNotification(null);
+                  }}
+                  className="px-3.5 py-1.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0"
+                >
+                  <span className="material-symbols-outlined text-sm">calendar_month</span>
+                  <span>Ver en Agenda</span>
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-xs font-black text-[#f9b900]">¡Nueva Solicitud de Cita Online!</p>
-            <p className="text-xs text-white truncate">{newBookingNotification}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setCurrentTab('agenda');
-              setNewBookingNotification(null);
-            }}
-            className="px-3 py-1 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-lg transition-colors shrink-0 cursor-pointer"
-          >
-            Ver en Agenda
-          </button>
-          <button
-            type="button"
-            onClick={() => setNewBookingNotification(null)}
-            className="text-white/60 hover:text-white cursor-pointer ml-1"
-          >
-            <span className="material-symbols-outlined text-base">close</span>
-          </button>
-        </div>
+        </aside>
       )}
 
       {/* Screen Mode Layout Container */}
@@ -1236,9 +1383,10 @@ export default function App() {
           {currentTab === 'onboarding' && (
             <AjustesView
               config={salonConfig}
+              sales={sales}
               onUpdateConfig={(updated) => {
                 setSalonConfig(updated);
-                syncBusinessToServer(updated.id || 'biz_main', updated, pets, appointments, bookedRetentions);
+                syncBusinessToServer(updated.id || 'biz_main', updated, pets, appointments, bookedRetentions, sales);
               }}
               onPreviewClientFlow={() => {
                 setPreviewBookingId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');

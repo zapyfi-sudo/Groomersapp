@@ -152,7 +152,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
     const slots: { time: string; available: boolean; bookedCount: number }[] = [];
     const capacityLimit = salonConfig?.allowSimultaneousStaff === false ? 1 : simultaneousCapacity || 2;
     const duration = activeService?.durationMin || 60;
-    const step = 60;
+    const intervalSetting = salonConfig?.appointmentIntervalMinutes;
+    const step = intervalSetting === -1
+      ? Math.max(duration, 15)
+      : (Number(intervalSetting) > 0 ? Number(intervalSetting) : 60);
 
     // Morning shift slots
     const mStart = parseMins(morningOpen);

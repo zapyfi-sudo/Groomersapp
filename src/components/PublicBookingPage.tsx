@@ -216,37 +216,57 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     }
   }, [availableDates, selectedDate]);
 
-  // Time slots generation
+  // Time slots generation based on salon appointmentIntervalMinutes (Mejora 2)
   const availableTimeSlots = useMemo(() => {
     if (!selectedDate || !config) return [];
 
     const slots: { time: string; available: boolean }[] = [];
     const capacityLimit = config.allowSimultaneousStaff === false ? 1 : config.simultaneousCapacity || 2;
     const existing = businessData?.appointments || [];
+    const durationMin = activeService?.durationMin || 60;
+
+    // Interval determination: -1 means according to service duration, otherwise 15, 30, 45, 60, etc.
+    const intervalSetting = config.appointmentIntervalMinutes;
+    const stepMinutes = intervalSetting === -1
+      ? Math.max(durationMin, 15)
+      : (Number(intervalSetting) > 0 ? Number(intervalSetting) : 60);
+
+    const parseMins = (str: string): number => {
+      if (!str) return 0;
+      const clean = str.replace(/[^\d:]/g, '');
+      const [h, m] = clean.split(':').map(Number);
+      return (h || 0) * 60 + (m || 0);
+    };
 
     const addRangeSlots = (startStr: string, endStr: string) => {
-      const [startH, startM] = startStr.split(':').map(Number);
-      const [endH, endM] = endStr.split(':').map(Number);
+      const startMins = parseMins(startStr);
+      const endMins = parseMins(endStr);
 
-      let currentH = startH;
-      let currentM = startM;
+      for (let current = startMins; current + Math.min(durationMin, 30) <= endMins; current += stepMinutes) {
+        if (current + durationMin > endMins && current > startMins) {
+          break;
+        }
 
-      while (currentH < endH || (currentH === endH && currentM < endM)) {
-        const timeLabel = `${String(currentH).padStart(2, '0')}:${String(currentM).padStart(2, '0')}`;
-        const booked = existing.filter(
-          (apt) => apt.date === selectedDate && apt.time?.includes(timeLabel)
-        ).length;
+        const h = Math.floor(current / 60);
+        const m = current % 60;
+        const timeLabel = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
+        const booked = existing.filter((apt) => {
+          if (apt.date !== selectedDate) return false;
+          if (apt.status === 'cancelada') return false;
+
+          const aptTimeClean = (apt.time || '').replace(/[^\d:]/g, '');
+          const [aptH, aptM] = aptTimeClean.split(':').map(Number);
+          const aptStart = (aptH || 0) * 60 + (aptM || 0);
+          const aptDuration = 60;
+
+          return current < aptStart + aptDuration && current + durationMin > aptStart;
+        }).length;
 
         slots.push({
           time: timeLabel,
           available: booked < capacityLimit
         });
-
-        currentM += 60; // 1-hour slots
-        if (currentM >= 60) {
-          currentH += Math.floor(currentM / 60);
-          currentM = currentM % 60;
-        }
       }
     };
 
@@ -260,7 +280,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     }
 
     return slots;
-  }, [selectedDate, config, businessData]);
+  }, [selectedDate, config, businessData, activeService]);
 
   // Set default time slot
   useEffect(() => {

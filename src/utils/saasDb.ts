@@ -1,4 +1,4 @@
-import { UserAccount, BusinessAccountData, SalonConfig, Pet, Appointment, SalonService } from '../types';
+import { UserAccount, BusinessAccountData, SalonConfig, Pet, Appointment, SalonService, SaleRecord } from '../types';
 import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressImage } from './storage';
 import { generateStableBusinessId, slugify, extractSlugOnly } from './slugUtils';
 
@@ -538,6 +538,10 @@ export async function persistActiveAppointments(appointments: Appointment[]): Pr
 
 export async function persistActiveBookedRetentions(bookedRetentions: string[]): Promise<void> {
   await persistActiveBusinessData({ bookedRetentions });
+}
+
+export async function persistActiveSales(sales: SaleRecord[]): Promise<void> {
+  await persistActiveBusinessData({ sales });
 }
 
 // Public Booking support: Retrieve public info for any business by ID or slug (Requirement #20, #21, #23)

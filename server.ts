@@ -37,6 +37,7 @@ export interface StoredBusiness {
   pets?: any[];
   appointments?: any[];
   bookedRetentions?: string[];
+  sales?: any[];
   updatedAt: string;
 }
 
@@ -233,7 +234,7 @@ businessId: ${business ? business.businessId : 'null'}`);
 });
 
 app.post('/api/businesses', (req, res) => {
-  const { businessId, config, pets, appointments, bookedRetentions } = req.body;
+  const { businessId, config, pets, appointments, bookedRetentions, sales } = req.body;
   const id = businessId || config?.id || 'biz_main';
 
   if (!config) {
@@ -261,6 +262,7 @@ app.post('/api/businesses', (req, res) => {
     pets: pets || existing.pets || [],
     appointments: appointments || existing.appointments || [],
     bookedRetentions: bookedRetentions || existing.bookedRetentions || [],
+    sales: sales || existing.sales || [],
     updatedAt: new Date().toISOString()
   };
 
@@ -274,6 +276,49 @@ services count: ${(cleanConfig.services || []).length}
 successfully persisted to db`);
 
   res.json({ success: true, businessId: id, slug: cleanSlug, config: cleanConfig });
+});
+
+// Sales endpoints
+app.get('/api/businesses/:idOrSlug/sales', (req, res) => {
+  const { idOrSlug } = req.params;
+  const db = readDb();
+  const business = findBusiness(idOrSlug, db);
+  if (!business) {
+    res.json({ sales: [] });
+    return;
+  }
+  res.json({ sales: business.sales || [] });
+});
+
+app.post('/api/businesses/:idOrSlug/sales', (req, res) => {
+  const { idOrSlug } = req.params;
+  const { sale } = req.body;
+  if (!sale || !sale.id) {
+    res.status(400).json({ error: 'Sale record with id is required' });
+    return;
+  }
+  const db = readDb();
+  let business = findBusiness(idOrSlug, db);
+  if (!business) {
+    business = db['biz_main'];
+  }
+  if (!business) {
+    res.status(404).json({ error: 'Business not found' });
+    return;
+  }
+
+  const existingSales = business.sales || [];
+  const existingIdx = existingSales.findIndex((s: any) => s.id === sale.id);
+  if (existingIdx >= 0) {
+    existingSales[existingIdx] = { ...existingSales[existingIdx], ...sale };
+  } else {
+    existingSales.unshift(sale);
+  }
+  business.sales = existingSales;
+  business.updatedAt = new Date().toISOString();
+  writeDb(db);
+
+  res.json({ success: true, sale });
 });
 
 app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {

@@ -1,4 +1,4 @@
-import { SalonConfig, SalonService, Appointment, Pet, ClientReview, ReviewRequestState } from '../types';
+import { SalonConfig, SalonService, Appointment, Pet, ClientReview, ReviewRequestState, SaleRecord } from '../types';
 import { decodePublicProfileToken, extractSlugOnly } from './slugUtils';
 import {
   getBusinessFromFirestore,
@@ -9,14 +9,20 @@ import {
   subscribeToBusinessPets,
   addReviewToFirestore,
   subscribeToBusinessReviews,
-  updateReviewRequestStateInFirestore
+  updateReviewRequestStateInFirestore,
+  subscribeToBusinessSales,
+  recordSaleInFirestore,
+  fetchSalesFromFirestore
 } from './firebase';
 
 export {
   subscribeToBusinessAppointments,
   subscribeToBusinessPets,
   subscribeToBusinessReviews,
-  updateReviewRequestStateInFirestore
+  updateReviewRequestStateInFirestore,
+  subscribeToBusinessSales,
+  recordSaleInFirestore,
+  fetchSalesFromFirestore
 };
 
 export interface PublicBusinessResult {
@@ -212,7 +218,8 @@ export async function syncBusinessToServer(
   config: SalonConfig,
   pets?: Pet[],
   appointments?: Appointment[],
-  bookedRetentions?: string[]
+  bookedRetentions?: string[],
+  sales?: SaleRecord[]
 ): Promise<boolean> {
   const targetId = businessId || config.id || 'biz_main';
 
@@ -229,7 +236,8 @@ export async function syncBusinessToServer(
             config,
             pets,
             appointments,
-            bookedRetentions
+            bookedRetentions,
+            sales
           })
         });
         if (!res.ok) {

@@ -7,12 +7,14 @@ import {
   SalonService,
   MedicationProduct,
   StaffScheduleConfig,
-  UserAccount
+  UserAccount,
+  SaleRecord
 } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
 import { ServiceManager } from './ServiceManager';
 import { MedicationManager } from './MedicationManager';
 import { StaffShiftScheduleManager } from './StaffShiftScheduleManager';
+import { VentasView } from './VentasView';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
@@ -28,6 +30,8 @@ interface AjustesViewProps {
   onPreviewClientFlow: () => void;
   onPreviewReviewFlow?: () => void;
   appointments?: Appointment[];
+  sales?: SaleRecord[];
+  initialSection?: 'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas' | null;
   onAddNewReview?: (review: ClientReview) => void;
   currentLanguage: AppLanguage;
   onUpdateLanguage: (lang: AppLanguage) => void;
@@ -41,13 +45,21 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   onPreviewClientFlow,
   onPreviewReviewFlow,
   appointments = [],
+  sales = [],
+  initialSection = null,
   currentLanguage,
   onUpdateLanguage,
   activeAccount,
   onOpenAccountModal
 }) => {
-  // Navigation: null shows the simplified vertical menu; or 'negocio' | 'calificaciones' | 'clientes' | 'enlace'
-  const [selectedSection, setSelectedSection] = useState<'negocio' | 'calificaciones' | 'clientes' | 'enlace' | null>(null);
+  // Navigation: null shows the simplified vertical menu; or 'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas'
+  const [selectedSection, setSelectedSection] = useState<'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas' | null>(initialSection);
+
+  useEffect(() => {
+    if (initialSection !== undefined) {
+      setSelectedSection(initialSection);
+    }
+  }, [initialSection]);
 
   // Client History Filters
   const [clientPeriodFilter, setClientPeriodFilter] = useState<'hoy' | 'semana' | 'mes' | 'todos'>('todos');
@@ -84,6 +96,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     if (config.services !== undefined) setServicesList(config.services);
     if (config.hasMedicationProductsEnabled !== undefined) setHasMedicationProductsEnabled(config.hasMedicationProductsEnabled);
     if (config.medicationProducts !== undefined) setMedicationProducts(config.medicationProducts);
+    if (config.appointmentIntervalMinutes !== undefined) setAppointmentIntervalMinutes(config.appointmentIntervalMinutes);
     if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
   }, [config]);
 
@@ -92,13 +105,28 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [phoneNumber, setPhoneNumber] = useState<string>(config.phone || '11 5489 3210');
   const [address, setAddress] = useState<string>(config.address || 'Av. Corrientes 4520, Almagro, CABA');
 
-  // Schedule & Double Shift
+  // Schedule & Double Shift & Interval
   const [activeDays, setActiveDays] = useState<string[]>(config.activeDays || ['L', 'M', 'X', 'J', 'V', 'S']);
   const [hasDoubleShift, setHasDoubleShift] = useState<boolean>(config.hasDoubleShift ?? true);
   const [morningOpen, setMorningOpen] = useState<string>(config.morningOpen || '08:00');
   const [morningClose, setMorningClose] = useState<string>(config.morningClose || '12:30');
   const [afternoonOpen, setAfternoonOpen] = useState<string>(config.afternoonOpen || '14:00');
   const [afternoonClose, setAfternoonClose] = useState<string>(config.afternoonClose || '19:30');
+  const [appointmentIntervalMinutes, setAppointmentIntervalMinutes] = useState<number>(
+    config.appointmentIntervalMinutes !== undefined ? config.appointmentIntervalMinutes : 60
+  );
+
+  // Today revenue for financial indicator
+  const todayRevenue = useMemo(() => {
+    const todayStr = new Date().toISOString().split('T')[0];
+    return sales.reduce((acc, s) => {
+      const dStr = s.date || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+      if (dStr === todayStr || (s.date && s.date.toLowerCase().includes('hoy'))) {
+        return acc + (Number(s.amount) || Number(s.servicePrice) || 0);
+      }
+      return acc;
+    }, 0);
+  }, [sales]);
 
   // Staff Schedules
   const [staffScheduleConfig, setStaffScheduleConfig] = useState<StaffScheduleConfig>(
@@ -541,6 +569,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       morningClose,
       afternoonOpen,
       afternoonClose,
+      appointmentIntervalMinutes,
       activeDays
     };
 
@@ -655,7 +684,37 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               </div>
             </div>
 
-            {/* 4. SEPARATE OPTION: Comparte tu agenda para redes */}
+            {/* 4. NUEVO MÓDULO: Ventas e Ingresos (Mejora 3) */}
+            <div
+              onClick={() => setSelectedSection('ventas')}
+              className="bg-white hover:bg-[#fcf8ff] rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 hover:border-[#2e004e] transition-all cursor-pointer flex items-center justify-between gap-4 group active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-4 min-w-0">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-50 text-emerald-800 group-hover:bg-[#2e004e] group-hover:text-[#f9b900] flex items-center justify-center font-bold shrink-0 transition-colors shadow-xs">
+                  <span className="material-symbols-outlined text-2xl">payments</span>
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
+                      Ventas e Ingresos
+                    </h2>
+                    {todayRevenue > 0 && (
+                      <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-black text-[11px] shadow-xs">
+                        {config.currency || '$'} {todayRevenue.toLocaleString('es-AR')} Hoy
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-[#7e7482] block truncate">
+                    Reporte financiero, ingresos por servicios, ticket promedio y desglose
+                  </span>
+                </div>
+              </div>
+              <div className="w-10 h-10 rounded-2xl bg-[#f5f2ff] group-hover:bg-[#2e004e] group-hover:text-white flex items-center justify-center text-[#2e004e] shrink-0 transition-all shadow-xs group-hover:translate-x-1">
+                <span className="material-symbols-outlined text-xl">arrow_forward</span>
+              </div>
+            </div>
+
+            {/* 5. SEPARATE OPTION: Comparte tu agenda para redes */}
             <div
               onClick={() => setSelectedSection('enlace')}
               className="bg-gradient-to-r from-white to-[#f5f2ff] hover:to-[#efeafd] rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 hover:border-[#2e004e] transition-all cursor-pointer flex items-center justify-between gap-4 group active:scale-[0.99]"
@@ -676,7 +735,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               </div>
             </div>
 
-            {/* 5. GESTIÓN DE CUENTA SAAS Y PERSISTENCIA PERMANENTE */}
+            {/* 6. GESTIÓN DE CUENTA SAAS Y PERSISTENCIA PERMANENTE */}
             <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-4 min-w-0">
                 <div className="w-14 h-14 rounded-2xl bg-[#f5f0fb] text-[#2e004e] flex items-center justify-center font-bold shrink-0 shadow-xs">
@@ -712,8 +771,17 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         </div>
       )}
 
+      {/* VISTA VENTAS (Mejora 3) */}
+      {selectedSection === 'ventas' && (
+        <VentasView
+          sales={sales}
+          salonConfig={config}
+          onBack={() => setSelectedSection(null)}
+        />
+      )}
+
       {/* VISTA 2: SUB-PÁGINAS */}
-      {selectedSection !== null && (
+      {selectedSection !== null && selectedSection !== 'ventas' && (
         <div className="space-y-5 animate-in fade-in duration-200">
           {/* Top Bar with Back Button */}
           <div className="flex items-center justify-between pb-3 border-b border-[#cfc2d2]/40">
@@ -1231,6 +1299,37 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {/* Intervalos de citas para reserva online (Mejora 2) */}
+                      <div className="pt-3 border-t border-[#efecfd] space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-xs font-black text-[#1a1a26] flex items-center gap-1.5">
+                            <span className="material-symbols-outlined text-base text-[#4b0878]">schedule</span>
+                            <span>Intervalos de reserva online</span>
+                          </label>
+                          <span className="text-[11px] font-black text-[#2e004e] bg-[#f5f2ff] px-2 py-0.5 rounded-lg border border-[#cfc2d2]/40">
+                            {appointmentIntervalMinutes === -1
+                              ? 'Según servicio'
+                              : `${appointmentIntervalMinutes} min`}
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-[#7e7482]">
+                          Frecuencia con la que se generan los horarios disponibles en tu enlace público de reservas.
+                        </p>
+                        <select
+                          value={appointmentIntervalMinutes}
+                          onChange={(e) => setAppointmentIntervalMinutes(Number(e.target.value))}
+                          className="w-full bg-[#f5f2ff] hover:bg-[#efeafd] border border-[#cfc2d2]/40 rounded-xl px-3 py-2 text-xs font-extrabold text-[#1a1a26] outline-none cursor-pointer transition-colors"
+                        >
+                          <option value={15}>Cada 15 minutos (09:00, 09:15, 09:30, 09:45...)</option>
+                          <option value={30}>Cada 30 minutos (09:00, 09:30, 10:00...)</option>
+                          <option value={45}>Cada 45 minutos (09:00, 09:45, 10:30...)</option>
+                          <option value={60}>Cada 60 minutos (1 hora - recomendado)</option>
+                          <option value={90}>Cada 90 minutos (1 hora y media)</option>
+                          <option value={120}>Cada 120 minutos (2 horas)</option>
+                          <option value={-1}>Según duración de cada servicio (adaptativo)</option>
+                        </select>
+                      </div>
                     </div>
                   </div>
                 </div>
