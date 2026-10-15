@@ -155,7 +155,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
     const intervalSetting = salonConfig?.appointmentIntervalMinutes;
     const step = intervalSetting === -1
       ? Math.max(duration, 15)
-      : (Number(intervalSetting) > 0 ? Number(intervalSetting) : 60);
+      : (Number(intervalSetting) > 0 ? Number(intervalSetting) : 30);
 
     // Morning shift slots
     const mStart = parseMins(morningOpen);

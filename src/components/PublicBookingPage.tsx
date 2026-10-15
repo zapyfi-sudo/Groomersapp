@@ -229,7 +229,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     const intervalSetting = config.appointmentIntervalMinutes;
     const stepMinutes = intervalSetting === -1
       ? Math.max(durationMin, 15)
-      : (Number(intervalSetting) > 0 ? Number(intervalSetting) : 60);
+      : (Number(intervalSetting) > 0 ? Number(intervalSetting) : 30);
 
     const parseMins = (str: string): number => {
       if (!str) return 0;

@@ -113,20 +113,48 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [afternoonOpen, setAfternoonOpen] = useState<string>(config.afternoonOpen || '14:00');
   const [afternoonClose, setAfternoonClose] = useState<string>(config.afternoonClose || '19:30');
   const [appointmentIntervalMinutes, setAppointmentIntervalMinutes] = useState<number>(
-    config.appointmentIntervalMinutes !== undefined ? config.appointmentIntervalMinutes : 60
+    config.appointmentIntervalMinutes !== undefined ? config.appointmentIntervalMinutes : 30
   );
 
   // Today revenue for financial indicator
   const todayRevenue = useMemo(() => {
     const todayStr = new Date().toISOString().split('T')[0];
-    return sales.reduce((acc, s) => {
-      const dStr = s.date || (s.createdAt ? new Date(s.createdAt).toISOString().split('T')[0] : '');
+    const todaySales = new Map<string, number>();
+
+    // 1. Check sales state
+    for (const s of sales) {
+      const dStr = s.date || (s.serviceStartedAt ? s.serviceStartedAt.split('T')[0] : (s.createdAt ? s.createdAt.split('T')[0] : ''));
       if (dStr === todayStr || (s.date && s.date.toLowerCase().includes('hoy'))) {
-        return acc + (Number(s.amount) || Number(s.servicePrice) || 0);
+        const amt = Number(s.amount) || Number(s.servicePrice) || 0;
+        if (amt > 0) {
+          todaySales.set(s.appointmentId || s.id, amt);
+        }
       }
-      return acc;
-    }, 0);
-  }, [sales]);
+    }
+
+    // 2. Also check appointments that started today
+    for (const apt of appointments) {
+      const isStarted =
+        apt.status === 'en_salon' ||
+        apt.status === 'en_corte' ||
+        apt.status === 'por_retirar' ||
+        apt.status === 'completado';
+      if (!isStarted) continue;
+
+      const aptDate = apt.date || (apt.serviceStartedAt ? apt.serviceStartedAt.split('T')[0] : '');
+      if (aptDate === todayStr || (apt.date && apt.date.toLowerCase().includes('hoy'))) {
+        let priceVal = Number(apt.salesRecordedAmount);
+        if (!priceVal || isNaN(priceVal) || priceVal <= 0) {
+          priceVal = Number(String(apt.price).replace(/[^0-9.,]/g, '').replace(',', '.'));
+        }
+        if (priceVal > 0 && !todaySales.has(apt.id)) {
+          todaySales.set(apt.id, priceVal);
+        }
+      }
+    }
+
+    return Array.from(todaySales.values()).reduce((sum, val) => sum + val, 0);
+  }, [sales, appointments]);
 
   // Staff Schedules
   const [staffScheduleConfig, setStaffScheduleConfig] = useState<StaffScheduleConfig>(
@@ -775,6 +803,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       {selectedSection === 'ventas' && (
         <VentasView
           sales={sales}
+          appointments={appointments}
           salonConfig={config}
           onBack={() => setSelectedSection(null)}
         />
@@ -1300,12 +1329,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </div>
                       )}
 
-                      {/* Intervalos de citas para reserva online (Mejora 2) */}
+                      {/* Personalizar intervalos de citas (Mejora 2) */}
                       <div className="pt-3 border-t border-[#efecfd] space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-xs font-black text-[#1a1a26] flex items-center gap-1.5">
                             <span className="material-symbols-outlined text-base text-[#4b0878]">schedule</span>
-                            <span>Intervalos de reserva online</span>
+                            <span>Personalizar intervalos de citas</span>
                           </label>
                           <span className="text-[11px] font-black text-[#2e004e] bg-[#f5f2ff] px-2 py-0.5 rounded-lg border border-[#cfc2d2]/40">
                             {appointmentIntervalMinutes === -1
@@ -1314,20 +1343,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           </span>
                         </div>
                         <p className="text-[11px] text-[#7e7482]">
-                          Frecuencia con la que se generan los horarios disponibles en tu enlace público de reservas.
+                          Elige cada cuánto tiempo quieres ofrecer un nuevo horario de inicio para las citas de tus clientes.
                         </p>
                         <select
                           value={appointmentIntervalMinutes}
                           onChange={(e) => setAppointmentIntervalMinutes(Number(e.target.value))}
                           className="w-full bg-[#f5f2ff] hover:bg-[#efeafd] border border-[#cfc2d2]/40 rounded-xl px-3 py-2 text-xs font-extrabold text-[#1a1a26] outline-none cursor-pointer transition-colors"
                         >
-                          <option value={15}>Cada 15 minutos (09:00, 09:15, 09:30, 09:45...)</option>
-                          <option value={30}>Cada 30 minutos (09:00, 09:30, 10:00...)</option>
-                          <option value={45}>Cada 45 minutos (09:00, 09:45, 10:30...)</option>
-                          <option value={60}>Cada 60 minutos (1 hora - recomendado)</option>
-                          <option value={90}>Cada 90 minutos (1 hora y media)</option>
-                          <option value={120}>Cada 120 minutos (2 horas)</option>
-                          <option value={-1}>Según duración de cada servicio (adaptativo)</option>
+                          <option value={15}>Cada 15 minutos</option>
+                          <option value={30}>Cada 30 minutos</option>
+                          <option value={60}>Cada 60 minutos</option>
                         </select>
                       </div>
                     </div>

@@ -638,6 +638,85 @@ export default function App() {
     };
   }, [activeAccount?.businessId, salonConfig?.id]);
 
+  // Auto-sync: Guarantee any appointment that has been started (en_salon, en_corte, por_retirar, completado)
+  // is registered in sales state and persisted permanently (Mejora 3)
+  useEffect(() => {
+    if (!appointments || appointments.length === 0) return;
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+
+    const existingSalesMap = new Map<string, SaleRecord>();
+    for (const s of sales) {
+      if (s?.id) existingSalesMap.set(s.appointmentId || s.id, s);
+    }
+
+    let hasAdded = false;
+    for (const apt of appointments) {
+      const isStarted =
+        apt.status === 'en_salon' ||
+        apt.status === 'en_corte' ||
+        apt.status === 'por_retirar' ||
+        apt.status === 'completado';
+
+      if (!isStarted) continue;
+
+      const key = apt.id;
+      if (!existingSalesMap.has(key)) {
+        let priceVal = Number(apt.salesRecordedAmount);
+        if (!priceVal || isNaN(priceVal) || priceVal <= 0) {
+          priceVal = Number(String(apt.price).replace(/[^0-9.,]/g, '').replace(',', '.'));
+        }
+        if (!priceVal || isNaN(priceVal) || priceVal <= 0) {
+          const matched = salonConfig.services?.find(
+            (s) => s.name?.toLowerCase().trim() === apt.serviceName?.toLowerCase().trim()
+          );
+          if (matched) {
+            priceVal = Number(matched.price);
+          }
+        }
+
+        if (priceVal > 0) {
+          const dateIso = apt.serviceStartedAt || apt.createdAt || new Date().toISOString();
+          const autoSale: SaleRecord = {
+            id: apt.saleRecordId || `sale_${apt.id}`,
+            appointmentId: apt.id,
+            businessId: currentBizId,
+            petId: apt.petId,
+            petName: apt.petName,
+            breed: apt.breed,
+            tutorName: apt.tutorName,
+            tutorPhone: apt.tutorPhone,
+            serviceName: apt.serviceName,
+            amount: priceVal,
+            servicePrice: priceVal,
+            finalPrice: priceVal,
+            currency: apt.currency || salonConfig.currency || 'MXN',
+            groomer: apt.groomer || 'Personal de turno',
+            paymentStatus: apt.paymentStatus || 'cobrado',
+            date: apt.date || dateIso.split('T')[0],
+            time: apt.time || 'En servicio',
+            createdAt: apt.createdAt || dateIso,
+            serviceStartedAt: apt.serviceStartedAt || dateIso,
+            status: (apt.status as any) || 'en_salon'
+          };
+          existingSalesMap.set(key, autoSale);
+          hasAdded = true;
+          recordSaleInFirestore(currentBizId, autoSale).catch(() => {});
+          fetch(`/api/businesses/${encodeURIComponent(currentBizId)}/sales`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ sale: autoSale })
+          }).catch(() => {});
+        }
+      }
+    }
+
+    if (hasAdded) {
+      const merged = Array.from(existingSalesMap.values());
+      setSales(merged);
+      persistActiveSales(merged);
+    }
+  }, [appointments, salonConfig.services, salonConfig.currency, activeAccount?.businessId, salonConfig?.id]);
+
   // Immediate Persistent Auto-Save to IndexedDB, Mirror, and Server API
   useEffect(() => {
     if (!isDbInitialized.current) return;
@@ -1036,23 +1115,42 @@ export default function App() {
   ): Promise<boolean> => {
     const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
 
-    let updatedList: Appointment[] = [];
+    const targetApt = appointments.find((a) => a.id === appointmentId);
     let createdSale: SaleRecord | null = null;
     let salePatch: Partial<Appointment> = {};
 
-    setAppointments((prev) => {
-      const targetApt = prev.find((a) => a.id === appointmentId);
+    // MEJORA 3: Fuente de ingresos al pulsar «Comenzar servicio» o «Comenzar corte»
+    const isStartingService = (status === 'en_salon' || status === 'en_corte');
+    if (isStartingService && targetApt) {
+      // Garantizar idempotencia: verificar que no haya sido registrada previamente
+      const alreadyHasSale =
+        Boolean(targetApt.saleRecordId) ||
+        (targetApt.salesRecordedAmount !== undefined && Number(targetApt.salesRecordedAmount) > 0) ||
+        sales.some((s) => s.appointmentId === appointmentId);
 
-      // MEJORA 3: Fuente de ingresos al pulsar «Comenzar servicio» (en_salon)
-      if (status === 'en_salon' && targetApt) {
-        // Garantizar idempotencia: verificar que no haya sido registrada previamente
-        const alreadyHasSale = targetApt.saleRecordId || targetApt.salesRecordedAmount !== undefined;
-        if (!alreadyHasSale) {
+      if (!alreadyHasSale) {
+        // Parse price safely
+        let rawPrice = Number(targetApt.price);
+        if (isNaN(rawPrice) || rawPrice <= 0) {
+          const cleaned = String(targetApt.price || '').replace(/[^0-9.,]/g, '').replace(',', '.');
+          rawPrice = parseFloat(cleaned);
+        }
+        if (isNaN(rawPrice) || rawPrice <= 0) {
           const matchedService = salonConfig.services?.find(
             (s) => s.name?.toLowerCase().trim() === targetApt.serviceName?.toLowerCase().trim()
           );
-          const historicalPrice = targetApt.price || matchedService?.price || 0;
-          const saleId = `sale_${appointmentId}_${Date.now()}`;
+          if (matchedService) {
+            rawPrice = Number(matchedService.price) || 0;
+          }
+        }
+        if (isNaN(rawPrice) || rawPrice <= 0) {
+          if (extraPatch?.price) {
+            rawPrice = Number(extraPatch.price) || 0;
+          }
+        }
+
+        if (rawPrice > 0) {
+          const saleId = targetApt.saleRecordId || `sale_${appointmentId}`;
           const nowIso = new Date().toISOString();
 
           createdSale = {
@@ -1065,10 +1163,10 @@ export default function App() {
             tutorName: targetApt.tutorName,
             tutorPhone: targetApt.tutorPhone,
             serviceName: targetApt.serviceName,
-            amount: historicalPrice,
-            servicePrice: historicalPrice,
-            finalPrice: historicalPrice,
-            currency: targetApt.currency || salonConfig.currency || '$',
+            amount: rawPrice,
+            servicePrice: rawPrice,
+            finalPrice: rawPrice,
+            currency: targetApt.currency || salonConfig.currency || 'MXN',
             groomer: targetApt.groomer || 'Personal de turno',
             paymentStatus: targetApt.paymentStatus || 'cobrado',
             date: targetApt.date || nowIso.split('T')[0],
@@ -1080,24 +1178,25 @@ export default function App() {
 
           salePatch = {
             serviceStartedAt: nowIso,
-            salesRecordedAmount: historicalPrice,
+            salesRecordedAmount: rawPrice,
             saleRecordId: saleId
           };
         }
       }
+    }
 
-      const mergedPatch = { ...(extraPatch || {}), ...salePatch };
+    const mergedPatch = { ...(extraPatch || {}), ...salePatch };
 
-      updatedList = prev.map((a) =>
-        a.id === appointmentId ? { ...a, status: status as any, statusLabel, ...mergedPatch } : a
-      );
-      return updatedList;
-    });
+    const updatedList = appointments.map((a) =>
+      a.id === appointmentId ? { ...a, status: status as any, statusLabel, ...mergedPatch } : a
+    );
+    setAppointments(updatedList);
 
     // 1. Guardar la venta registrada permanentemente si fue creada
     if (createdSale) {
+      const saleToSave = createdSale;
       setSales((prev) => {
-        const next = [createdSale!, ...prev.filter((s) => s.id !== createdSale!.id)];
+        const next = [saleToSave, ...prev.filter((s) => s.appointmentId !== appointmentId && s.id !== saleToSave.id)];
         persistActiveSales(next);
         return next;
       });
@@ -1112,13 +1211,11 @@ export default function App() {
     }
 
     // 2. Guarantee persistence in local IndexedDB & localStorage cache first
-    if (updatedList.length > 0) {
-      await persistActiveAppointments(updatedList);
-    }
+    await persistActiveAppointments(updatedList);
 
     // 3. Guarantee persistence in Backend Server API & Cloud Firestore
     try {
-      await updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel, { ...(extraPatch || {}), ...salePatch });
+      await updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel, mergedPatch);
     } catch (err) {
       console.warn('Error syncing appointment status update:', err);
     }
