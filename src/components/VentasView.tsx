@@ -73,6 +73,58 @@ export function getSaleDateKey(sale: { serviceStartedAt?: string; date?: string;
   }
   return formatLocalDateKey(new Date());
 }
+// Monotone Cubic Spline (Fritsch-Carlson algorithm)
+// Guarantees:
+// 1. Passes exactly through every point (pt.x, pt.y)
+// 2. Monotonic tangents prevent overshooting below 0 (no negative dips) or above local peaks
+// 3. Produces the organic, elegant smooth curve matching Hotmart analytics
+export function getMonotoneCurvePath(points: { x: number; y: number }[]): string {
+  if (points.length === 0) return '';
+  if (points.length === 1) return `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  if (points.length === 2) {
+    return `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)} L ${points[1].x.toFixed(1)},${points[1].y.toFixed(1)}`;
+  }
+
+  const n = points.length;
+  const dxs: number[] = [];
+  const dys: number[] = [];
+  const ms: number[] = [];
+  for (let i = 0; i < n - 1; i++) {
+    const dx = points[i + 1].x - points[i].x;
+    const dy = points[i + 1].y - points[i].y;
+    dxs.push(dx);
+    dys.push(dy);
+    ms.push(dx === 0 ? 0 : dy / dx);
+  }
+
+  const tangents: number[] = [ms[0]];
+  for (let i = 1; i < n - 1; i++) {
+    const mPrev = ms[i - 1];
+    const mNext = ms[i];
+    if (mPrev * mNext <= 0) {
+      tangents.push(0);
+    } else {
+      const dxPrev = dxs[i - 1];
+      const dxNext = dxs[i];
+      const common = dxPrev + dxNext;
+      tangents.push((3 * common) / ((common + dxNext) / mPrev + (common + dxPrev) / mNext));
+    }
+  }
+  tangents.push(ms[ms.length - 1]);
+
+  let path = `M ${points[0].x.toFixed(1)},${points[0].y.toFixed(1)}`;
+  for (let i = 0; i < n - 1; i++) {
+    const p0 = points[i];
+    const p1 = points[i + 1];
+    const dx = dxs[i];
+    const cp1x = p0.x + dx / 3;
+    const cp1y = p0.y + (tangents[i] * dx) / 3;
+    const cp2x = p1.x - dx / 3;
+    const cp2y = p1.y - (tangents[i + 1] * dx) / 3;
+    path += ` C ${cp1x.toFixed(1)},${cp1y.toFixed(1)} ${cp2x.toFixed(1)},${cp2y.toFixed(1)} ${p1.x.toFixed(1)},${p1.y.toFixed(1)}`;
+  }
+  return path;
+}
 
 export const VentasView: React.FC<VentasViewProps> = ({
   sales,
@@ -249,46 +301,6 @@ export const VentasView: React.FC<VentasViewProps> = ({
     });
   }, [unifiedSales, periodDaysSet, isCustomRangeValid, selectedPeriod]);
 
-  // KPI: Total Revenue of the selected period
-  const totalRevenue = useMemo(() => {
-    return salesInPeriod.reduce((sum, s) => sum + (Number(s.amount) || Number(s.servicePrice) || 0), 0);
-  }, [salesInPeriod]);
-
-  // KPI: Total counted started services in the selected period
-  const totalServicesCount = salesInPeriod.length;
-
-  // Breakdown by service for Element 5 (Horizontal bars sorted descending)
-  const serviceStats = useMemo(() => {
-    const stats: Record<string, { count: number; total: number }> = {};
-    for (const s of salesInPeriod) {
-      const name = s.serviceName || 'Servicio de peluquería';
-      const amt = Number(s.amount) || Number(s.servicePrice) || 0;
-      if (!stats[name]) {
-        stats[name] = { count: 0, total: 0 };
-      }
-      stats[name].count += 1;
-      stats[name].total += amt;
-    }
-
-    const list = Object.entries(stats).map(([name, data]) => ({
-      name,
-      count: data.count,
-      total: data.total
-    }));
-
-    list.sort((a, b) => b.total - a.total);
-    return list;
-  }, [salesInPeriod]);
-
-  const maxServiceAmount = useMemo(() => {
-    if (serviceStats.length === 0) return 1;
-    return Math.max(...serviceStats.map((s) => s.total), 1);
-  }, [serviceStats]);
-
-  const displayedServices = useMemo(() => {
-    return serviceStats.slice(0, topServicesLimit);
-  }, [serviceStats, topServicesLimit]);
-
   // Daily evolution data for Hotmart-style Smooth Area Curve Chart
   const chartData = useMemo(() => {
     const dayTotals: Record<string, number> = {};
@@ -335,18 +347,60 @@ export const VentasView: React.FC<VentasViewProps> = ({
     return { entries, maxAmount };
   }, [periodDaysList, salesInPeriod, todayKey]);
 
-  // Geometry computation for SVG Smooth Area Chart (Bezier Curve)
+  // KPI: Total Revenue of the selected period (derived directly from daily entries to guarantee 100% exact match!)
+  const totalRevenue = useMemo(() => {
+    return chartData.entries.reduce((sum, e) => sum + e.amount, 0);
+  }, [chartData.entries]);
+
+  // KPI: Total counted started services in the selected period
+  const totalServicesCount = useMemo(() => {
+    return chartData.entries.reduce((sum, e) => sum + e.count, 0);
+  }, [chartData.entries]);
+
+  // Breakdown by service for Element 5 (Horizontal bars sorted descending)
+  const serviceStats = useMemo(() => {
+    const stats: Record<string, { count: number; total: number }> = {};
+    for (const s of salesInPeriod) {
+      const name = s.serviceName || 'Servicio de peluquería';
+      const amt = Number(s.amount) || Number(s.servicePrice) || 0;
+      if (!stats[name]) {
+        stats[name] = { count: 0, total: 0 };
+      }
+      stats[name].count += 1;
+      stats[name].total += amt;
+    }
+
+    const list = Object.entries(stats).map(([name, data]) => ({
+      name,
+      count: data.count,
+      total: data.total
+    }));
+
+    list.sort((a, b) => b.total - a.total);
+    return list;
+  }, [salesInPeriod]);
+
+  const maxServiceAmount = useMemo(() => {
+    if (serviceStats.length === 0) return 1;
+    return Math.max(...serviceStats.map((s) => s.total), 1);
+  }, [serviceStats]);
+
+  const displayedServices = useMemo(() => {
+    return serviceStats.slice(0, topServicesLimit);
+  }, [serviceStats, topServicesLimit]);
+
+  // Geometry computation for SVG Smooth Area Chart (Monotone Cubic Spline)
   const svgGeometry = useMemo(() => {
     const entries = chartData.entries;
     const n = entries.length;
     if (n === 0) return null;
 
-    const width = 860;
-    const height = 240;
-    const padLeft = 60;
-    const padRight = 30;
-    const padTop = 25;
-    const padBottom = 40;
+    const width = Math.max(860, entries.length * 64);
+    const height = 260;
+    const padLeft = 70;
+    const padRight = 35;
+    const padTop = 32;
+    const padBottom = 45;
     const innerW = width - padLeft - padRight;
     const innerH = height - padTop - padBottom;
 
@@ -358,22 +412,11 @@ export const VentasView: React.FC<VentasViewProps> = ({
       return { x, y, ...e };
     });
 
-    // Build smooth cubic bezier curve
-    let linePath = `M ${points[0].x},${points[0].y}`;
-    for (let i = 0; i < points.length - 1; i++) {
-      const curr = points[i];
-      const next = points[i + 1];
-      const cp1x = curr.x + (next.x - curr.x) / 2;
-      const cp1y = curr.y;
-      const cp2x = curr.x + (next.x - curr.x) / 2;
-      const cp2y = next.y;
-      linePath += ` C ${cp1x},${cp1y} ${cp2x},${cp2y} ${next.x},${next.y}`;
-    }
-
     const baselineY = padTop + innerH;
+    const linePath = getMonotoneCurvePath(points);
     const lastPt = points[points.length - 1];
     const firstPt = points[0];
-    const areaPath = `${linePath} L ${lastPt.x},${baselineY} L ${firstPt.x},${baselineY} Z`;
+    const areaPath = `${linePath} L ${lastPt.x.toFixed(1)},${baselineY.toFixed(1)} L ${firstPt.x.toFixed(1)},${baselineY.toFixed(1)} Z`;
 
     return {
       width,

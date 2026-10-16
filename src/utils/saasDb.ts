@@ -164,6 +164,7 @@ export function getSyncActiveData(): BusinessAccountData {
     pets: getDefaultPets(),
     appointments: getDefaultAppointments(),
     bookedRetentions: [],
+    sales: [],
     updatedAt: new Date().toISOString()
   };
   memoryActiveData = fallbackData;
@@ -269,6 +270,7 @@ export async function initSaasDatabase(): Promise<{
 
       const bizData = await dbGet<BusinessAccountData>(STORE_BUSINESS_DATA, activeAcc.businessId);
       if (bizData) {
+        if (!bizData.sales) bizData.sales = [];
         memoryActiveAccount = activeAcc;
         memoryActiveData = bizData;
         updateSyncMirror(activeAcc, bizData, accounts);
@@ -315,6 +317,7 @@ export async function initSaasDatabase(): Promise<{
       pets: initialPets,
       appointments: initialAppointments,
       bookedRetentions: initialRetentions,
+      sales: [],
       updatedAt: new Date().toISOString()
     };
 

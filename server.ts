@@ -216,7 +216,7 @@ businessId: ${business ? business.businessId : 'null'}`);
     return;
   }
 
-  // Return complete business profile with all services, appointments, and pets
+  // Return complete business profile with all services, appointments, pets, and sales
   const allServices = business.config?.services || [];
   const publicConfig = {
     ...business.config,
@@ -229,7 +229,8 @@ businessId: ${business ? business.businessId : 'null'}`);
     config: publicConfig,
     services: allServices,
     appointments: business.appointments || [],
-    pets: business.pets || []
+    pets: business.pets || [],
+    sales: business.sales || []
   });
 });
 
@@ -505,14 +506,16 @@ app.get('/api/businesses/:idOrSlug/appointments', (req, res) => {
   if (!business) {
     res.json({
       appointments: [],
-      pets: []
+      pets: [],
+      sales: []
     });
     return;
   }
 
   res.json({
     appointments: business.appointments || [],
-    pets: business.pets || []
+    pets: business.pets || [],
+    sales: business.sales || []
   });
 });
 
@@ -536,11 +539,49 @@ app.patch('/api/businesses/:idOrSlug/appointments/:appointmentId', (req, res) =>
     return;
   }
 
+  const existingApt = apts[idx];
   apts[idx] = {
-    ...apts[idx],
+    ...existingApt,
     ...patchData,
     updatedAt: new Date().toISOString()
   };
+
+  // If service started with a valid recorded amount, also ensure sale is recorded in business.sales
+  const isStarted = patchData.status === 'en_salon' || patchData.status === 'en_corte' || existingApt.status === 'en_salon';
+  const recordedAmt = Number(patchData.salesRecordedAmount || existingApt.salesRecordedAmount || patchData.price || existingApt.price);
+  if (isStarted && recordedAmt > 0) {
+    const existingSales = business.sales || [];
+    const saleId = patchData.saleRecordId || existingApt.saleRecordId || `sale_${appointmentId}`;
+    const alreadyRecorded = existingSales.some((s: any) => s.appointmentId === appointmentId || s.id === saleId);
+    if (!alreadyRecorded) {
+      const nowIso = new Date().toISOString();
+      const saleDate = nowIso.split('T')[0];
+      const newSale = {
+        id: saleId,
+        appointmentId,
+        businessId: business.businessId,
+        petId: apts[idx].petId,
+        petName: apts[idx].petName,
+        breed: apts[idx].breed,
+        tutorName: apts[idx].tutorName,
+        tutorPhone: apts[idx].tutorPhone,
+        serviceName: apts[idx].serviceName,
+        amount: recordedAmt,
+        servicePrice: recordedAmt,
+        finalPrice: recordedAmt,
+        currency: apts[idx].currency || business.config?.currency || 'MXN',
+        groomer: apts[idx].groomer || 'Personal de turno',
+        paymentStatus: apts[idx].paymentStatus || 'cobrado',
+        date: saleDate,
+        time: apts[idx].time || 'En servicio',
+        createdAt: nowIso,
+        serviceStartedAt: patchData.serviceStartedAt || nowIso,
+        status: 'en_salon'
+      };
+      existingSales.unshift(newSale);
+      business.sales = existingSales;
+    }
+  }
 
   business.appointments = apts;
   business.updatedAt = new Date().toISOString();
@@ -548,7 +589,7 @@ app.patch('/api/businesses/:idOrSlug/appointments/:appointmentId', (req, res) =>
   writeDb(db);
 
   console.log(`[APPOINTMENT UPDATE] Appointment ${appointmentId} updated:`, patchData);
-  res.json({ success: true, appointment: apts[idx] });
+  res.json({ success: true, appointment: apts[idx], sales: business.sales || [] });
 });
 
 app.delete('/api/businesses/:idOrSlug/appointments/:appointmentId', (req, res) => {

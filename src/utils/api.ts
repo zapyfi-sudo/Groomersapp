@@ -31,6 +31,7 @@ export interface PublicBusinessResult {
   services: SalonService[];
   appointments: Appointment[];
   pets?: Pet[];
+  sales?: SaleRecord[];
 }
 
 export function getApiUrl(path: string): string {
@@ -108,7 +109,8 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
             config: data.config,
             services: data.services || data.config.services || [],
             appointments: data.appointments || [],
-            pets: data.pets || []
+            pets: data.pets || [],
+            sales: data.sales || []
           };
 
           if (typeof window !== 'undefined') {
@@ -430,7 +432,7 @@ export async function updateAppointmentStatusOnServer(
  */
 export async function fetchLatestAppointmentsAndPets(
   businessIdOrSlug: string
-): Promise<{ appointments: Appointment[]; pets: Pet[] } | null> {
+): Promise<{ appointments: Appointment[]; pets: Pet[]; sales?: SaleRecord[] } | null> {
   if (!businessIdOrSlug) return null;
 
   try {
@@ -440,7 +442,8 @@ export async function fetchLatestAppointmentsAndPets(
       if (data && Array.isArray(data.appointments)) {
         return {
           appointments: data.appointments,
-          pets: Array.isArray(data.pets) ? data.pets : []
+          pets: Array.isArray(data.pets) ? data.pets : [],
+          sales: Array.isArray(data.sales) ? data.sales : []
         };
       }
     }
@@ -449,6 +452,25 @@ export async function fetchLatestAppointmentsAndPets(
   }
 
   return null;
+}
+
+/**
+ * Fetches dedicated sales records directly from the server API.
+ */
+export async function fetchBusinessSales(businessIdOrSlug: string): Promise<SaleRecord[]> {
+  if (!businessIdOrSlug) return [];
+  try {
+    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/sales`);
+    if (res.ok) {
+      const data = await res.json();
+      if (data && Array.isArray(data.sales)) {
+        return data.sales;
+      }
+    }
+  } catch (err) {
+    console.warn('Could not fetch sales from server API:', err);
+  }
+  return [];
 }
 
 /**
