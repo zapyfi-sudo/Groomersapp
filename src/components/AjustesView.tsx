@@ -635,7 +635,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   };
 
   return (
-    <div className="flex flex-col w-full pb-32 px-4 sm:px-6 lg:px-8 pt-4 space-y-6 max-w-7xl mx-auto">
+    <div className="flex flex-col w-full min-w-0 max-w-full pb-32 px-4 sm:px-6 lg:px-8 pt-4 space-y-6 max-w-7xl mx-auto">
       {/* Toast Notification */}
       {savedToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#2e004e] text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-[#f9b900] animate-in fade-in slide-in-from-top-4 duration-300">

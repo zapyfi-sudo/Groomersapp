@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SaleRecord, SalonConfig, Appointment } from '../types';
 import { parseSpanishOrIsoDate } from '../utils/storage';
 
@@ -29,18 +29,18 @@ export function parseAnyRecordDate(val?: string | number | Date | null): Date {
     return new Date();
   }
 
+  // Full ISO string with T (must check before prefix matching)
+  if (str.includes('T') && !isNaN(new Date(str).getTime())) {
+    return new Date(str);
+  }
+
   // YYYY-MM-DD
-  const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  const ymdMatch = str.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (ymdMatch) {
     const y = parseInt(ymdMatch[1], 10);
     const m = parseInt(ymdMatch[2], 10) - 1;
     const d = parseInt(ymdMatch[3], 10);
     return new Date(y, m, d, 12, 0, 0); // Noon to prevent timezone boundaries shifting
-  }
-
-  // Full ISO string with T
-  if (str.includes('T') && !isNaN(new Date(str).getTime())) {
-    return new Date(str);
   }
 
   // Spanish text (e.g. "15 de Octubre 2026")
@@ -55,6 +55,20 @@ export function parseAnyRecordDate(val?: string | number | Date | null): Date {
   }
 
   return new Date();
+}
+
+// Helper to calculate a clean, proportional round scale ceiling for the Y-axis
+export function getNiceScaleMax(val: number): number {
+  if (val <= 0) return 100;
+  if (val <= 50) return 50;
+  if (val <= 100) return 100;
+  if (val <= 250) return 250;
+  if (val <= 500) return 500;
+  if (val <= 1000) return 1000;
+  if (val <= 2500) return Math.ceil(val / 250) * 250;
+  if (val <= 5000) return Math.ceil(val / 500) * 500;
+  if (val <= 20000) return Math.ceil(val / 1000) * 1000;
+  return Math.ceil((val * 1.08) / 1000) * 1000;
 }
 
 // Extract the local YYYY-MM-DD key for any sale or appointment
@@ -144,6 +158,33 @@ export const VentasView: React.FC<VentasViewProps> = ({
 
   // Hovered / active point for the smooth area chart tooltip
   const [hoveredPointIndex, setHoveredPointIndex] = useState<number | null>(null);
+
+  // Responsive container measurement: chart adapts 100% to card width without overflow
+  const chartContainerRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState<number>(840);
+
+  useEffect(() => {
+    if (!chartContainerRef.current) return;
+    const updateWidth = () => {
+      if (chartContainerRef.current) {
+        const w = chartContainerRef.current.clientWidth;
+        if (w > 0) {
+          setContainerWidth(w);
+        }
+      }
+    };
+    updateWidth();
+    const ro = new ResizeObserver(() => {
+      updateWidth();
+    });
+    ro.observe(chartContainerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  // Reset hovered point when period changes
+  useEffect(() => {
+    setHoveredPointIndex(null);
+  }, [selectedPeriod]);
 
   // Top services limit: 5 or 10
   const [topServicesLimit, setTopServicesLimit] = useState<5 | 10>(5);
@@ -390,33 +431,37 @@ export const VentasView: React.FC<VentasViewProps> = ({
   }, [serviceStats, topServicesLimit]);
 
   // Geometry computation for SVG Smooth Area Chart (Monotone Cubic Spline)
+  // Dynamic container-width adaptation: 100% responsive, zero horizontal overflow, preserves native page zoom
   const svgGeometry = useMemo(() => {
     const entries = chartData.entries;
     const n = entries.length;
     if (n === 0) return null;
 
-    const width = Math.max(860, entries.length * 64);
+    const width = Math.max(Math.min(containerWidth, 1100), 320);
     const height = 260;
-    const padLeft = 70;
-    const padRight = 35;
+    const padLeft = width < 480 ? 52 : 68;
+    const padRight = width < 480 ? 18 : 25;
     const padTop = 32;
-    const padBottom = 45;
+    const padBottom = 40;
     const innerW = width - padLeft - padRight;
     const innerH = height - padTop - padBottom;
+    const baselineY = padTop + innerH;
 
     const maxAmt = chartData.maxAmount;
+    const scaleMax = getNiceScaleMax(maxAmt);
 
     const points = entries.map((e, idx) => {
       const x = n === 1 ? padLeft + innerW / 2 : padLeft + (idx / (n - 1)) * innerW;
-      const y = padTop + innerH - (e.amount / maxAmt) * innerH;
+      const y = baselineY - (e.amount / scaleMax) * innerH;
       return { x, y, ...e };
     });
 
-    const baselineY = padTop + innerH;
     const linePath = getMonotoneCurvePath(points);
     const lastPt = points[points.length - 1];
     const firstPt = points[0];
     const areaPath = `${linePath} L ${lastPt.x.toFixed(1)},${baselineY.toFixed(1)} L ${firstPt.x.toFixed(1)},${baselineY.toFixed(1)} Z`;
+
+    const maxEntry = [...points].sort((a, b) => b.amount - a.amount)[0];
 
     return {
       width,
@@ -431,9 +476,11 @@ export const VentasView: React.FC<VentasViewProps> = ({
       points,
       linePath,
       areaPath,
-      maxAmt
+      maxAmt,
+      scaleMax,
+      maxEntry
     };
-  }, [chartData]);
+  }, [chartData, containerWidth]);
 
   const periodTitle =
     selectedPeriod === '7_dias'
@@ -444,12 +491,35 @@ export const VentasView: React.FC<VentasViewProps> = ({
       ? 'Últimos 30 días'
       : 'Período personalizado';
 
-  const activePoint = hoveredPointIndex !== null && svgGeometry?.points?.[hoveredPointIndex]
-    ? svgGeometry.points[hoveredPointIndex]
-    : null;
+  const activePoint = useMemo(() => {
+    if (!svgGeometry?.points || svgGeometry.points.length === 0) return null;
+    if (hoveredPointIndex !== null && svgGeometry.points[hoveredPointIndex]) {
+      return svgGeometry.points[hoveredPointIndex];
+    }
+    const pts = svgGeometry.points;
+    const todayPt = pts.find((p) => p.isToday);
+    if (todayPt && todayPt.amount > 0) return todayPt;
+    const maxPt = svgGeometry.maxEntry;
+    if (maxPt && maxPt.amount > 0) return maxPt;
+    return pts[pts.length - 1];
+  }, [hoveredPointIndex, svgGeometry]);
+
+  // Helper to determine whether a given point index should render an X-axis date label
+  const shouldShowDateLabel = (idx: number, total: number, width: number): boolean => {
+    if (total <= 7) return true;
+    if (total <= 14) {
+      if (width < 450) {
+        return idx === 0 || idx === total - 1 || idx % 2 === 0;
+      }
+      return true;
+    }
+    const maxLabels = width < 450 ? 5 : 7;
+    const step = Math.max(Math.floor(total / (maxLabels - 1)), 2);
+    return idx === 0 || idx === total - 1 || idx % step === 0;
+  };
 
   return (
-    <div className="space-y-6 animate-in fade-in duration-300 pb-16 max-w-5xl mx-auto">
+    <div className="space-y-6 animate-in fade-in duration-300 pb-16 max-w-5xl mx-auto w-full min-w-0 max-w-full">
       {/* ELEMENTO 1: ENCABEZADO Y SINCRONIZACIÓN */}
       <div className="space-y-4">
         {/* Top Header Bar with Back Button */}
@@ -622,7 +692,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
       </div>
 
       {/* ELEMENTO 4: GRÁFICA PRINCIPAL DE INGRESOS (Estilo Hotmart - Curva Suave de Área) */}
-      <div className="bg-white rounded-3xl p-5 sm:p-7 shadow-sm border border-[#cfc2d2]/40 space-y-4">
+      <div className="bg-white rounded-3xl p-4 sm:p-7 shadow-sm border border-[#cfc2d2]/40 space-y-4 w-full min-w-0 max-w-full overflow-hidden">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-[#efecfd]">
           <div>
             <h2 className="text-base sm:text-lg font-black text-[#1a1a26] flex items-center gap-2">
@@ -635,7 +705,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
           </div>
 
           {activePoint && (
-            <div className="bg-[#2e004e] text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 animate-in fade-in duration-150">
+            <div className="bg-[#2e004e] text-white px-3.5 py-1.5 rounded-xl text-xs font-bold shadow-sm flex items-center gap-2 animate-in fade-in duration-150 self-start sm:self-auto">
               <span className="text-[#f9b900] font-black">{formatMoney(activePoint.amount)}</span>
               <span className="text-white/60">•</span>
               <span className="text-white/90">{activePoint.dayLabel}</span>
@@ -644,168 +714,185 @@ export const VentasView: React.FC<VentasViewProps> = ({
           )}
         </div>
 
-        {/* SVG Container with Horizontal Scroll support on small mobile screens */}
-        <div className="overflow-x-auto pb-2">
-          <div style={{ minWidth: `${Math.max(chartData.entries.length * 36, 600)}px` }} className="relative">
-            {svgGeometry && (
-              <svg
-                viewBox={`0 0 ${svgGeometry.width} ${svgGeometry.height}`}
-                className="w-full h-64 sm:h-72 select-none"
-              >
-                <defs>
-                  <linearGradient id="hotmartAreaGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#2e004e" stopOpacity="0.22" />
-                    <stop offset="85%" stopColor="#2e004e" stopOpacity="0.02" />
-                    <stop offset="100%" stopColor="#2e004e" stopOpacity="0.0" />
-                  </linearGradient>
+        {/* Responsive Chart Container: Zero horizontal scroll, adapts 100% to card width */}
+        <div ref={chartContainerRef} className="w-full max-w-full overflow-hidden relative">
+          {svgGeometry && (
+            <svg
+              viewBox={`0 0 ${svgGeometry.width} ${svgGeometry.height}`}
+              className="w-full block select-none"
+              style={{ height: `${svgGeometry.height}px` }}
+            >
+              <defs>
+                <linearGradient id="hotmartAreaGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#2e004e" stopOpacity="0.22" />
+                  <stop offset="85%" stopColor="#2e004e" stopOpacity="0.02" />
+                  <stop offset="100%" stopColor="#2e004e" stopOpacity="0.0" />
+                </linearGradient>
 
-                  <linearGradient id="hotmartLineGradient" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" stopColor="#2e004e" />
-                    <stop offset="100%" stopColor="#4b0878" />
-                  </linearGradient>
-                </defs>
+                <linearGradient id="hotmartLineGradient" x1="0" y1="0" x2="1" y2="0">
+                  <stop offset="0%" stopColor="#2e004e" />
+                  <stop offset="100%" stopColor="#4b0878" />
+                </linearGradient>
+              </defs>
 
-                {/* Horizontal Grid lines at 100%, 50%, and 0% (baseline) */}
-                {[1, 0.5, 0].map((ratio) => {
-                  const y = svgGeometry.padTop + svgGeometry.innerH * (1 - ratio);
-                  const labelAmt = Math.round(svgGeometry.maxAmt * ratio);
-                  return (
-                    <g key={ratio}>
-                      <line
-                        x1={svgGeometry.padLeft}
-                        y1={y}
-                        x2={svgGeometry.width - svgGeometry.padRight}
-                        y2={y}
-                        stroke="#e5dfeb"
-                        strokeDasharray={ratio > 0 ? '4 4' : undefined}
-                        strokeWidth={ratio === 0 ? 1.5 : 1}
-                      />
-                      <text
-                        x={svgGeometry.padLeft - 10}
-                        y={y + 3}
-                        textAnchor="end"
-                        fontSize="10"
-                        fontWeight="700"
-                        fill="#7e7482"
-                      >
-                        ${labelAmt.toLocaleString()}
-                      </text>
-                    </g>
-                  );
-                })}
-
-                {/* Filled Area beneath curve */}
-                <path
-                  d={svgGeometry.areaPath}
-                  fill="url(#hotmartAreaGradient)"
-                />
-
-                {/* Smooth Curve Line */}
-                <path
-                  d={svgGeometry.linePath}
-                  fill="none"
-                  stroke="url(#hotmartLineGradient)"
-                  strokeWidth="3"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-
-                {/* Interactive Points and X Axis Labels */}
-                {svgGeometry.points.map((pt, idx) => {
-                  const isHovered = hoveredPointIndex === idx;
-                  const hasAmount = pt.amount > 0;
-
-                  return (
-                    <g
-                      key={pt.dayKey}
-                      className="cursor-pointer group"
-                      onMouseEnter={() => setHoveredPointIndex(idx)}
-                      onMouseLeave={() => setHoveredPointIndex(null)}
-                      onClick={() => setHoveredPointIndex(idx)}
+              {/* Horizontal Grid lines at 100%, 50%, and 0% (baseline) */}
+              {[1, 0.5, 0].map((ratio) => {
+                const y = svgGeometry.padTop + svgGeometry.innerH * (1 - ratio);
+                const labelAmt = Math.round(svgGeometry.scaleMax * ratio);
+                return (
+                  <g key={ratio}>
+                    <line
+                      x1={svgGeometry.padLeft}
+                      y1={y}
+                      x2={svgGeometry.width - svgGeometry.padRight}
+                      y2={y}
+                      stroke="#e5dfeb"
+                      strokeDasharray={ratio > 0 ? '4 4' : undefined}
+                      strokeWidth={ratio === 0 ? 1.5 : 1}
+                    />
+                    <text
+                      x={svgGeometry.padLeft - 8}
+                      y={y + 3.5}
+                      textAnchor="end"
+                      fontSize={svgGeometry.width < 450 ? '9' : '10'}
+                      fontWeight="700"
+                      fill="#7e7482"
                     >
-                      {/* Vertical Guideline on Hover */}
-                      {isHovered && (
-                        <line
-                          x1={pt.x}
-                          y1={svgGeometry.padTop}
-                          x2={pt.x}
-                          y2={svgGeometry.baselineY}
-                          stroke="#2e004e"
-                          strokeDasharray="3 3"
-                          strokeWidth="1.5"
-                          opacity="0.6"
-                        />
-                      )}
+                      ${labelAmt.toLocaleString()}
+                    </text>
+                  </g>
+                );
+              })}
 
-                      {/* Transparent Hover Target Area */}
-                      <rect
-                        x={pt.x - 14}
-                        y={svgGeometry.padTop}
-                        width={28}
-                        height={svgGeometry.innerH + 30}
-                        fill="transparent"
+              {/* Filled Area beneath curve */}
+              <path
+                d={svgGeometry.areaPath}
+                fill="url(#hotmartAreaGradient)"
+              />
+
+              {/* Smooth Curve Line */}
+              <path
+                d={svgGeometry.linePath}
+                fill="none"
+                stroke="url(#hotmartLineGradient)"
+                strokeWidth="3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+
+              {/* Interactive Points and X Axis Labels */}
+              {svgGeometry.points.map((pt, idx) => {
+                const isHovered = hoveredPointIndex === idx;
+                const isActive = activePoint?.dayKey === pt.dayKey;
+                const hasAmount = pt.amount > 0;
+                const hitWidth = Math.max(svgGeometry.innerW / svgGeometry.points.length, 24);
+
+                return (
+                  <g
+                    key={pt.dayKey}
+                    className="cursor-pointer group"
+                    onMouseEnter={() => setHoveredPointIndex(idx)}
+                    onMouseLeave={() => setHoveredPointIndex(null)}
+                    onClick={() => setHoveredPointIndex(idx)}
+                    onTouchStart={() => setHoveredPointIndex(idx)}
+                    onPointerDown={() => setHoveredPointIndex(idx)}
+                  >
+                    {/* Vertical Guideline on Hover / Active */}
+                    {(isHovered || (isActive && hasAmount)) && (
+                      <line
+                        x1={pt.x}
+                        y1={svgGeometry.padTop}
+                        x2={pt.x}
+                        y2={svgGeometry.baselineY}
+                        stroke="#2e004e"
+                        strokeDasharray="3 3"
+                        strokeWidth="1.5"
+                        opacity={isHovered ? 0.8 : 0.4}
                       />
+                    )}
 
-                      {/* Point Outer Ring */}
+                    {/* Transparent Hit Area for Touch & Mouse */}
+                    <rect
+                      x={pt.x - hitWidth / 2}
+                      y={svgGeometry.padTop}
+                      width={hitWidth}
+                      height={svgGeometry.innerH + 35}
+                      fill="transparent"
+                    />
+
+                    {/* Outer Glow Halo on Hover / Active */}
+                    {(isHovered || isActive) && (
                       <circle
                         cx={pt.x}
                         cy={pt.y}
-                        r={isHovered ? 7 : hasAmount ? 5 : pt.isToday ? 4 : 3}
-                        fill={isHovered ? '#f9b900' : hasAmount ? (pt.isToday ? '#f9b900' : '#2e004e') : '#cfc2d2'}
-                        stroke="#ffffff"
-                        strokeWidth={isHovered ? 2.5 : 1.5}
-                        className="transition-all duration-150"
+                        r={hasAmount ? 9 : 6}
+                        fill="#f9b900"
+                        opacity={0.3}
                       />
+                    )}
 
-                      {/* Floating Amount Tag on point if > 0 or hovered */}
-                      {(hasAmount || isHovered) && (
-                        <g>
-                          <rect
-                            x={pt.x - 30}
-                            y={Math.max(pt.y - 24, 6)}
-                            width={60}
-                            height={18}
-                            rx={6}
-                            fill="#2e004e"
-                            className="shadow-sm"
-                          />
-                          <text
-                            x={pt.x}
-                            y={Math.max(pt.y - 12, 18)}
-                            textAnchor="middle"
-                            fontSize="9"
-                            fontWeight="900"
-                            fill="#f9b900"
-                          >
-                            ${pt.amount.toLocaleString()}
-                          </text>
-                        </g>
-                      )}
+                    {/* Point Circle */}
+                    <circle
+                      cx={pt.x}
+                      cy={pt.y}
+                      r={isHovered ? 6.5 : hasAmount ? (pt.isToday ? 5 : 4) : pt.isToday ? 3.5 : 2.5}
+                      fill={isHovered ? '#f9b900' : hasAmount ? (pt.isToday ? '#f9b900' : '#2e004e') : '#cfc2d2'}
+                      stroke="#ffffff"
+                      strokeWidth={isHovered ? 2.5 : 1.5}
+                      className="transition-all duration-150"
+                    />
 
-                      {/* X Axis Date Label */}
+                    {/* Floating Amount Tag on point */}
+                    {((selectedPeriod === '7_dias' && (hasAmount || isHovered)) ||
+                      (selectedPeriod !== '7_dias' && (isHovered || (isActive && hasAmount) || (svgGeometry.maxEntry?.dayKey === pt.dayKey && hasAmount)))) && (
+                      <g>
+                        <rect
+                          x={Math.max(svgGeometry.padLeft + 4, Math.min(pt.x - 30, svgGeometry.width - svgGeometry.padRight - 64))}
+                          y={pt.y < svgGeometry.padTop + 24 ? pt.y + 10 : pt.y - 23}
+                          width={60}
+                          height={18}
+                          rx={6}
+                          fill="#2e004e"
+                          className="shadow-sm"
+                        />
+                        <text
+                          x={Math.max(svgGeometry.padLeft + 34, Math.min(pt.x, svgGeometry.width - svgGeometry.padRight - 34))}
+                          y={pt.y < svgGeometry.padTop + 24 ? pt.y + 22 : pt.y - 11}
+                          textAnchor="middle"
+                          fontSize="9.5"
+                          fontWeight="900"
+                          fill="#f9b900"
+                        >
+                          ${pt.amount.toLocaleString()}
+                        </text>
+                      </g>
+                    )}
+
+                    {/* X Axis Date Label */}
+                    {shouldShowDateLabel(idx, svgGeometry.points.length, svgGeometry.width) && (
                       <text
                         x={pt.x}
-                        y={svgGeometry.baselineY + 20}
+                        y={svgGeometry.baselineY + 18}
                         textAnchor="middle"
-                        fontSize={pt.isToday ? '10' : '9'}
-                        fontWeight={pt.isToday || isHovered ? '900' : '600'}
-                        fill={pt.isToday ? '#2e004e' : isHovered ? '#1a1a26' : '#7e7482'}
+                        fontSize={pt.isToday ? '10' : svgGeometry.width < 450 ? '8.5' : '9.5'}
+                        fontWeight={pt.isToday || isHovered || isActive ? '900' : '600'}
+                        fill={pt.isToday ? '#2e004e' : isHovered || isActive ? '#1a1a26' : '#7e7482'}
                       >
                         {pt.isToday ? 'Hoy' : pt.dayLabel}
                       </text>
-                    </g>
-                  );
-                })}
-              </svg>
-            )}
+                    )}
+                  </g>
+                );
+              })}
+            </svg>
+          )}
 
-            {/* Empty state overlay if zero total in the whole period */}
-            {totalRevenue === 0 && (
-              <div className="text-center py-2 text-xs text-[#7e7482] font-medium">
-                Sin ingresos registrados en este período. Al pulsar «Comenzar servicio» en Agenda, la curva reflejará inmediatamente el importe.
-              </div>
-            )}
-          </div>
+          {/* Empty state overlay if zero total in the whole period */}
+          {totalRevenue === 0 && (
+            <div className="text-center py-2 text-xs text-[#7e7482] font-medium">
+              Sin ingresos registrados en este período. Al pulsar «Comenzar servicio» en Agenda, la curva reflejará inmediatamente el importe.
+            </div>
+          )}
         </div>
       </div>
 
