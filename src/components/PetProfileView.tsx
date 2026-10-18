@@ -5,7 +5,7 @@ import { WhatsAppShareModal } from './WhatsAppShareModal';
 import { EditPetModal } from './EditPetModal';
 import { PhotoUploadModal } from './PhotoUploadModal';
 import { formatDateSpanish, parseSpanishOrIsoDate } from '../utils/storage';
-import { downloadPetReportPdf, cleanPetDisplayName } from '../utils/pdfGenerator';
+import { downloadPetReportPdf, cleanPetDisplayName, formatDeliveryDate } from '../utils/pdfGenerator';
 
 interface PetProfileViewProps {
   pet: Pet;
@@ -385,7 +385,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       nextRecommendedWeeks: weeksToReturn,
       returnIntervalType: selectedInterval === 'custom' ? 'custom' : (String(selectedInterval) as any),
       customReturnWeeks: selectedInterval === 'custom' ? weeksToReturn : undefined,
-      nextRecommendedVisitDate: calculatedNextDateStr
+      nextRecommendedVisitDate: calculatedNextDateStr,
+      serviceResponsible: pet.serviceResponsible || undefined,
+      deliveryDate: pet.deliveryDate || undefined,
+      deliveryTime: pet.deliveryTime || undefined
     };
 
     const updatedHistory = [newVisit, ...(pet.visitHistory || [])];
@@ -570,7 +573,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
         beforeUrl: beforePhoto || pet.lastVisit?.photos?.beforeUrl,
         afterUrl: afterPhoto || pet.lastVisit?.photos?.afterUrl
       },
-      nextRecommendedWeeks: returnWeeks
+      nextRecommendedWeeks: returnWeeks,
+      serviceResponsible: pet.serviceResponsible || pet.lastVisit?.serviceResponsible,
+      deliveryDate: pet.deliveryDate || pet.lastVisit?.deliveryDate,
+      deliveryTime: pet.deliveryTime || pet.lastVisit?.deliveryTime
     };
 
     try {
@@ -1264,6 +1270,40 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 <strong>{pet.tutor.name}</strong>.
               </p>
 
+              {/* Delivery info preview badge */}
+              <div className="bg-white/80 rounded-xl p-2.5 text-xs border border-[#cfc2d2]/30 space-y-1 text-[#1a1a26]">
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-[#7e7482]">Fecha de entrega:</span>
+                  <span className="font-bold text-[#2e004e]">
+                    {formatDeliveryDate(pet.deliveryDate || pet.lastVisit?.deliveryDate) || 'Hoy'}
+                  </span>
+                </div>
+                {(pet.deliveryTime || pet.lastVisit?.deliveryTime) && (
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="text-[#7e7482]">Hora de entrega:</span>
+                    <span className="font-bold text-[#2e004e]">
+                      {pet.deliveryTime || pet.lastVisit?.deliveryTime}
+                    </span>
+                  </div>
+                )}
+                {(pet.serviceResponsible || pet.lastVisit?.serviceResponsible) && (
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="text-[#7e7482]">A cargo del servicio:</span>
+                    <span className="font-bold text-[#2e004e]">
+                      {pet.serviceResponsible || pet.lastVisit?.serviceResponsible}
+                    </span>
+                  </div>
+                )}
+                {salonConfig?.phone && (
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="text-[#7e7482]">Tel. negocio:</span>
+                    <span className="font-bold text-[#4b0878]">
+                      {salonConfig.phonePrefix ? salonConfig.phonePrefix + ' ' : ''}{salonConfig.phone}
+                    </span>
+                  </div>
+                )}
+              </div>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
                 {/* Acción Visible: Descargar ficha en PDF (Requirement #5) */}
                 <button
@@ -1329,7 +1369,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             beforeUrl: beforePhoto,
             afterUrl: afterPhoto
           },
-          nextRecommendedWeeks: selectedInterval === 'custom' ? customWeeks : selectedInterval
+          nextRecommendedWeeks: selectedInterval === 'custom' ? customWeeks : selectedInterval,
+          serviceResponsible: pet.serviceResponsible || pet.lastVisit?.serviceResponsible,
+          deliveryDate: pet.deliveryDate || pet.lastVisit?.deliveryDate,
+          deliveryTime: pet.deliveryTime || pet.lastVisit?.deliveryTime
         }}
         salonConfig={salonConfig}
         salonName={salonConfig?.name}

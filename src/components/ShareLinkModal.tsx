@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { SalonConfig } from '../types';
 import { slugify, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
+import { HOTLINK_IMAGES } from '../mockData';
 
 interface ShareLinkModalProps {
   isOpen: boolean;
@@ -81,8 +82,15 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
           {/* Salon Identification Card */}
           <div className="bg-white rounded-2xl p-4 border border-[#cfc2d2]/30 shadow-xs flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-[#f5f2ff] flex items-center justify-center text-[#4b0878]">
-                <span className="material-symbols-outlined text-xl">storefront</span>
+              <div className="w-12 h-12 rounded-xl bg-[#f5f2ff] p-1 flex items-center justify-center shrink-0 border border-[#cfc2d2]/30 overflow-hidden shadow-xs">
+                <img
+                  src={salonConfig?.logoUrl || HOTLINK_IMAGES.logo}
+                  alt={salonName}
+                  className="w-full h-full object-contain rounded-lg"
+                  onError={(e) => {
+                    (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
+                  }}
+                />
               </div>
               <div>
                 <h4 className="font-bold text-sm text-[#1a1a26]">{salonName}</h4>

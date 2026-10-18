@@ -748,8 +748,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               className="bg-gradient-to-r from-white to-[#f5f2ff] hover:to-[#efeafd] rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 hover:border-[#2e004e] transition-all cursor-pointer flex items-center justify-between gap-4 group active:scale-[0.99]"
             >
               <div className="flex items-center gap-4 min-w-0">
-                <div className="w-14 h-14 rounded-2xl bg-[#2e004e] text-[#f9b900] group-hover:bg-[#4b0878] flex items-center justify-center font-bold shrink-0 transition-colors shadow-xs">
-                  <span className="material-symbols-outlined text-2xl">public</span>
+                <div className="w-14 h-14 rounded-2xl bg-white p-1.5 flex items-center justify-center shrink-0 border border-[#cfc2d2]/40 overflow-hidden shadow-xs">
+                  <img
+                    src={logoUrl || config.logoUrl || HOTLINK_IMAGES.logo}
+                    alt={businessName}
+                    className="w-full h-full object-contain rounded-xl"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
+                    }}
+                  />
                 </div>
                 <div>
                   <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors">
@@ -855,6 +862,45 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   <p className="text-sm text-[#e3e0f1] mt-1.5 leading-relaxed">
                     Personaliza el enlace que compartirás con tus clientes en Instagram, TikTok, WhatsApp y Facebook.
                   </p>
+                </div>
+
+                {/* Presentación & Vista previa con el logo del negocio */}
+                <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/20 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3.5 min-w-0">
+                    <div className="w-16 h-16 rounded-2xl bg-white p-2 flex items-center justify-center shadow-md shrink-0 overflow-hidden border border-white/30">
+                      <img
+                        src={logoUrl || config.logoUrl || HOTLINK_IMAGES.logo}
+                        alt={businessName}
+                        className="w-full h-full object-contain rounded-xl"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
+                        }}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-black text-lg text-white truncate">{businessName}</h3>
+                        <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-[#1a1a26] text-[10px] font-black uppercase">
+                          Online 24/7
+                        </span>
+                      </div>
+                      <p className="text-xs text-[#e3e0f1] truncate mt-0.5">
+                        {address || 'Agenda online para reservas'}
+                      </p>
+                      <p className="text-[11px] text-[#ffdea1] font-semibold mt-1">
+                        Logo visible para tus clientes al compartir tu agenda
+                      </p>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={onPreviewClientFlow}
+                    className="px-3.5 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
+                    <span>Probar vista previa</span>
+                  </button>
                 </div>
 
                 {/* Custom Slug Editor Box (Responsive & Mobile-optimized) */}

@@ -30,11 +30,51 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
     pet.careRecommendations || pet.lastVisit?.careRecommendations || ''
   );
 
+  // New Delivery Fields (Persona a cargo, Fecha de entrega, Hora de entrega en 12h AM/PM)
+  const [serviceResponsible, setServiceResponsible] = useState<string>(
+    pet.serviceResponsible || pet.lastVisit?.serviceResponsible || ''
+  );
+
+  const [deliveryDate, setDeliveryDate] = useState<string>(() => {
+    if (pet.deliveryDate) return pet.deliveryDate;
+    if (pet.lastVisit?.deliveryDate) return pet.lastVisit.deliveryDate;
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    return `${y}-${m}-${d}`;
+  });
+
+  // Helper to parse 12-hour format string e.g. "4:30 PM" or "09:15 AM"
+  const parse12HourTime = (raw?: string) => {
+    if (!raw) return { hour: '4', min: '30', period: 'PM' as const };
+    const match = raw.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+    if (match) {
+      return {
+        hour: String(parseInt(match[1], 10)),
+        min: match[2],
+        period: match[3].toUpperCase() as 'AM' | 'PM'
+      };
+    }
+    return { hour: '4', min: '30', period: 'PM' as const };
+  };
+
+  const initialTime = parse12HourTime(pet.deliveryTime || pet.lastVisit?.deliveryTime || '4:30 PM');
+  const [deliveryHour, setDeliveryHour] = useState<string>(initialTime.hour);
+  const [deliveryMinute, setDeliveryMinute] = useState<string>(initialTime.min);
+  const [deliveryPeriod, setDeliveryPeriod] = useState<'AM' | 'PM'>(initialTime.period);
+
+  const formattedDeliveryTime = `${deliveryHour}:${deliveryMinute} ${deliveryPeriod}`;
+
   if (!isOpen) return null;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanRawPhone = tutorPhone.replace(/[^0-9]/g, '');
+    const cleanResponsible = serviceResponsible.trim() || undefined;
+    const cleanDeliveryDate = deliveryDate ? deliveryDate : undefined;
+    const cleanDeliveryTime = formattedDeliveryTime;
+
     onSavePet({
       ...pet,
       name,
@@ -52,7 +92,21 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
       habitualMood,
       healthAllergies,
       handlingObservations,
-      careRecommendations: careRecommendations.trim() || undefined
+      careRecommendations: careRecommendations.trim() || undefined,
+      serviceResponsible: cleanResponsible,
+      deliveryDate: cleanDeliveryDate,
+      deliveryTime: cleanDeliveryTime,
+      ...(pet.lastVisit
+        ? {
+            lastVisit: {
+              ...pet.lastVisit,
+              careRecommendations: careRecommendations.trim() || pet.lastVisit.careRecommendations,
+              serviceResponsible: cleanResponsible || pet.lastVisit.serviceResponsible,
+              deliveryDate: cleanDeliveryDate || pet.lastVisit.deliveryDate,
+              deliveryTime: cleanDeliveryTime || pet.lastVisit.deliveryTime
+            }
+          }
+        : {})
     });
     onClose();
   };
@@ -280,6 +334,143 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
               className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
               placeholder="Recomendaciones personalizadas del groomer para el tutor (manto, cepillado, productos)..."
             />
+          </div>
+
+          {/* 1. Persona a cargo del servicio */}
+          <div className="bg-white p-3.5 rounded-2xl border border-[#cfc2d2]/30 space-y-2">
+            <label className="text-xs font-bold text-[#2e004e] uppercase tracking-wider flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-sm text-[#4b0878]">badge</span>
+              <span>Persona a cargo del servicio</span>
+            </label>
+            <p className="text-[11px] text-[#7e7482]">
+              Persona que atendió a la mascota durante la sesión (propietario o estilista/trabajador).
+            </p>
+            <input
+              type="text"
+              value={serviceResponsible}
+              onChange={(e) => setServiceResponsible(e.target.value)}
+              placeholder="ej. Carlos Morales"
+              className="w-full bg-[#fcf8ff] text-[#1a1a26] text-sm px-3.5 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
+            />
+          </div>
+
+          {/* 2 & 3. Fecha y Hora de Entrega (Formato 12 horas AM / PM) */}
+          <div className="bg-white p-3.5 rounded-2xl border border-[#cfc2d2]/30 space-y-3">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-[#2e004e] uppercase tracking-wider flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-sm text-[#7a5900]">event_available</span>
+                <span>Entrega de la Mascota</span>
+              </h4>
+              <span className="text-[10px] text-[#7e7482]">Visible en Ficha de Entrega</span>
+            </div>
+
+            {/* Fecha de entrega */}
+            <div>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">
+                Fecha de entrega
+              </label>
+              <input
+                type="date"
+                value={deliveryDate}
+                onChange={(e) => setDeliveryDate(e.target.value)}
+                className="w-full bg-[#fcf8ff] text-[#1a1a26] text-sm px-3.5 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
+              />
+            </div>
+
+            {/* Hora de entrega */}
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-xs font-bold text-[#4c4451]">
+                  Hora de entrega
+                </label>
+                <span className="text-xs font-black text-[#2e004e] bg-[#f5f2ff] px-2.5 py-0.5 rounded-lg border border-[#cfc2d2]/40">
+                  {formattedDeliveryTime}
+                </span>
+              </div>
+
+              {/* Selector de Hora, Minutos y AM/PM */}
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">Hora</label>
+                  <select
+                    value={deliveryHour}
+                    onChange={(e) => setDeliveryHour(e.target.value)}
+                    className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs font-bold px-2 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
+                  >
+                    {['1', '2', '3', '4', '5', '6', '7', '8', '9', '10', '11', '12'].map((h) => (
+                      <option key={h} value={h}>{h}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">Minutos</label>
+                  <select
+                    value={deliveryMinute}
+                    onChange={(e) => setDeliveryMinute(e.target.value)}
+                    className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs font-bold px-2 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
+                  >
+                    {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
+                      <option key={m} value={m}>{m}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">Período</label>
+                  <div className="grid grid-cols-2 gap-1">
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryPeriod('AM')}
+                      className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        deliveryPeriod === 'AM'
+                          ? 'bg-[#2e004e] text-white shadow-xs'
+                          : 'bg-[#fcf8ff] text-[#7e7482] border border-[#cfc2d2]/40'
+                      }`}
+                    >
+                      AM
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setDeliveryPeriod('PM')}
+                      className={`py-2 rounded-xl text-xs font-black transition-all cursor-pointer ${
+                        deliveryPeriod === 'PM'
+                          ? 'bg-[#2e004e] text-[#f9b900] shadow-xs'
+                          : 'bg-[#fcf8ff] text-[#7e7482] border border-[#cfc2d2]/40'
+                      }`}
+                    >
+                      PM
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Botones rápidos de hora recomendada */}
+              <div className="flex flex-wrap items-center gap-1.5 pt-2">
+                <span className="text-[10px] text-[#7e7482] font-semibold mr-1">Rápido:</span>
+                {['9:00 AM', '9:15 AM', '3:00 PM', '4:30 PM', '7:00 PM'].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => {
+                      const match = preset.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/i);
+                      if (match) {
+                        setDeliveryHour(match[1]);
+                        setDeliveryMinute(match[2]);
+                        setDeliveryPeriod(match[3].toUpperCase() as 'AM' | 'PM');
+                      }
+                    }}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all cursor-pointer ${
+                      formattedDeliveryTime === preset
+                        ? 'bg-[#f9b900] text-[#261900] shadow-xs font-black'
+                        : 'bg-[#f5f2ff] text-[#4b0878] hover:bg-[#efecfd]'
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="pt-2 flex gap-2">

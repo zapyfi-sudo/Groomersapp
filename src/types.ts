@@ -29,6 +29,9 @@ export interface Visit {
   returnIntervalType?: '4' | '6' | '8' | 'custom';
   customReturnWeeks?: number | string;
   nextRecommendedVisitDate?: string;
+  serviceResponsible?: string;
+  deliveryDate?: string;
+  deliveryTime?: string;
 }
 
 export interface Pet {
@@ -60,6 +63,9 @@ export interface Pet {
   returnIntervalType?: '4' | '6' | '8' | 'custom';
   customReturnWeeks?: number | string;
   nextRecommendedVisitDate?: string;
+  serviceResponsible?: string;
+  deliveryDate?: string;
+  deliveryTime?: string;
 }
 
 export interface UserAccount {

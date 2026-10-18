@@ -13,6 +13,34 @@ export function cleanPetDisplayName(name?: string): string {
 }
 
 /**
+ * Formats delivery date nicely in Spanish (e.g. "17 de octubre de 2026")
+ */
+export function formatDeliveryDate(dateStr?: string): string {
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  const trimmed = dateStr.trim();
+  if (!trimmed) return '';
+  if (trimmed.includes(' de ')) return trimmed;
+  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (match) {
+    const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0);
+    return d.toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  }
+  const d = new Date(trimmed);
+  if (!isNaN(d.getTime())) {
+    return d.toLocaleDateString('es-ES', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric'
+    });
+  }
+  return trimmed;
+}
+
+/**
  * Converts an image URL (dataURL or HTTP URL) into a base64 data URL
  * safely handling CORS and loading errors.
  */
@@ -101,61 +129,95 @@ export async function generatePetReportPdf({
 
   // Header Background Banner
   doc.setFillColor(...purplePrimary);
-  doc.rect(0, 0, pageWidth, 38, 'F');
+  doc.rect(0, 0, pageWidth, 42, 'F');
 
   // Gold accent strip
   doc.setFillColor(...goldAccent);
-  doc.rect(0, 38, pageWidth, 2.5, 'F');
+  doc.rect(0, 42, pageWidth, 2.5, 'F');
 
   // Salon Logo or Icon
   let headerTextLeft = margin;
   if (logoData) {
     try {
-      doc.addImage(logoData, 'JPEG', margin, 5, 26, 26);
-      headerTextLeft = margin + 30;
+      doc.addImage(logoData, 'JPEG', margin, 6, 28, 28);
+      headerTextLeft = margin + 32;
     } catch {
       headerTextLeft = margin;
     }
   }
 
-  // Salon Name & Contact
+  // Salon Name & Contact (Lado izquierdo)
   const salonName = salonConfig?.name || 'Peluquería Canina Luna';
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(17);
-  doc.text(salonName, headerTextLeft, 14);
+  doc.setFontSize(15);
+  doc.text(salonName, headerTextLeft, 13);
 
   doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8.5);
+  doc.setFontSize(8);
   doc.setTextColor(230, 225, 240);
 
-  const contactLines: string[] = [];
-  if (salonConfig?.address) contactLines.push(salonConfig.address);
-  if (salonConfig?.city || salonConfig?.country) {
-    contactLines.push([salonConfig.city, salonConfig.country].filter(Boolean).join(', '));
-  }
-  if (salonConfig?.phone) {
-    contactLines.push(`Tel / WhatsApp: ${salonConfig.phonePrefix ? salonConfig.phonePrefix + ' ' : ''}${salonConfig.phone}`);
-  }
-
-  const contactText = contactLines.slice(0, 2).join(' • ');
-  if (contactText) {
-    doc.text(contactText, headerTextLeft, 21);
+  let leftY = 18.5;
+  // Dirección del negocio
+  const addressText = [salonConfig?.address, salonConfig?.city].filter(Boolean).join(', ');
+  if (addressText) {
+    doc.text(addressText, headerTextLeft, leftY);
+    leftY += 4.5;
   }
 
-  // Document Badge on top right
+  // 1. Número de contacto del negocio (Ajustes -> Configuración del negocio)
+  const businessPhone = salonConfig?.phone
+    ? `${salonConfig.phonePrefix ? salonConfig.phonePrefix + ' ' : ''}${salonConfig.phone}`
+    : '';
+  if (businessPhone) {
+    doc.text(`Tel. negocio: ${businessPhone}`, headerTextLeft, leftY);
+    leftY += 4.5;
+  }
+
+  // 2. Persona a cargo del servicio
+  const serviceResponsible = visit.serviceResponsible || pet.serviceResponsible;
+  if (serviceResponsible) {
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(255, 222, 161);
+    doc.text(`A cargo del servicio: ${serviceResponsible}`, headerTextLeft, leftY);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(230, 225, 240);
+  }
+
+  // Document Badge on top right (Lado derecho)
+  // 1. Fecha de entrega
+  // 2. Hora de entrega (Formato 12 horas AM / PM)
+  const rawDeliveryDate = visit.deliveryDate || pet.deliveryDate;
+  const displayDeliveryDate = formatDeliveryDate(rawDeliveryDate) || visit.date || 'Hoy';
+  const displayDeliveryTime = visit.deliveryTime || pet.deliveryTime;
+
+  const headerBadgeW = 62;
+  const headerBadgeH = displayDeliveryTime ? 26 : 20;
+  const headerBadgeX = pageWidth - margin - headerBadgeW;
+  const headerBadgeY = 8;
+  const headerBadgeCenterX = headerBadgeX + headerBadgeW / 2;
+
   doc.setFillColor(255, 255, 255);
-  doc.roundedRect(pageWidth - margin - 52, 9, 52, 20, 2, 2, 'F');
+  doc.roundedRect(headerBadgeX, headerBadgeY, headerBadgeW, headerBadgeH, 2.5, 2.5, 'F');
+
   doc.setTextColor(...purplePrimary);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9);
-  doc.text('FICHA DE ENTREGA', pageWidth - margin - 26, 17, { align: 'center' });
+  doc.setFontSize(9.5);
+  doc.text('FICHA DE ENTREGA', headerBadgeCenterX, headerBadgeY + 6.5, { align: 'center' });
+
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...textMuted);
-  doc.text(`Fecha: ${visit.date || 'Hoy'}`, pageWidth - margin - 26, 24, { align: 'center' });
+  doc.text(`Fecha: ${displayDeliveryDate}`, headerBadgeCenterX, headerBadgeY + 12.5, { align: 'center' });
 
-  let curY = 46;
+  if (displayDeliveryTime) {
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(...purpleMedium);
+    doc.text(`Hora de entrega: ${displayDeliveryTime}`, headerBadgeCenterX, headerBadgeY + 18.5, { align: 'center' });
+  }
+
+  let curY = 49;
 
   // Section 1: Pet & Tutor Info Card (with Session Mood Traffic Light)
   const petDisplayName = cleanPetDisplayName(pet.name);

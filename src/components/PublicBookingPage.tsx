@@ -4,6 +4,7 @@ import { fetchBusinessProfile, createPublicAppointment, subscribeToBusinessRevie
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
 import { getSyncActiveData } from '../utils/saasDb';
+import { HOTLINK_IMAGES } from '../mockData';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -470,9 +471,12 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         <header className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 mb-6 flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
           <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-[#f5f2ff] p-2 flex items-center justify-center overflow-hidden border border-[#cfc2d2]/30 shrink-0 shadow-xs">
             <img
-              src={config.logoUrl || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=200&auto=format&fit=crop&q=80'}
+              src={config.logoUrl || HOTLINK_IMAGES.logo}
               alt={config.name}
               className="w-full h-full object-contain"
+              onError={(e) => {
+                (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
+              }}
             />
           </div>
 

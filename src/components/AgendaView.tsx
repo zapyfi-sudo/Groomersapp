@@ -377,23 +377,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           </section>
 
           {/* Action Buttons Row */}
-          <div className="flex gap-2.5">
+          <div>
             <button
               type="button"
               onClick={() => setIsNewAptModalOpen(true)}
-              className="flex-1 py-3.5 px-4 rounded-2xl bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-sm shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
+              className="w-full py-3.5 px-4 rounded-2xl bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-sm shadow-sm flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
             >
               <span className="material-symbols-outlined text-xl font-bold">add_circle</span>
               <span>{t.newAppointment}</span>
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setIsShareModalOpen(true)}
-              className="flex-1 py-3.5 px-4 rounded-2xl bg-[#efebfa] hover:bg-[#e4ddfa] text-[#2e004e] font-extrabold text-sm shadow-xs flex items-center justify-center gap-2 active:scale-95 transition-all cursor-pointer"
-            >
-              <span className="material-symbols-outlined text-lg">share</span>
-              <span>{t.shareLink}</span>
             </button>
           </div>
 

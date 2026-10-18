@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Pet, Visit, SalonConfig } from '../types';
-import { downloadPetReportPdf, generatePetReportPdf, cleanPetDisplayName } from '../utils/pdfGenerator';
+import { downloadPetReportPdf, generatePetReportPdf, cleanPetDisplayName, formatDeliveryDate } from '../utils/pdfGenerator';
 import { formatDateSpanish } from '../utils/storage';
+import { HOTLINK_IMAGES } from '../mockData';
 
 interface WhatsAppShareModalProps {
   isOpen: boolean;
@@ -24,6 +25,15 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   const currency = visit.currency || salonConfig?.currency || 'ARS';
   const returnWeeks = visit.nextRecommendedWeeks || pet.recommendedIntervalWeeks || 4;
 
+  // Delivery data
+  const rawDeliveryDate = visit.deliveryDate || pet.deliveryDate;
+  const deliveryDateFormatted = formatDeliveryDate(rawDeliveryDate) || visit.date || 'Hoy';
+  const deliveryTimeFormatted = visit.deliveryTime || pet.deliveryTime;
+  const serviceResponsible = visit.serviceResponsible || pet.serviceResponsible;
+  const salonBusinessPhone = salonConfig?.phone
+    ? `${salonConfig.phonePrefix ? salonConfig.phonePrefix + ' ' : ''}${salonConfig.phone}`
+    : '';
+
   // Calculate return date
   const returnDate = new Date();
   returnDate.setDate(returnDate.getDate() + Number(returnWeeks) * 7);
@@ -36,7 +46,13 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
 
   const petDisplayName = cleanPetDisplayName(pet.name);
 
-  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${petDisplayName} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: $${Number(visit.price || 0).toLocaleString()} ${currency}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}${recLine}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${petDisplayName} en nosotros! Te esperamos pronto.`;
+  const deliveryLines = [
+    `• Fecha de entrega: ${deliveryDateFormatted}`,
+    deliveryTimeFormatted ? `• Hora de entrega: ${deliveryTimeFormatted}` : '',
+    serviceResponsible ? `• A cargo del servicio: ${serviceResponsible}` : ''
+  ].filter(Boolean).join('\n');
+
+  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${petDisplayName} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: $${Number(visit.price || 0).toLocaleString()} ${currency}\n${deliveryLines}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}${recLine}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${petDisplayName} en nosotros! Te esperamos pronto.`;
 
   const [messageText, setMessageText] = useState<string>(initialMsg);
   const [copied, setCopied] = useState(false);
@@ -47,7 +63,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   // Sync initial message if visit recommendations change
   useEffect(() => {
     setMessageText(initialMsg);
-  }, [visit.careRecommendations, pet.careRecommendations, visit.serviceName, visit.price]);
+  }, [visit.careRecommendations, pet.careRecommendations, visit.serviceName, visit.price, visit.deliveryDate, pet.deliveryDate, visit.deliveryTime, pet.deliveryTime, visit.serviceResponsible, pet.serviceResponsible]);
 
   if (!isOpen) return null;
 
@@ -132,6 +148,48 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         <div className="p-4 sm:p-5 overflow-y-auto space-y-4">
           {/* Card Preview with Pet Data and Photos */}
           <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#cfc2d2]/30 space-y-3">
+            {/* Encabezado Oficial Ficha de Entrega */}
+            <div className="bg-gradient-to-r from-[#2e004e] to-[#4b0878] text-white p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+              {/* Lado izquierdo: Logo, Nombre, Dirección, Teléfono Comercial del Negocio, Responsable */}
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-12 h-12 rounded-xl bg-white p-1 flex items-center justify-center shrink-0 overflow-hidden shadow-xs">
+                  <img
+                    src={salonConfig?.logoUrl || HOTLINK_IMAGES.logo}
+                    alt={currentSalonName}
+                    className="w-full h-full object-contain rounded"
+                    onError={(e) => {
+                      (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
+                    }}
+                  />
+                </div>
+                <div className="min-w-0 text-xs">
+                  <h5 className="font-extrabold text-white text-sm truncate">{currentSalonName}</h5>
+                  {salonConfig?.address && (
+                    <p className="text-[11px] text-[#e3e0f1] truncate">{salonConfig.address}</p>
+                  )}
+                  {salonBusinessPhone && (
+                    <p className="text-[11px] text-[#e3e0f1] font-semibold">
+                      Tel. negocio: <strong className="text-white">{salonBusinessPhone}</strong>
+                    </p>
+                  )}
+                  {serviceResponsible && (
+                    <p className="text-[11px] text-[#ffdea1] font-bold">
+                      A cargo del servicio: <span className="text-[#f9b900]">{serviceResponsible}</span>
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              {/* Lado derecho: Ficha de entrega, Fecha de entrega y Hora de entrega */}
+              <div className="bg-white text-[#2e004e] px-3.5 py-2 rounded-xl text-center self-start sm:self-auto shrink-0 shadow-sm border border-white/20">
+                <span className="text-[10px] font-black uppercase tracking-wider block text-[#2e004e]">Ficha de entrega</span>
+                <span className="text-[11px] font-bold text-[#7e7482] block">Fecha: {deliveryDateFormatted}</span>
+                {deliveryTimeFormatted && (
+                  <span className="text-[11px] font-black text-[#2e004e] block">Hora de entrega: {deliveryTimeFormatted}</span>
+                )}
+              </div>
+            </div>
+
             <div className="flex items-center justify-between border-b border-[#efecfd] pb-2.5">
               <div className="flex items-center gap-2.5">
                 <span className="text-2xl">🐶</span>
@@ -198,6 +256,22 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                   ${Number(visit.price || 0).toLocaleString()} {currency}
                 </span>
               </div>
+              <div className="flex justify-between">
+                <span className="text-[#4c4451]">Fecha de entrega:</span>
+                <span className="font-bold text-[#2e004e]">{deliveryDateFormatted}</span>
+              </div>
+              {deliveryTimeFormatted && (
+                <div className="flex justify-between">
+                  <span className="text-[#4c4451]">Hora de entrega:</span>
+                  <span className="font-bold text-[#2e004e]">{deliveryTimeFormatted}</span>
+                </div>
+              )}
+              {serviceResponsible && (
+                <div className="flex justify-between">
+                  <span className="text-[#4c4451]">A cargo del servicio:</span>
+                  <span className="font-bold text-[#2e004e]">{serviceResponsible}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-[#4c4451]">Próximo turno sugerido:</span>
                 <span className="font-bold text-[#7a5900]">
