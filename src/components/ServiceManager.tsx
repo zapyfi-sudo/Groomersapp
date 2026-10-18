@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { SalonService, ServicePricingBySize } from '../types';
 import { compressImage } from '../utils/storage';
+import { formatPrice } from '../utils/priceUtils';
+import { PriceInput } from './PriceInput';
 
 interface ServiceManagerProps {
   services: SalonService[];
@@ -16,17 +18,20 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
 
+  const isZeroDecimal = currency === 'CLP' || currency === 'COP' || currency === 'ARS';
+  const defaultBasePrice = isZeroDecimal ? 25000 : 25;
+
   // Form fields
   const [name, setName] = useState('');
   const [desc, setDesc] = useState('');
   const [durationMin, setDurationMin] = useState(60);
   const [pricingType, setPricingType] = useState<'unico' | 'tamano'>('unico');
-  const [singlePrice, setSinglePrice] = useState(25000);
+  const [singlePrice, setSinglePrice] = useState(defaultBasePrice);
   const [sizePrices, setSizePrices] = useState<ServicePricingBySize>({
-    pequeno: 20000,
-    mediano: 25000,
-    grande: 30000,
-    extraGrande: 35000
+    pequeno: isZeroDecimal ? 20000 : 20,
+    mediano: isZeroDecimal ? 25000 : 25,
+    grande: isZeroDecimal ? 30000 : 30,
+    extraGrande: isZeroDecimal ? 35000 : 35
   });
   const [imageUrl, setImageUrl] = useState('');
   const [active, setActive] = useState(true);
@@ -37,12 +42,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     setDesc('');
     setDurationMin(60);
     setPricingType('unico');
-    setSinglePrice(25000);
+    setSinglePrice(defaultBasePrice);
     setSizePrices({
-      pequeno: 20000,
-      mediano: 25000,
-      grande: 30000,
-      extraGrande: 35000
+      pequeno: isZeroDecimal ? 20000 : 20,
+      mediano: isZeroDecimal ? 25000 : 25,
+      grande: isZeroDecimal ? 30000 : 30,
+      extraGrande: isZeroDecimal ? 35000 : 35
     });
     setImageUrl('');
     setActive(true);
@@ -62,15 +67,16 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     setDesc(svc.desc || '');
     setDurationMin(svc.durationMin || 60);
     setPricingType(svc.pricingType || 'unico');
-    setSinglePrice(svc.price || 25000);
+    setSinglePrice(svc.price ?? defaultBasePrice);
     if (svc.priceBySize) {
       setSizePrices(svc.priceBySize);
     } else {
+      const base = svc.price || defaultBasePrice;
       setSizePrices({
-        pequeno: Math.round(svc.price * 0.8),
-        mediano: svc.price,
-        grande: Math.round(svc.price * 1.2),
-        extraGrande: Math.round(svc.price * 1.4)
+        pequeno: Math.round(base * 0.8 * 100) / 100,
+        mediano: base,
+        grande: Math.round(base * 1.2 * 100) / 100,
+        extraGrande: Math.round(base * 1.4 * 100) / 100
       });
     }
     setImageUrl(svc.imageUrl || '');
@@ -304,12 +310,10 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 <label className="text-[11px] font-bold text-[#7e7482] block mb-1">
                   Precio ({currency})
                 </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
+                <PriceInput
                   value={singlePrice}
-                  onChange={(e) => setSinglePrice(Number(e.target.value))}
+                  onChange={setSinglePrice}
+                  currency={currency}
                   className="w-full bg-white text-xs font-bold px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                 />
               </div>
@@ -319,12 +323,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
                     Pequeño (&lt;8kg)
                   </label>
-                  <input
-                    type="number"
+                  <PriceInput
                     value={sizePrices.pequeno}
-                    onChange={(e) =>
-                      setSizePrices({ ...sizePrices, pequeno: Number(e.target.value) })
+                    onChange={(val) =>
+                      setSizePrices({ ...sizePrices, pequeno: val })
                     }
+                    currency={currency}
                     className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
@@ -332,12 +336,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
                     Mediano (8-18kg)
                   </label>
-                  <input
-                    type="number"
+                  <PriceInput
                     value={sizePrices.mediano}
-                    onChange={(e) =>
-                      setSizePrices({ ...sizePrices, mediano: Number(e.target.value) })
+                    onChange={(val) =>
+                      setSizePrices({ ...sizePrices, mediano: val })
                     }
+                    currency={currency}
                     className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
@@ -345,12 +349,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
                     Grande (18-30kg)
                   </label>
-                  <input
-                    type="number"
+                  <PriceInput
                     value={sizePrices.grande}
-                    onChange={(e) =>
-                      setSizePrices({ ...sizePrices, grande: Number(e.target.value) })
+                    onChange={(val) =>
+                      setSizePrices({ ...sizePrices, grande: val })
                     }
+                    currency={currency}
                     className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
@@ -358,12 +362,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
                     Gigante (&gt;30kg)
                   </label>
-                  <input
-                    type="number"
+                  <PriceInput
                     value={sizePrices.extraGrande}
-                    onChange={(e) =>
-                      setSizePrices({ ...sizePrices, extraGrande: Number(e.target.value) })
+                    onChange={(val) =>
+                      setSizePrices({ ...sizePrices, extraGrande: val })
                     }
+                    currency={currency}
                     className="w-full bg-white text-xs font-bold p-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
@@ -459,7 +463,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   <div className="flex items-center justify-between gap-1">
                     <h4 className="font-extrabold text-sm text-[#1a1a26] truncate">{svc.name}</h4>
                     <span className="font-black text-xs text-[#2e004e] shrink-0">
-                      ${svc.price.toLocaleString()} {currency}
+                      {formatPrice(svc.price, currency, { includeCode: true })}
                     </span>
                   </div>
 

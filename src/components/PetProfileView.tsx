@@ -6,6 +6,8 @@ import { EditPetModal } from './EditPetModal';
 import { PhotoUploadModal } from './PhotoUploadModal';
 import { formatDateSpanish, parseSpanishOrIsoDate } from '../utils/storage';
 import { downloadPetReportPdf, cleanPetDisplayName, formatDeliveryDate } from '../utils/pdfGenerator';
+import { formatPrice } from '../utils/priceUtils';
+import { PriceInput } from './PriceInput';
 
 interface PetProfileViewProps {
   pet: Pet;
@@ -813,10 +815,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </div>
               <div className="text-right">
                 <span className="text-lg text-[#2e004e] font-bold">
-                  ${Number(pet.lastVisit.price || 0).toLocaleString()}{' '}
-                  <span className="text-xs font-semibold text-[#4c4451]">
-                    {pet.lastVisit.currency || currency}
-                  </span>
+                  {formatPrice(pet.lastVisit.price, pet.lastVisit.currency || currency, { includeCode: true })}
                 </span>
                 <p className="text-xs text-[#7a5900] font-semibold">Pagado</p>
               </div>
@@ -905,7 +904,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                   >
                     {salonServices.map((s) => (
                       <option key={s.id} value={s.id}>
-                        {s.name} (${Number(s.price).toLocaleString()} {currency})
+                        {s.name} ({formatPrice(s.price, currency, { includeCode: true })})
                       </option>
                     ))}
                   </select>
@@ -970,7 +969,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                               <span className="truncate">{svc.name}</span>
                             </div>
                             <span className={isChecked ? 'text-[#f9b900]' : 'text-[#7e7482] font-semibold'}>
-                              +${Number(svc.price).toLocaleString()}
+                              +{formatPrice(svc.price, currency)}
                             </span>
                           </label>
                         );
@@ -997,7 +996,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                         </span>
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-[#2e004e]">
-                            ${Number(s.price).toLocaleString()} {currency}
+                            {formatPrice(s.price, currency, { includeCode: true })}
                           </span>
                           {idx > 0 && (
                             <button
@@ -1026,10 +1025,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 <span className="text-[11px] text-[#7e7482]">Editable si aplicas descuentos</span>
               </div>
               <div className="relative">
-                <input
-                  type="number"
+                <PriceInput
                   value={customPrice}
-                  onChange={(e) => setCustomPrice(Number(e.target.value))}
+                  onChange={setCustomPrice}
+                  currency={currency}
                   className="w-full bg-[#f5f2ff] text-[#1a1a26] text-lg font-bold px-3.5 py-2.5 rounded-xl outline-none border border-[#cfc2d2]/20"
                 />
                 <span className="absolute right-3.5 top-3.5 text-xs text-[#7e7482] font-bold font-mono">

@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { Appointment, SalonConfig, Pet, BehaviorMood } from '../types';
 import { formatDateSpanish, compressImage } from '../utils/storage';
+import { formatPrice } from '../utils/priceUtils';
 
 interface NewAppointmentViewProps {
   onClose: () => void;

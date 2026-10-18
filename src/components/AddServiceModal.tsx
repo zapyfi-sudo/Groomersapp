@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { SalonService } from '../types';
+import { PriceInput } from './PriceInput';
 
 interface AddServiceModalProps {
   isOpen: boolean;
@@ -14,9 +15,12 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
   currency,
   onAddService
 }) => {
+  const isZeroDecimal = currency === 'CLP' || currency === 'COP' || currency === 'ARS';
+  const defaultPrice = isZeroDecimal ? 20000 : 25;
+
   const [name, setName] = useState('');
   const [durationMin, setDurationMin] = useState(60);
-  const [price, setPrice] = useState(20000);
+  const [price, setPrice] = useState(defaultPrice);
   const [badge, setBadge] = useState('');
   const [icon, setIcon] = useState('content_cut');
 
@@ -91,15 +95,14 @@ export const AddServiceModal: React.FC<AddServiceModalProps> = ({
                 Precio ({currency})
               </label>
               <div className="relative flex items-center">
-                <input
-                  type="number"
-                  step="500"
+                <PriceInput
                   value={price}
-                  onChange={(e) => setPrice(Number(e.target.value))}
+                  onChange={setPrice}
+                  currency={currency}
                   className="w-full bg-white text-[#1a1a26] text-sm px-3.5 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878] font-bold"
                   required
                 />
-                <span className="absolute right-3 text-xs text-[#7e7482]">$</span>
+                <span className="absolute right-3 text-xs text-[#7e7482]">{currency}</span>
               </div>
             </div>
           </div>

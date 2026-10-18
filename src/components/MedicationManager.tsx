@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { MedicationProduct } from '../types';
 import { compressImage } from '../utils/storage';
+import { formatPrice } from '../utils/priceUtils';
+import { PriceInput } from './PriceInput';
 
 interface MedicationManagerProps {
   enabled: boolean;
@@ -20,17 +22,20 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
-  // Form states - strictly Name, Purpose, Price, Photo
+  const isZeroDecimal = currency === 'CLP' || currency === 'COP' || currency === 'ARS';
+  const defaultMedPrice = isZeroDecimal ? 3500 : 5;
+
+  // Form fields - strictly Name, Purpose, Price, Photo
   const [name, setName] = useState('');
   const [purpose, setPurpose] = useState('');
-  const [price, setPrice] = useState(3500);
+  const [price, setPrice] = useState(defaultMedPrice);
   const [photoUrl, setPhotoUrl] = useState('');
   const [active, setActive] = useState(true);
 
   const resetForm = () => {
     setName('');
     setPurpose('');
-    setPrice(3500);
+    setPrice(defaultMedPrice);
     setPhotoUrl('');
     setActive(true);
     setEditingId(null);
@@ -46,7 +51,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
     setEditingId(p.id);
     setName(p.name);
     setPurpose(p.purpose || '');
-    setPrice(p.price || 3500);
+    setPrice(p.price ?? defaultMedPrice);
     setPhotoUrl(p.photoUrl || '');
     setActive(p.active ?? true);
     setIsFormOpen(true);
@@ -215,13 +220,11 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
                     Precio adicional ({currency}) *
                   </label>
-                  <input
-                    type="number"
-                    min="0"
-                    step="50"
-                    required
+                  <PriceInput
                     value={price}
-                    onChange={(e) => setPrice(Number(e.target.value))}
+                    onChange={setPrice}
+                    currency={currency}
+                    required
                     className="w-full bg-white text-xs font-bold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
@@ -327,7 +330,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                       <div className="flex items-center justify-between gap-1">
                         <h4 className="font-extrabold text-xs text-[#1a1a26] truncate">{p.name}</h4>
                         <span className="font-black text-xs text-[#2e004e] shrink-0">
-                          ${p.price.toLocaleString()} {currency}
+                          {formatPrice(p.price, currency, { includeCode: true })}
                         </span>
                       </div>
                       <p className="text-[11px] text-[#7e7482] line-clamp-2 mt-0.5 leading-tight">
