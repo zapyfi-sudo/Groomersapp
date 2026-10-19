@@ -3,7 +3,7 @@
     "businessId": "biz_main",
     "config": {
       "id": "biz_main",
-      "name": "Peluquería Canina Luna VIP",
+      "name": "Groomer Aida",
       "logoUrl": "https://lh3.googleusercontent.com/aida-public/AB6AXuCgNdH5Hthy5Yi-fglcEX4qyy4-SEvVu9xcHv_WWfZ35c1EUd2VD0DrJuG9wAleNXW-bzR2vh9V6ET_9gV6vu71YIH_hwdXOlNwRfXAQXgczXcJRVANXrqeuHKQ6kIkUDcUVxkayIIwkFSpKTw3x6CPOgteHP_fPA2WtPu2oCARFuOhxuBRVEstwPARhMQCimBPElnj6HqxDzP1F4o_YHz7YSdnDgJk6MmbEmeSZykQaKqRT0Pv5BvxHQ",
       "country": "Argentina",
       "city": "Buenos Aires",
@@ -18,7 +18,7 @@
       "workingDays": "Lunes a Sábado",
       "openTime": "08:00 hs",
       "closeTime": "19:30 hs",
-      "currency": "ARS",
+      "currency": "USD",
       "simultaneousCapacity": 2,
       "staffMembers": [
         {
@@ -48,7 +48,7 @@
       "afternoonOpen": "14:00",
       "afternoonClose": "19:30",
       "hasDoubleShift": true,
-      "bookingSlug": "peluquerialuna",
+      "bookingSlug": "aida",
       "activeDays": [
         "L",
         "M",
@@ -318,31 +318,51 @@
       {
         "id": "#PET-3012",
         "name": "Rocky",
-        "breed": "Bulldog Francés",
-        "age": "4 años",
+        "breed": "Labrador Retriever",
+        "age": "2 años",
         "gender": "Macho",
-        "weightKg": 13,
+        "weightKg": 28,
         "isVip": true,
         "photoUrl": "https://images.unsplash.com/photo-1583511655857-d19b40a7a54e?w=400&auto=format&fit=crop&q=80",
         "tutor": {
-          "name": "Carlos Morales",
-          "phone": "0991234567",
-          "rawPhone": "0991234567"
+          "name": "Roberto Gómez",
+          "phone": "+54 9 11 9988-7766",
+          "rawPhone": "+54 9 11 9988-7766"
         },
         "habitualMood": "dificil",
         "healthAllergies": "Pliegues faciales con tendencia a hongos.",
         "handlingObservations": "Respiración braquicéfala; no exponer a calor excesivo.",
         "lastVisit": {
-          "id": "v_1791304681397",
-          "date": "6 de octubre",
-          "serviceName": "Baño completo",
-          "price": 35,
+          "id": "v_1792370969418",
+          "date": "19 de Octubre 2026",
+          "serviceName": "Baño + corte",
+          "price": 30,
           "currency": "USD",
           "mood": "tranquilo",
           "paid": false,
           "photos": {}
         },
         "visitHistory": [
+          {
+            "id": "v_1792370969418",
+            "date": "19 de Octubre 2026",
+            "serviceName": "Baño + corte",
+            "price": 30,
+            "currency": "USD",
+            "mood": "tranquilo",
+            "paid": false,
+            "photos": {}
+          },
+          {
+            "id": "v_1792370969221",
+            "date": "19 de Octubre 2026",
+            "serviceName": "Baño + corte",
+            "price": 30,
+            "currency": "USD",
+            "mood": "tranquilo",
+            "paid": false,
+            "photos": {}
+          },
           {
             "id": "v_1791304681397",
             "date": "6 de octubre",
@@ -365,7 +385,8 @@
             "nextRecommendedWeeks": 3
           }
         ],
-        "recommendedIntervalWeeks": 3
+        "recommendedIntervalWeeks": 3,
+        "size": "grande"
       },
       {
         "id": "#PET-8888",
@@ -440,6 +461,48 @@
       }
     ],
     "appointments": [
+      {
+        "id": "apt-test-rocky-duplicate-1792370969231",
+        "petId": "#PET-ROCKY",
+        "petName": "Rocky",
+        "breed": "Labrador Retriever",
+        "size": "grande",
+        "tutorName": "Roberto Gómez",
+        "tutorPhone": "+54 9 11 9988-7766",
+        "serviceName": "Baño + corte",
+        "time": "11:00 AM",
+        "date": "19 de Octubre 2026",
+        "status": "confirmada",
+        "statusLabel": "CONFIRMADA",
+        "groomer": "Carlos Morales",
+        "price": 30,
+        "currency": "USD",
+        "paymentStatus": "por_cobrar",
+        "paymentStatusLabel": "Por cobrar",
+        "subStatus": "Cita en agenda",
+        "subStatusType": "tag"
+      },
+      {
+        "id": "apt-test-rocky-1792370969142",
+        "petId": "#PET-ROCKY",
+        "petName": "Rocky",
+        "breed": "Labrador Retriever",
+        "size": "grande",
+        "tutorName": "Roberto Gómez",
+        "tutorPhone": "+54 9 11 9988-7766",
+        "serviceName": "Baño + corte",
+        "time": "11:00 AM",
+        "date": "19 de Octubre 2026",
+        "status": "confirmada",
+        "statusLabel": "CONFIRMADA",
+        "groomer": "Carlos Morales",
+        "price": 30,
+        "currency": "USD",
+        "paymentStatus": "por_cobrar",
+        "paymentStatusLabel": "Por cobrar",
+        "subStatus": "Cita en agenda",
+        "subStatusType": "tag"
+      },
       {
         "id": "apt_test_wa_1791304681261",
         "petId": "#PET-9911",
@@ -551,7 +614,8 @@
       }
     ],
     "bookedRetentions": [],
-    "updatedAt": "2026-10-12T04:41:03.552Z"
+    "sales": [],
+    "updatedAt": "2026-10-19T02:55:19.595Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

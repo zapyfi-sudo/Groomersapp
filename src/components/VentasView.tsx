@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SaleRecord, SalonConfig, Appointment } from '../types';
 import { parseSpanishOrIsoDate } from '../utils/storage';
+import { formatPrice } from '../utils/priceUtils';
 
 interface VentasViewProps {
   sales: SaleRecord[];
@@ -189,13 +190,13 @@ export const VentasView: React.FC<VentasViewProps> = ({
   // Top services limit: 5 or 10
   const [topServicesLimit, setTopServicesLimit] = useState<5 | 10>(5);
 
-  // Business currency: strictly from salon configuration (defaults to MXN if in Mexico)
-  const businessCurrency = salonConfig.currency || (salonConfig.country?.toLowerCase().includes('m') ? 'MXN' : 'MXN');
+  // Business currency: strictly from salon configuration
+  const businessCurrency = salonConfig.currency || 'USD';
 
-  // Format money helper
-  const formatMoney = (amount: number, curr?: string) => {
+  // Format money helper respecting business currency
+  const formatMoney = (amount: number, curr?: string, options?: { includeCode?: boolean; forceDecimals?: boolean }) => {
     const c = curr || businessCurrency;
-    return `$${Number(amount || 0).toLocaleString()} ${c}`;
+    return formatPrice(amount, c, options !== undefined ? options : { includeCode: true });
   };
 
   const todayDate = useMemo(() => new Date(), []);
@@ -758,7 +759,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                       fontWeight="700"
                       fill="#7e7482"
                     >
-                      ${labelAmt.toLocaleString()}
+                      {formatPrice(labelAmt, businessCurrency, { includeCode: false })}
                     </text>
                   </g>
                 );
@@ -863,7 +864,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                           fontWeight="900"
                           fill="#f9b900"
                         >
-                          ${pt.amount.toLocaleString()}
+                          {formatPrice(pt.amount, businessCurrency, { includeCode: false })}
                         </text>
                       </g>
                     )}

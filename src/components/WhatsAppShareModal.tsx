@@ -3,6 +3,7 @@ import { Pet, Visit, SalonConfig } from '../types';
 import { downloadPetReportPdf, generatePetReportPdf, cleanPetDisplayName, formatDeliveryDate } from '../utils/pdfGenerator';
 import { formatDateSpanish } from '../utils/storage';
 import { HOTLINK_IMAGES } from '../mockData';
+import { formatPrice } from '../utils/priceUtils';
 
 interface WhatsAppShareModalProps {
   isOpen: boolean;
@@ -52,7 +53,8 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
     serviceResponsible ? `• A cargo del servicio: ${serviceResponsible}` : ''
   ].filter(Boolean).join('\n');
 
-  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${petDisplayName} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: $${Number(visit.price || 0).toLocaleString()} ${currency}\n${deliveryLines}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}${recLine}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${petDisplayName} en nosotros! Te esperamos pronto.`;
+  const formattedVisitPrice = formatPrice(visit.price, currency, { includeCode: true });
+  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${petDisplayName} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: ${formattedVisitPrice}\n${deliveryLines}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}${recLine}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${petDisplayName} en nosotros! Te esperamos pronto.`;
 
   const [messageText, setMessageText] = useState<string>(initialMsg);
   const [copied, setCopied] = useState(false);
@@ -253,7 +255,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
               <div className="flex justify-between">
                 <span className="text-[#4c4451]">Importe total:</span>
                 <span className="font-bold text-[#2e004e]">
-                  ${Number(visit.price || 0).toLocaleString()} {currency}
+                  {formatPrice(visit.price, currency, { includeCode: true })}
                 </span>
               </div>
               <div className="flex justify-between">

@@ -23,6 +23,7 @@ import { syncBusinessToServer, updateReviewRequestStateInFirestore } from '../ut
 import { persistActiveConfig } from '../utils/saasDb';
 import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
 import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
+import { formatPrice } from '../utils/priceUtils';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -728,7 +729,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                     </h2>
                     {todayRevenue > 0 && (
                       <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-black text-[11px] shadow-xs">
-                        {config.currency || '$'} {todayRevenue.toLocaleString('es-AR')} Hoy
+                        {formatPrice(todayRevenue, config.currency, { includeCode: true })} Hoy
                       </span>
                     )}
                   </div>
@@ -2064,7 +2065,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                             <td className="p-3 text-[#4c4451]">{apt.tutorName}</td>
                             <td className="p-3 text-[#7e7482] font-mono">{apt.tutorPhone || '-'}</td>
                             <td className="p-3 font-semibold text-[#2e004e]">{apt.serviceName}</td>
-                            <td className="p-3 font-bold text-[#1a1a26]">${apt.price.toLocaleString()} {apt.currency || selectedCurrency}</td>
+                            <td className="p-3 font-bold text-[#1a1a26]">{formatPrice(apt.price, apt.currency || selectedCurrency, { includeCode: true })}</td>
                             <td className="p-3 text-[#7e7482]">{apt.date}</td>
                           </tr>
                         ))}

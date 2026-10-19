@@ -5,6 +5,7 @@ import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
 import { getSyncActiveData } from '../utils/saasDb';
 import { HOTLINK_IMAGES } from '../mockData';
+import { formatPrice } from '../utils/priceUtils';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -586,7 +587,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               <div className="flex justify-between items-center pt-1">
                 <span className="text-[#7e7482] font-bold text-sm">Valor estimado:</span>
                 <strong className="text-[#2e004e] text-base font-black">
-                  ${createdAppointment.price.toLocaleString()} {createdAppointment.currency}
+                  {formatPrice(createdAppointment.price, createdAppointment.currency, { includeCode: true })}
                 </strong>
               </div>
             </div>
@@ -675,7 +676,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                           <div className="flex items-center justify-between gap-2">
                             <h4 className="font-bold text-xs text-[#1a1a26]">{svc.name}</h4>
                             <span className="font-black text-xs text-[#2e004e] shrink-0">
-                              ${svc.price.toLocaleString()} {currency}
+                              {formatPrice(svc.price, currency, { includeCode: true })}
                             </span>
                           </div>
                           {svc.desc && (
@@ -722,7 +723,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                         >
                           <span className="block truncate">{labels[sz]}</span>
                           <span className="block text-[11px] font-black mt-0.5">
-                            ${priceForSize.toLocaleString()} {currency}
+                            {formatPrice(priceForSize, currency, { includeCode: true })}
                           </span>
                         </button>
                       );
@@ -1122,7 +1123,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                           </div>
                         </div>
                         <span className="text-xs font-black text-[#2e004e] shrink-0">
-                          +${med.price.toLocaleString()} {currency}
+                          +{formatPrice(med.price, currency, { includeCode: true })}
                         </span>
                       </label>
                     );
@@ -1136,7 +1137,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               <div>
                 <span className="text-xs text-[#7e7482] block font-semibold">Total a abonar en el salón:</span>
                 <strong className="text-2xl font-black text-[#2e004e]">
-                  ${totalPrice.toLocaleString()} {currency}
+                  {formatPrice(totalPrice, currency, { includeCode: true })}
                 </strong>
               </div>
 

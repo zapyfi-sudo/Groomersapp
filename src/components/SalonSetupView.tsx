@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { SalonConfig, SalonService } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AddServiceModal } from './AddServiceModal';
+import { formatPrice } from '../utils/priceUtils';
 
 interface SalonSetupViewProps {
   config: SalonConfig;
@@ -384,7 +385,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                 <div className="flex items-center gap-3 shrink-0">
                   <div className="text-right">
                     <span className="text-base text-[#2e004e] font-extrabold tracking-tight">
-                      ${svc.price.toLocaleString()}
+                      {formatPrice(svc.price, currency)}
                     </span>
                     <span className="text-[10px] text-[#4c4451] uppercase tracking-wider block">
                       {currency}

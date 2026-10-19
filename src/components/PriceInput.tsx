@@ -99,6 +99,11 @@ export const PriceInput: React.FC<PriceInputProps> = ({
       placeholder={placeholder}
       value={displayValue}
       onChange={handleChange}
+      onFocus={(e) => {
+        if (displayValue === '0' || displayValue === '0.00' || displayValue === '0,00') {
+          e.target.select();
+        }
+      }}
       onBlur={handleBlur}
       className={className}
     />

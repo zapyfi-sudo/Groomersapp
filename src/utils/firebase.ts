@@ -487,16 +487,15 @@ export async function addAppointmentToFirestore(
   try {
     const now = new Date().toISOString();
 
-    // 1. Save appointment in subcollection
+    // 1. Prepare appointment payload
     const aptRef = doc(db, 'businesses', businessId, 'appointments', appointment.id);
     const appointmentPayload = {
       ...appointment,
       businessId,
       createdAt: appointment.createdAt || now
     };
-    await setDoc(aptRef, cleanFirestoreData(appointmentPayload));
 
-    // 2. Create or update Pet in subcollection
+    // 2. Prepare Pet payload
     const petId = appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
     const incomingPhoto = appointment.beforePhotoUrl || petData?.photoUrl || undefined;
     const newPet: Pet = {
@@ -535,34 +534,75 @@ export async function addAppointmentToFirestore(
     };
 
     const petRef = doc(db, 'businesses', businessId, 'pets', petId);
-    await setDoc(petRef, cleanFirestoreData(newPet), { merge: true });
+
+    // 1 & 2: Save appointment & pet in parallel for fast execution
+    await Promise.all([
+      setDoc(aptRef, cleanFirestoreData(appointmentPayload)),
+      setDoc(petRef, cleanFirestoreData(newPet), { merge: true })
+    ]);
 
     // 3. Atomically update parent business document with new appointment and new pet
-    const bizRef = doc(db, 'businesses', businessId);
-    const bizSnap = await getDoc(bizRef);
-    if (bizSnap.exists()) {
-      const existingApts = (bizSnap.data()?.appointments as Appointment[]) || [];
-      const updatedApts = [appointmentPayload, ...existingApts.filter((a) => a.id !== appointment.id)];
+    try {
+      const bizRef = doc(db, 'businesses', businessId);
+      const bizSnap = await getDoc(bizRef);
+      if (bizSnap.exists()) {
+        const existingApts = (bizSnap.data()?.appointments as Appointment[]) || [];
+        const updatedApts = [appointmentPayload, ...existingApts.filter((a) => a.id !== appointment.id)];
 
-      const existingPets = (bizSnap.data()?.pets as Pet[]) || [];
-      const updatedPets = [
-        newPet,
-        ...existingPets.filter(
-          (p) => p.name !== newPet.name || p.tutor.phone !== newPet.tutor.phone
-        )
-      ];
+        const existingPets = (bizSnap.data()?.pets as Pet[]) || [];
+        const updatedPets = [
+          newPet,
+          ...existingPets.filter(
+            (p) => p.name !== newPet.name || p.tutor.phone !== newPet.tutor.phone
+          )
+        ];
 
-      await setDoc(
-        bizRef,
-        cleanFirestoreData({ appointments: updatedApts, pets: updatedPets }),
-        { merge: true }
-      );
+        await setDoc(
+          bizRef,
+          cleanFirestoreData({ appointments: updatedApts, pets: updatedPets }),
+          { merge: true }
+        );
+      }
+    } catch (parentErr) {
+      console.warn('[FIRESTORE PARENT BIZ UPDATE WARN]', parentErr);
+      // Subcollections are already saved, non-fatal
     }
 
     console.log(`[FIRESTORE BOOKING SAVED] Appointment "${appointment.id}" for "${appointment.petName}" and Pet "${petId}" successfully stored.`);
     return true;
   } catch (err) {
     console.error('[FIRESTORE APPOINTMENT SAVE ERROR]', err);
+    return false;
+  }
+}
+
+/**
+ * Executes addAppointmentToFirestore with a safety timeout to guarantee that
+ * Firestore cloud synchronization never freezes or indefinitely blocks the user interface.
+ */
+export async function addAppointmentToFirestoreWithTimeout(
+  businessId: string,
+  appointment: Appointment,
+  petData?: Partial<Pet>,
+  timeoutMs: number = 3500
+): Promise<boolean> {
+  let timer: any;
+  const timeoutPromise = new Promise<boolean>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[FIRESTORE TIMEOUT] addAppointmentToFirestore exceeded ${timeoutMs}ms, resolving safety fallback.`);
+      resolve(false);
+    }, timeoutMs);
+  });
+
+  try {
+    const res = await Promise.race([
+      addAppointmentToFirestore(businessId, appointment, petData),
+      timeoutPromise
+    ]);
+    clearTimeout(timer);
+    return res;
+  } catch {
+    clearTimeout(timer);
     return false;
   }
 }

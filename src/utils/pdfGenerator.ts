@@ -1,5 +1,6 @@
 import { jsPDF } from 'jspdf';
 import { Pet, Visit, SalonConfig } from '../types';
+import { formatPrice } from './priceUtils';
 
 /**
  * Strips technical IDs, hashtags and database identifiers from display names
@@ -358,8 +359,8 @@ export async function generatePetReportPdf({
   doc.text(fullServiceText, margin + 25, curY + 15);
 
   // Price box
-  const currency = visit.currency || salonConfig?.currency || 'ARS';
-  const priceFormatted = `$${Number(visit.price || 0).toLocaleString()} ${currency}`;
+  const currency = visit.currency || salonConfig?.currency || 'USD';
+  const priceFormatted = formatPrice(visit.price, currency, { includeCode: true });
   doc.setFillColor(...purplePrimary);
   doc.roundedRect(pageWidth - margin - 50, curY + 10, 45, 14, 2, 2, 'F');
   doc.setTextColor(255, 255, 255);

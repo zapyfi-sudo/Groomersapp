@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Appointment, SalonConfig, Pet, BehaviorMood } from '../types';
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { formatPrice } from '../utils/priceUtils';
@@ -262,9 +262,17 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
 
   const [formError, setFormError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const isSubmittingRef = useRef(false);
+  const activeAptIdRef = useRef<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Prevent duplicate in-flight submissions if user clicks repeatedly
+    if (isSubmittingRef.current || isSubmitting) {
+      return;
+    }
+
     if (!activeService) {
       setFormError('Por favor selecciona un servicio.');
       return;
@@ -296,6 +304,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
 
     setFormError('');
     setIsSubmitting(true);
+    isSubmittingRef.current = true;
 
     const parsedWeight =
       parseFloat(weightKg) ||
@@ -306,7 +315,11 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       selectedExistingPetId ||
       `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const newAptId = `apt-${Date.now()}`;
+    // Keep stable appointment ID if retrying the same appointment to prevent duplicates
+    if (!activeAptIdRef.current) {
+      activeAptIdRef.current = `apt-${Date.now()}`;
+    }
+    const newAptId = activeAptIdRef.current;
 
     const newApt: Appointment = {
       id: newAptId,
@@ -363,14 +376,18 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       if (res === false) {
         setFormError('Hubo un error al guardar la cita en la base de datos persistente. Por favor, intenta de nuevo.');
         setIsSubmitting(false);
+        isSubmittingRef.current = false;
       } else {
+        activeAptIdRef.current = null;
         setIsSubmitting(false);
+        isSubmittingRef.current = false;
         onClose();
       }
     } catch (err) {
       console.error('Error al guardar cita interna:', err);
       setFormError('No se pudo guardar la cita de forma persistente. Intente nuevamente.');
       setIsSubmitting(false);
+      isSubmittingRef.current = false;
     }
   };
 
@@ -507,7 +524,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                           <div className="flex items-center justify-between gap-1">
                             <h5 className="font-bold text-xs text-[#1a1a26]">{svc.name}</h5>
                             <span className="font-black text-xs text-[#2e004e]">
-                              ${priceForSize.toLocaleString()} {currency}
+                              {formatPrice(priceForSize, currency, { includeCode: true })}
                             </span>
                           </div>
                           {svc.desc && (
@@ -553,7 +570,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                         >
                           <span className="block text-[11px]">{labels[sz]}</span>
                           <span className="block text-[10px] opacity-90 mt-0.5">
-                            ${priceForSize.toLocaleString()} {currency}
+                            {formatPrice(priceForSize, currency, { includeCode: true })}
                           </span>
                         </button>
                       );
@@ -998,7 +1015,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                           </div>
                         </div>
                         <span className="text-xs font-black text-[#2e004e] shrink-0">
-                          +${med.price.toLocaleString()} {currency}
+                          +{formatPrice(med.price, currency, { includeCode: true })}
                         </span>
                       </label>
                     );
@@ -1012,7 +1029,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               <div>
                 <span className="text-xs text-[#7e7482] block font-semibold">Total a abonar en el salón:</span>
                 <strong className="text-xl font-black text-[#2e004e]">
-                  ${totalPrice.toLocaleString()} {currency}
+                  {formatPrice(totalPrice, currency, { includeCode: true })}
                 </strong>
               </div>
 

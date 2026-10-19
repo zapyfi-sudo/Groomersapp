@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Appointment, Pet, SalonConfig } from '../types';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { formatPrice } from '../utils/priceUtils';
 
 interface InSalonViewProps {
   appointments: Appointment[];
@@ -351,7 +352,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                     <div className="text-right shrink-0">
                       <span className="text-[#7e7482] block text-[11px]">Importe:</span>
                       <strong className="text-[#2e004e] font-extrabold text-sm">
-                        ${apt.price.toLocaleString()} {apt.currency || salonConfig.currency}
+                        {formatPrice(apt.price, apt.currency || salonConfig.currency, { includeCode: true })}
                       </strong>
                     </div>
                   </div>

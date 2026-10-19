@@ -931,16 +931,33 @@ export default function App() {
     try {
       const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
 
-      // 1. Calculate updated appointments
-      const updatedAppointments = [newApt, ...appointments.filter((a) => a.id !== newApt.id)];
+      // 1. Duplicate Prevention: Check for existing appointment by ID or semantic match (same pet, tutor, date, time, service)
+      const existingApt = appointments.find(
+        (a) =>
+          a.id === newApt.id ||
+          (a.petName?.trim().toLowerCase() === newApt.petName?.trim().toLowerCase() &&
+            a.tutorName?.trim().toLowerCase() === newApt.tutorName?.trim().toLowerCase() &&
+            a.date === newApt.date &&
+            a.time === newApt.time &&
+            a.serviceName === newApt.serviceName)
+      );
+
+      const resolvedApt: Appointment = existingApt
+        ? { ...existingApt, ...newApt, id: existingApt.id }
+        : newApt;
+
+      const updatedAppointments = existingApt
+        ? appointments.map((a) => (a.id === existingApt.id ? resolvedApt : a))
+        : [resolvedApt, ...appointments.filter((a) => a.id !== resolvedApt.id)];
+
       setAppointments(updatedAppointments);
 
       // 2. Calculate updated pets
       const existing = pets.find(
         (p) =>
-          p.id === newApt.petId ||
-          (p.name.toLowerCase() === newApt.petName.toLowerCase() &&
-            p.tutor.name.toLowerCase() === newApt.tutorName.toLowerCase())
+          p.id === resolvedApt.petId ||
+          (p.name.toLowerCase() === resolvedApt.petName.toLowerCase() &&
+            p.tutor.name.toLowerCase() === resolvedApt.tutorName.toLowerCase())
       );
 
       const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || existing?.photoUrl;
@@ -1081,10 +1098,10 @@ export default function App() {
       });
 
       // 4. Save to Cloud Firestore & Server API
-      await createInternalAppointment(currentBizId, newApt, {
-        id: newApt.petId,
-        name: newApt.petName,
-        breed: newApt.breed,
+      await createInternalAppointment(currentBizId, resolvedApt, {
+        id: resolvedApt.petId,
+        name: resolvedApt.petName,
+        breed: resolvedApt.breed,
         size: parsedSize,
         weightKg: parsedWeight,
         gender: newPetData?.gender,
@@ -1094,9 +1111,9 @@ export default function App() {
         healthAllergies: newPetData?.healthAllergies,
         handlingObservations: newPetData?.handlingObservations,
         tutor: {
-          name: newApt.tutorName || '',
-          phone: newApt.tutorPhone || '',
-          rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
+          name: resolvedApt.tutorName || '',
+          phone: resolvedApt.tutorPhone || '',
+          rawPhone: (resolvedApt.tutorPhone || '').replace(/\D/g, '')
         }
       });
 

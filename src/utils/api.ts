@@ -4,6 +4,7 @@ import {
   getBusinessFromFirestore,
   saveBusinessToFirestore,
   addAppointmentToFirestore,
+  addAppointmentToFirestoreWithTimeout,
   updateAppointmentInFirestore,
   subscribeToBusinessAppointments,
   subscribeToBusinessPets,
@@ -329,6 +330,7 @@ export async function createPublicAppointment(
 /**
  * Submits an internal appointment created from Agenda to Cloud Firestore and Server API.
  * Preserves the exact status ('confirmada') and ensures persistence across reloads and multi-devices.
+ * Guarantees that the UI is not held hostage by slow secondary network tasks.
  */
 export async function createInternalAppointment(
   businessIdOrSlug: string,
@@ -337,29 +339,7 @@ export async function createInternalAppointment(
 ): Promise<boolean> {
   const targetBizId = businessIdOrSlug || 'biz_main';
 
-  // 1. Primary: Save to Cloud Firestore
-  const firestoreTask = addAppointmentToFirestore(targetBizId, appointment, petData)
-    .catch((err) => {
-      console.warn('[FIRESTORE INTERNAL APPOINTMENT ERROR]', err);
-      return false;
-    });
-
-  // 2. Secondary: Submit to Server API
-  const serverTask = fetch(`/api/businesses/${encodeURIComponent(targetBizId)}/appointments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      appointment,
-      petData
-    })
-  })
-    .then((res) => res.ok)
-    .catch((err) => {
-      console.warn('Could not post appointment to server API:', err);
-      return false;
-    });
-
-  // 3. Update local cache mirror
+  // 1. Immediately update local storage mirror for fast offline recovery
   if (typeof window !== 'undefined') {
     try {
       const key = `agendacan_public_apts_${targetBizId}`;
@@ -370,8 +350,43 @@ export async function createInternalAppointment(
     } catch {}
   }
 
-  const [firestoreSuccess, serverSuccess] = await Promise.all([firestoreTask, serverTask]);
-  return firestoreSuccess || serverSuccess;
+  // 2. Primary Authoritative Save: Server API with a 4.5s safety timeout
+  let serverSuccess = false;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+    const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
+
+    const res = await fetch(`${baseUrl}/api/businesses/${encodeURIComponent(targetBizId)}/appointments`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appointment,
+        petData
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+    serverSuccess = res.ok;
+  } catch (err) {
+    console.warn('[SERVER APPOINTMENT POST ERROR/TIMEOUT]', err);
+    serverSuccess = false;
+  }
+
+  // 3. Cloud Firestore synchronization:
+  // If Server API succeeded, trigger Firestore replication in background with safety timeout
+  // and resolve IMMEDIATELY so the user is never stuck in "Agendando turno..."!
+  if (serverSuccess) {
+    addAppointmentToFirestoreWithTimeout(targetBizId, appointment, petData, 3500)
+      .catch((err) => {
+        console.warn('[FIRESTORE BACKGROUND SYNC WARN]', err);
+      });
+    return true;
+  }
+
+  // 4. Fallback if server is offline/unavailable: await Firestore directly with safety timeout
+  const firestoreSuccess = await addAppointmentToFirestoreWithTimeout(targetBizId, appointment, petData, 4500);
+  return firestoreSuccess;
 }
 
 /**

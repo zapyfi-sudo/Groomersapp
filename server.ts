@@ -358,7 +358,20 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
   if (existingAptIdx >= 0) {
     apts[existingAptIdx] = { ...apts[existingAptIdx], ...appointment };
   } else {
-    apts.unshift(appointment);
+    // Robust duplicate prevention: check for same pet, tutor, date, time and service
+    const duplicateIdx = apts.findIndex((a: any) =>
+      a.petName?.trim().toLowerCase() === appointment.petName?.trim().toLowerCase() &&
+      a.tutorName?.trim().toLowerCase() === appointment.tutorName?.trim().toLowerCase() &&
+      a.date === appointment.date &&
+      a.time === appointment.time &&
+      a.serviceName === appointment.serviceName
+    );
+    if (duplicateIdx >= 0) {
+      console.log(`[SERVER DUPLICATE PREVENTED] Appointment for ${appointment.petName} on ${appointment.date} at ${appointment.time} already exists.`);
+      apts[duplicateIdx] = { ...apts[duplicateIdx], ...appointment };
+    } else {
+      apts.unshift(appointment);
+    }
   }
   business.appointments = apts;
 

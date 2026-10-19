@@ -7,6 +7,7 @@ import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { formatDateSpanish } from '../utils/storage';
 import { buildWhatsAppConfirmationUrl, openWhatsAppUrl } from '../utils/phoneUtils';
+import { formatPrice } from '../utils/priceUtils';
 
 interface AgendaViewProps {
   appointments: Appointment[];
@@ -167,6 +168,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         const offset = findWeekOffsetForDate(newApt.date);
         setWeekOffset(offset);
       }
+      setFilterStatus('todos');
       setToastMessage(`¡Turno de ${newApt.petName} agendado y guardado con éxito!`);
       setTimeout(() => setToastMessage(null), 3500);
       return true;
@@ -676,7 +678,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                         </div>
 
                         <p className="text-xs text-[#4c4451] font-medium mt-0.5">
-                          {apt.serviceName} • <span className="text-[#2e004e] font-bold">${apt.price.toLocaleString()} {apt.currency || salonConfig.currency}</span>
+                          {apt.serviceName} • <span className="text-[#2e004e] font-bold">{formatPrice(apt.price, apt.currency || salonConfig.currency, { includeCode: true })}</span>
                         </p>
 
                         <div className="flex items-center gap-2 mt-1 text-[11px] text-[#7e7482] flex-wrap">
