@@ -69,9 +69,9 @@ function readDb(): Record<string, StoredBusiness> {
       businessId: 'biz_main',
       config: {
         id: 'biz_main',
-        name: 'Peluquería Luna',
-        bookingSlug: 'pelo',
-        currency: '$',
+        name: 'Groomer Aida',
+        bookingSlug: 'luna',
+        currency: 'USD',
         phonePrefix: '+54',
         address: 'Av. Siempre Viva 742',
         phone: '+54 11 4455-6677'
@@ -246,20 +246,23 @@ app.post('/api/businesses', (req, res) => {
   const db = readDb();
   const existing = db[id] || {};
 
-  const cleanSlug = extractSlug(config.bookingSlug) || cleanString(config.name);
+  const cleanSlug = config.bookingSlug
+    ? (extractSlug(config.bookingSlug) || cleanString(config.bookingSlug))
+    : (existing.config?.bookingSlug || 'luna');
+
   const cleanConfig = {
+    ...(existing.config || {}),
     ...config,
     id,
     bookingSlug: cleanSlug,
+    name: (config.name !== undefined ? config.name : existing.config?.name) || 'Groomer Aida',
+    currency: config.currency || existing.config?.currency || 'USD',
     services: config.services !== undefined ? config.services : (existing.config?.services || [])
   };
 
   db[id] = {
     businessId: id,
-    config: {
-      ...(existing.config || {}),
-      ...cleanConfig
-    },
+    config: cleanConfig,
     pets: pets || existing.pets || [],
     appointments: appointments || existing.appointments || [],
     bookedRetentions: bookedRetentions || existing.bookedRetentions || [],

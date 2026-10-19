@@ -48,7 +48,7 @@
       "afternoonOpen": "14:00",
       "afternoonClose": "19:30",
       "hasDoubleShift": true,
-      "bookingSlug": "aida",
+      "bookingSlug": "luna",
       "activeDays": [
         "L",
         "M",
@@ -462,6 +462,26 @@
     ],
     "appointments": [
       {
+        "id": "apt_test_speed_slug",
+        "petName": "Firulais2",
+        "tutorName": "Juan2",
+        "serviceName": "Baño",
+        "date": "2026-10-20",
+        "time": "11:00 hs",
+        "price": 25,
+        "currency": "USD"
+      },
+      {
+        "id": "apt_test_speed",
+        "petName": "Firulais",
+        "tutorName": "Juan",
+        "serviceName": "Baño",
+        "date": "2026-10-20",
+        "time": "10:00 hs",
+        "price": 25,
+        "currency": "USD"
+      },
+      {
         "id": "apt-test-rocky-duplicate-1792370969231",
         "petId": "#PET-ROCKY",
         "petName": "Rocky",
@@ -615,7 +635,7 @@
     ],
     "bookedRetentions": [],
     "sales": [],
-    "updatedAt": "2026-10-19T02:55:19.595Z"
+    "updatedAt": "2026-10-19T15:26:31.024Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",
