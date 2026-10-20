@@ -24,6 +24,7 @@ import { persistActiveConfig } from '../utils/saasDb';
 import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
 import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
 import { formatPrice } from '../utils/priceUtils';
+import { getAppointmentTimestamp } from '../utils/petSorting';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -376,22 +377,24 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     setStaffList((prev) => prev.filter((s) => s.id !== id));
   };
 
-  // Filtered Appointments for the Excel / History view
+  // Filtered Appointments for the Excel / History view sorted chronologically
   const filteredAppointments = useMemo(() => {
-    return appointments.filter((apt) => {
-      if (searchQuery.trim()) {
-        const q = searchQuery.toLowerCase();
-        const matchesPet = apt.petName?.toLowerCase().includes(q);
-        const matchesTutor = apt.tutorName?.toLowerCase().includes(q);
-        const matchesBreed = apt.breed?.toLowerCase().includes(q);
-        const matchesPhone = apt.tutorPhone?.toLowerCase().includes(q);
-        const matchesService = apt.serviceName?.toLowerCase().includes(q);
-        if (!matchesPet && !matchesTutor && !matchesBreed && !matchesPhone && !matchesService) {
-          return false;
+    return appointments
+      .filter((apt) => {
+        if (searchQuery.trim()) {
+          const q = searchQuery.toLowerCase();
+          const matchesPet = apt.petName?.toLowerCase().includes(q);
+          const matchesTutor = apt.tutorName?.toLowerCase().includes(q);
+          const matchesBreed = apt.breed?.toLowerCase().includes(q);
+          const matchesPhone = apt.tutorPhone?.toLowerCase().includes(q);
+          const matchesService = apt.serviceName?.toLowerCase().includes(q);
+          if (!matchesPet && !matchesTutor && !matchesBreed && !matchesPhone && !matchesService) {
+            return false;
+          }
         }
-      }
-      return true;
-    });
+        return true;
+      })
+      .sort((a, b) => getAppointmentTimestamp(b) - getAppointmentTimestamp(a));
   }, [appointments, searchQuery]);
 
   // Export to Excel / CSV function

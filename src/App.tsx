@@ -43,6 +43,7 @@ import { LoginScreen } from './components/LoginScreen';
 import { PublicBookingPage } from './components/PublicBookingPage';
 import { PublicReviewPage } from './components/PublicReviewPage';
 import { NewAppointmentView } from './components/NewAppointmentView';
+import { sortPetsByAgendaDate } from './utils/petSorting';
 
 import { decodePublicProfileToken, extractSlugOnly } from './utils/slugUtils';
 
@@ -146,14 +147,15 @@ export default function App() {
 
   // Business Data State
   const [salonConfig, setSalonConfig] = useState<SalonConfig>(initialData.config);
-  const [pets, setPets] = useState<Pet[]>(initialData.pets);
+  const [pets, setPets] = useState<Pet[]>(() => sortPetsByAgendaDate(initialData.pets, initialData.appointments));
   const [appointments, setAppointments] = useState<Appointment[]>(initialData.appointments);
   const [currentLanguage, setCurrentLanguage] = useState<AppLanguage>(() => loadLanguage());
   const [bookedRetentions, setBookedRetentions] = useState<string[]>(initialData.bookedRetentions || []);
 
-  // Selected pet for profile view
+  // Selected pet for profile view (defaults to the most recently attended pet)
   const [selectedPetId, setSelectedPetId] = useState<string>(() => {
-    return initialData.pets[0]?.id || '#PET-2849';
+    const sorted = sortPetsByAgendaDate(initialData.pets, initialData.appointments);
+    return sorted[0]?.id || initialData.pets[0]?.id || '#PET-2849';
   });
 
   // Booking from Por Volver
@@ -223,12 +225,13 @@ export default function App() {
         setAccountsList(res.accounts);
       }
       if (res.activeData) {
+        const sortedPets = sortPetsByAgendaDate(res.activeData.pets, res.activeData.appointments);
         setSalonConfig(res.activeData.config);
-        setPets(res.activeData.pets);
+        setPets(sortedPets);
         setAppointments(res.activeData.appointments);
         setBookedRetentions(res.activeData.bookedRetentions || []);
-        if (res.activeData.pets.length > 0) {
-          setSelectedPetId(res.activeData.pets[0].id);
+        if (sortedPets.length > 0) {
+          setSelectedPetId(sortedPets[0].id);
         }
         isDbInitialized.current = true;
 
@@ -807,11 +810,10 @@ export default function App() {
     let nextPets: Pet[] = [];
     setPets((prev) => {
       const exists = prev.some((p) => p.id === updated.id);
-      if (exists) {
-        nextPets = prev.map((p) => (p.id === updated.id ? updated : p));
-      } else {
-        nextPets = [updated, ...prev];
-      }
+      const list = exists
+        ? prev.map((p) => (p.id === updated.id ? updated : p))
+        : [updated, ...prev];
+      nextPets = sortPetsByAgendaDate(list, appointments);
       return nextPets;
     });
 
@@ -1089,12 +1091,13 @@ export default function App() {
         updatedPets = [createdPet, ...pets];
       }
 
-      setPets(updatedPets);
+      const sortedPets = sortPetsByAgendaDate(updatedPets, updatedAppointments);
+      setPets(sortedPets);
 
       // 3. Atomically persist to IndexedDB AND local mirror immediately
       await persistActiveBusinessData({
         appointments: updatedAppointments,
-        pets: updatedPets
+        pets: sortedPets
       });
 
       // 4. Save to Cloud Firestore & Server API
@@ -1547,6 +1550,7 @@ export default function App() {
           {currentTab === 'mascotas' && (
             <PetListView
               pets={pets}
+              appointments={appointments}
               selectedPetId={selectedPetId}
               onSelectPet={handleSelectPetFromList}
               onAddNewPet={handleAddNewPet}

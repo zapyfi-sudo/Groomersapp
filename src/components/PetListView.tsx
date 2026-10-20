@@ -1,8 +1,10 @@
-import React, { useState } from 'react';
-import { Pet } from '../types';
+import React, { useState, useMemo } from 'react';
+import { Pet, Appointment } from '../types';
+import { sortPetsByAgendaDate } from '../utils/petSorting';
 
 interface PetListViewProps {
   pets: Pet[];
+  appointments?: Appointment[];
   selectedPetId: string;
   onSelectPet: (pet: Pet) => void;
   onAddNewPet: () => void;
@@ -10,21 +12,30 @@ interface PetListViewProps {
 
 export const PetListView: React.FC<PetListViewProps> = ({
   pets,
+  appointments = [],
   selectedPetId,
   onSelectPet,
   onAddNewPet
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
-  const filteredPets = pets.filter((p) => {
-    const q = searchTerm.toLowerCase();
-    return (
-      p.name.toLowerCase().includes(q) ||
-      p.breed.toLowerCase().includes(q) ||
-      p.tutor.name.toLowerCase().includes(q) ||
-      p.id.toLowerCase().includes(q)
-    );
-  });
+  // Automatically sort pets by their most recent agenda date & time
+  const sortedPets = useMemo(() => {
+    return sortPetsByAgendaDate(pets, appointments);
+  }, [pets, appointments]);
+
+  const filteredPets = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return sortedPets;
+    return sortedPets.filter((p) => {
+      return (
+        p.name.toLowerCase().includes(q) ||
+        p.breed.toLowerCase().includes(q) ||
+        p.tutor.name.toLowerCase().includes(q) ||
+        p.id.toLowerCase().includes(q)
+      );
+    });
+  }, [sortedPets, searchTerm]);
 
   return (
     <div className="flex flex-col w-full pb-20 px-4 pt-4 space-y-4">
