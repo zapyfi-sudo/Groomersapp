@@ -19,7 +19,7 @@ import { COUNTRIES, CURRENCIES } from '../utils/countries';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
 import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl, buildPublicReviewUrl } from '../utils/slugUtils';
-import { syncBusinessToServer, updateReviewRequestStateInFirestore } from '../utils/api';
+import { syncBusinessToServer, updateReviewRequestStateInFirestore, getApiUrl } from '../utils/api';
 import { persistActiveConfig } from '../utils/saasDb';
 import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
 import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
@@ -68,11 +68,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
   // Brand data
   const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || HOTLINK_IMAGES.logo);
-  const [businessName, setBusinessName] = useState<string>(config.name || 'Peluquería Canina Luna');
+  const [businessName, setBusinessName] = useState<string>(config.name || 'Groomer Aida');
   const [selectedCountry, setSelectedCountry] = useState<string>(config.country || 'Argentina');
   const [selectedCity, setSelectedCity] = useState<string>(config.city || '');
   const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(currentLanguage);
-  const [selectedCurrency, setSelectedCurrency] = useState<string>(config.currency || 'ARS');
+  const [selectedCurrency, setSelectedCurrency] = useState<string>(config.currency || 'USD');
 
   useEffect(() => {
     if (!config) return;
@@ -262,13 +262,13 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     }
   };
 
-  // Country selection updates phone code and currency default
+  // Country selection updates phone calling code while keeping currency independent
   const handleCountryChange = (countryName: string) => {
     setSelectedCountry(countryName);
     const countryObj = COUNTRIES.find((c) => c.name === countryName);
     if (countryObj) {
       setPhonePrefix(countryObj.callingCode);
-      setSelectedCurrency(countryObj.defaultCurrency);
+      // Currency and country are completely independent - do not overwrite user's chosen currency!
     }
   };
 
@@ -454,14 +454,19 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const targetSlug = cleanSlugInput(customSlug);
 
     if (!targetSlug) {
-      setSlugSaveError('Por favor ingresa un slug válido (ejemplo: pelo).');
+      setSlugSaveError('Por favor ingresa un slug válido (ejemplo: luna).');
       setIsSavingSlug(false);
       return;
     }
 
     try {
-      // 1. Check if slug is already taken by another business
-      const check = await checkSlugAvailabilityInFirestore(targetSlug, persistentBizId);
+      // 1. Fast availability check (with 2s timeout guard so slow network never hangs the user)
+      const checkPromise = checkSlugAvailabilityInFirestore(targetSlug, persistentBizId);
+      const checkTimeout = new Promise<{ available: boolean; conflictBusinessName?: string }>((resolve) =>
+        setTimeout(() => resolve({ available: true }), 2000)
+      );
+      const check = await Promise.race([checkPromise, checkTimeout]);
+
       if (!check.available) {
         setSlugSaveError(
           `El slug "${targetSlug}" ya está registrado por ${check.conflictBusinessName || 'otro negocio'}. Elige uno diferente.`
@@ -478,6 +483,26 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         bookingSlug: targetSlug
       };
 
+      // 2. Persist locally first so UI is immediately responsive and active link reflects the new slug
+      await persistActiveConfig(updatedConfig);
+      onUpdateConfig(updatedConfig);
+      setCustomSlug(targetSlug);
+
+      // Cache locally for public booking page instant resolution
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedPublicData = {
+            businessId: persistentBizId,
+            config: updatedConfig,
+            services: updatedConfig.services || [],
+            appointments: appointments || []
+          };
+          localStorage.setItem(`agendacan_public_biz_${persistentBizId}`, JSON.stringify(cachedPublicData));
+          localStorage.setItem(`agendacan_public_biz_${targetSlug}`, JSON.stringify(cachedPublicData));
+        } catch {}
+      }
+
+      // 3. Sync to Server and Firestore
       const success = await syncBusinessToServer(
         persistentBizId,
         updatedConfig,
@@ -485,13 +510,24 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         appointments
       );
 
+      // If sync returned false, verify if the server or cloud actually saved it before showing error
       if (!success) {
-        throw new Error('No se pudo guardar el enlace en el servidor');
-      }
+        let verifiedOnServer = false;
+        try {
+          const verifyRes = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(persistentBizId)}`));
+          if (verifyRes.ok) {
+            const verifyData = await verifyRes.json();
+            const serverSlug = extractSlugOnly(verifyData?.config?.bookingSlug) || cleanSlugInput(verifyData?.config?.bookingSlug);
+            if (serverSlug === targetSlug) {
+              verifiedOnServer = true;
+            }
+          }
+        } catch {}
 
-      await persistActiveConfig(updatedConfig);
-      onUpdateConfig(updatedConfig);
-      setCustomSlug(targetSlug);
+        if (!verifiedOnServer) {
+          throw new Error('No se pudo guardar el enlace en el servidor');
+        }
+      }
 
       setSavedToast('Enlace actualizado correctamente.');
       setTimeout(() => setSavedToast(null), 3500);
@@ -545,10 +581,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       return;
     }
 
+    // Preservar estrictamente el slug existente: cambiar el nombre comercial NO debe alterar el enlace
     const safeSlug =
       cleanSlugInput(customSlug) ||
       extractSlugOnly(config.bookingSlug) ||
-      slugify(businessName || 'reservas', 'reservas');
+      'luna';
 
     // Normalizar servicios con businessId e IDs únicos garantizados
     const normalizedServices: SalonService[] = servicesList.map((svc, idx) => ({

@@ -39,14 +39,14 @@ function getPastDate(weeksAgo: number): { iso: string; formatted: string; short:
 
 export const DEFAULT_SALON_CONFIG: SalonConfig = {
   id: 'biz_main',
-  name: 'Peluquería Canina Luna',
+  name: 'Groomer Aida',
   logoUrl: HOTLINK_IMAGES.logo,
   country: 'Argentina',
   city: 'Buenos Aires',
   phonePrefix: '+54',
   phone: '11 5489 3210',
   address: 'Av. Corrientes 4520, Almagro, CABA',
-  googleMapsPlaceName: 'Peluquería Canina Luna - Almagro, CABA',
+  googleMapsPlaceName: 'Groomer Aida - Almagro, CABA',
   googleMapsUrl: 'https://maps.google.com/?q=-34.603722,-58.423145',
   coordinates: '-34.603722, -58.423145',
   allowSimultaneousStaff: true,
@@ -54,7 +54,7 @@ export const DEFAULT_SALON_CONFIG: SalonConfig = {
   workingDays: 'Lunes a Sábado',
   openTime: '08:00',
   closeTime: '19:30',
-  currency: 'ARS',
+  currency: 'USD',
   simultaneousCapacity: 2,
   staffMembers: [
     { id: 'st-1', name: 'Carlos Morales', role: 'Estilista Principal (Corte & Spa)', active: true, shiftAvailability: 'todo_el_dia' },
@@ -67,7 +67,7 @@ export const DEFAULT_SALON_CONFIG: SalonConfig = {
   afternoonClose: '19:30',
   hasDoubleShift: true,
   appointmentIntervalMinutes: 30,
-  bookingSlug: 'pelo',
+  bookingSlug: 'luna',
   activeDays: ['L', 'M', 'X', 'J', 'V', 'S'],
   staffScheduleConfig: {
     allDay: { start: '08:00', end: '18:00' },

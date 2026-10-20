@@ -193,7 +193,7 @@ export async function saveBusinessToFirestore(
     ...config,
     id: cleanId,
     bookingSlug: cleanSlug,
-    name: (config.name || 'Peluquería Canina Luna').trim(),
+    name: (config.name || 'Groomer Aida').trim(),
     services: sanitizedServices,
     medicationProducts: sanitizedMedications,
     whatsappTemplates: sanitizedTemplates

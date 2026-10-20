@@ -18,7 +18,7 @@ interface HeaderProps {
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
   onSelectTab,
-  salonName = 'Peluquería Canina Luna',
+  salonName = 'Groomer Aida',
   logoUrl,
   urgentCount = 0,
   inSalonCount = 0,

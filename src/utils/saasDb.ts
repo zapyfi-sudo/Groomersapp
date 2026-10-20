@@ -304,7 +304,7 @@ export async function initSaasDatabase(): Promise<{
     const ownerAccount: UserAccount = {
       id: primaryUserId,
       email: 'propietario@agendacan.com',
-      name: initialConfig.name || 'Peluquería Luna',
+      name: initialConfig.name || 'Groomer Aida',
       businessId: primaryBizId,
       createdAt: new Date().toISOString(),
       lastLoginAt: new Date().toISOString()

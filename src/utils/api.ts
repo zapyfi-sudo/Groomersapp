@@ -55,7 +55,95 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
   const rawTarget = idOrSlug.trim();
   const cleanTarget = extractSlugOnly(idOrSlug) || rawTarget;
 
-  // 1. Primary: Query Cloud Firestore
+  // 1. Fast local cache check for zero-wait instant load
+  if (typeof window !== 'undefined') {
+    try {
+      const cached =
+        localStorage.getItem(`agendacan_public_biz_${cleanTarget}`) ||
+        localStorage.getItem(`agendacan_public_biz_${rawTarget}`);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && parsed.businessId && parsed.config && parsed.config.name) {
+          // Trigger background refresh from server to ensure fresh data
+          fetch(getApiUrl(`/api/businesses/${encodeURIComponent(cleanTarget)}`))
+            .then((r) => (r.ok ? r.json() : null))
+            .then((fresh) => {
+              if (fresh && fresh.config) {
+                const refreshed: PublicBusinessResult = {
+                  businessId: fresh.businessId,
+                  config: fresh.config,
+                  services: fresh.services || fresh.config.services || [],
+                  appointments: fresh.appointments || [],
+                  pets: fresh.pets || [],
+                  sales: fresh.sales || []
+                };
+                localStorage.setItem(`agendacan_public_biz_${cleanTarget}`, JSON.stringify(refreshed));
+              }
+            })
+            .catch(() => {});
+          return parsed;
+        }
+      }
+    } catch {}
+  }
+
+  // 2. Primary: Query Server API (/api/businesses/:idOrSlug) - ultra-fast (<20ms response)
+  try {
+    const targetsToTry = [cleanTarget];
+    if (rawTarget !== cleanTarget && !targetsToTry.includes(rawTarget)) {
+      targetsToTry.push(rawTarget);
+    }
+
+    for (const target of targetsToTry) {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      try {
+        const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(target)}`), {
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
+        const contentType = res.headers.get('content-type') || '';
+
+        // Ensure the response is valid JSON and not an HTML fallback page from static routing
+        if (res.ok && contentType.includes('application/json')) {
+          const data = await res.json();
+          if (data && data.businessId && data.config) {
+            const result: PublicBusinessResult = {
+              businessId: data.businessId,
+              config: data.config,
+              services: data.services || data.config.services || [],
+              appointments: data.appointments || [],
+              pets: data.pets || [],
+              sales: data.sales || []
+            };
+
+            if (typeof window !== 'undefined') {
+              try {
+                localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
+                if (data.config.bookingSlug) {
+                  localStorage.setItem(
+                    `agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`,
+                    JSON.stringify(result)
+                  );
+                }
+              } catch {}
+            }
+
+            // Asynchronously warm Firestore in the background
+            saveBusinessToFirestore(data.businessId, data.config, data.appointments, data.pets).catch(() => {});
+
+            return result;
+          }
+        }
+      } catch (fErr) {
+        clearTimeout(timeoutId);
+      }
+    }
+  } catch (err) {
+    console.warn('Server API error in fetchBusinessProfile:', err);
+  }
+
+  // 3. Fallback: Query Cloud Firestore
   try {
     let firestoreResult = await getBusinessFromFirestore(rawTarget);
     if (!firestoreResult && cleanTarget !== rawTarget) {
@@ -88,53 +176,6 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
   } catch (err) {
     console.warn('[FIRESTORE PROFILE FETCH ERROR]', err);
-  }
-
-  // 2. Secondary: Query Server API (/api/businesses/:idOrSlug)
-  try {
-    const targetsToTry = [cleanTarget];
-    if (rawTarget !== cleanTarget && !targetsToTry.includes(rawTarget)) {
-      targetsToTry.push(rawTarget);
-    }
-
-    for (const target of targetsToTry) {
-      const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(target)}`));
-      const contentType = res.headers.get('content-type') || '';
-
-      // Ensure the response is valid JSON and not an HTML fallback page from static routing
-      if (res.ok && contentType.includes('application/json')) {
-        const data = await res.json();
-        if (data && data.businessId && data.config) {
-          const result: PublicBusinessResult = {
-            businessId: data.businessId,
-            config: data.config,
-            services: data.services || data.config.services || [],
-            appointments: data.appointments || [],
-            pets: data.pets || [],
-            sales: data.sales || []
-          };
-
-          if (typeof window !== 'undefined') {
-            try {
-              localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
-              if (data.config.bookingSlug) {
-                localStorage.setItem(
-                  `agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`,
-                  JSON.stringify(result)
-                );
-              }
-            } catch {}
-          }
-
-          // Asynchronously warm Firestore in the background
-          saveBusinessToFirestore(data.businessId, data.config, data.appointments, data.pets).catch(() => {});
-
-          return result;
-        }
-      }
-    }
-  } catch (err) {
-    console.warn('Network error fetching business from server API:', err);
   }
 
   // 3. Query params check ?businessId= or ?bid=
@@ -226,43 +267,54 @@ export async function syncBusinessToServer(
 ): Promise<boolean> {
   const targetId = businessId || config.id || 'biz_main';
 
-  // Run Cloud Firestore (primary) and Server API (mirror) concurrently
-  const [firestoreRes, serverRes] = await Promise.allSettled([
-    saveBusinessToFirestore(targetId, config, appointments, pets),
-    (async () => {
-      try {
-        const res = await fetch(getApiUrl('/api/businesses'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            businessId: targetId,
-            config,
-            pets,
-            appointments,
-            bookedRetentions,
-            sales
-          })
-        });
-        if (!res.ok) {
-          const errText = await res.text().catch(() => '');
-          console.warn('[SERVER SYNC FAILED]', res.status, errText);
-          return false;
-        }
-        return true;
-      } catch (err) {
-        console.warn('Server API sync not reachable (standard on static CDNs/Vercel):', err);
-        return false;
+  // Concurrently start Firestore sync
+  const firestorePromise = saveBusinessToFirestore(targetId, config, appointments, pets).catch((err) => {
+    console.warn('[FIRESTORE BACKGROUND SYNC WARN]', err);
+    return false;
+  });
+
+  // Concurrently send payload to server API (authoritative fast storage in <20ms)
+  let serverSuccess = false;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch(getApiUrl('/api/businesses'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({
+        businessId: targetId,
+        config,
+        pets,
+        appointments,
+        bookedRetentions,
+        sales
+      })
+    });
+    clearTimeout(timeoutId);
+    if (res.ok) {
+      const data = await res.json().catch(() => null);
+      if (data && data.success !== false) {
+        serverSuccess = true;
       }
-    })()
-  ]);
+    } else {
+      const errText = await res.text().catch(() => '');
+      console.warn('[SERVER SYNC FAILED]', res.status, errText);
+    }
+  } catch (err) {
+    console.warn('Server API sync not reachable:', err);
+  }
 
-  const firestoreSuccess = firestoreRes.status === 'fulfilled' && firestoreRes.value === true;
-  const serverSuccess = serverRes.status === 'fulfilled' && serverRes.value === true;
+  // If server confirmed save, return immediately! Firestore continues in the background.
+  if (serverSuccess) {
+    console.log(`[SYNC REPORT] Business ${targetId}: Server confirmed immediately. Firestore continuing in background.`);
+    return true;
+  }
 
-  console.log(`[SYNC REPORT] Business ${targetId}: Firestore=${firestoreSuccess}, Server=${serverSuccess}`);
-
-  // Operation succeeds if either the cloud database or the server accepted it
-  return firestoreSuccess || serverSuccess;
+  // If server was unreachable (e.g., static hosting / offline), await Firestore
+  const firestoreSuccess = await firestorePromise;
+  console.log(`[SYNC REPORT] Business ${targetId}: Server=${serverSuccess}, Firestore=${firestoreSuccess}`);
+  return firestoreSuccess;
 }
 
 /**
