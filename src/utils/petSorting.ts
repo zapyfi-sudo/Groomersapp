@@ -1,5 +1,6 @@
 import { Pet, Appointment, Visit } from '../types';
 import { parseSpanishOrIsoDate } from './storage';
+import { AppLanguage } from './translations';
 
 /**
  * Parses time string like "09:00 AM", "11:00 AM", "13:30 PM", "15:30 PM", "17:00 PM", "14:30", "09:00 hs"
@@ -41,33 +42,40 @@ export function parseTimeString(timeStr?: string): { hours: number; minutes: num
   return null;
 }
 
+export interface PetAttentionRecord {
+  dateObj: Date | null;
+  timestamp: number;
+}
+
 /**
- * Calculates a millisecond timestamp for an appointment based on its actual date and time.
+ * Extracts normalized attention date and millisecond timestamp for an appointment.
  */
-export function getAppointmentTimestamp(apt: Appointment): number {
+export function getAppointmentAttentionRecord(apt: Appointment): PetAttentionRecord | null {
   let dateObj: Date | null = null;
 
   if (apt.date) {
     const dLower = apt.date.trim().toLowerCase();
     if (dLower === 'hoy' || dLower.startsWith('hoy')) {
       dateObj = new Date();
+    } else if (dLower === 'ayer' || dLower.startsWith('ayer')) {
+      dateObj = new Date(Date.now() - 86400000);
     } else {
       dateObj = parseSpanishOrIsoDate(apt.date);
     }
   }
 
-  // Fallback to createdAt or serviceStartedAt if date string parsing yields nothing
-  if (!dateObj && apt.createdAt) {
-    const c = new Date(apt.createdAt);
-    if (!isNaN(c.getTime())) dateObj = c;
-  }
+  // Fallback to serviceStartedAt or createdAt if date string parsing yields nothing
   if (!dateObj && apt.serviceStartedAt) {
     const s = new Date(apt.serviceStartedAt);
     if (!isNaN(s.getTime())) dateObj = s;
   }
+  if (!dateObj && apt.createdAt) {
+    const c = new Date(apt.createdAt);
+    if (!isNaN(c.getTime())) dateObj = c;
+  }
 
   if (!dateObj || isNaN(dateObj.getTime())) {
-    return 0;
+    return null;
   }
 
   const year = dateObj.getFullYear();
@@ -75,42 +83,85 @@ export function getAppointmentTimestamp(apt: Appointment): number {
   const day = dateObj.getDate();
 
   const timeParsed = parseTimeString(apt.time);
-  const hours = timeParsed ? timeParsed.hours : 12;
-  const minutes = timeParsed ? timeParsed.minutes : 0;
+  let hours = timeParsed ? timeParsed.hours : 12;
+  let minutes = timeParsed ? timeParsed.minutes : 0;
   let seconds = 0;
 
-  // Preserve registration order tie-breaker via createdAt seconds if available
-  if (apt.createdAt) {
+  if (!timeParsed && apt.serviceStartedAt) {
+    const s = new Date(apt.serviceStartedAt);
+    if (!isNaN(s.getTime())) {
+      hours = s.getHours();
+      minutes = s.getMinutes();
+      seconds = s.getSeconds();
+    }
+  } else if (!timeParsed && apt.createdAt) {
+    const c = new Date(apt.createdAt);
+    if (!isNaN(c.getTime())) {
+      hours = c.getHours();
+      minutes = c.getMinutes();
+      seconds = c.getSeconds();
+    }
+  } else if (apt.createdAt) {
     const c = new Date(apt.createdAt);
     if (!isNaN(c.getTime())) {
       seconds = c.getSeconds();
     }
   }
 
-  return new Date(year, month, day, hours, minutes, seconds).getTime();
+  const finalDate = new Date(year, month, day, hours, minutes, seconds);
+  return {
+    dateObj: new Date(year, month, day),
+    timestamp: finalDate.getTime()
+  };
 }
 
 /**
- * Calculates a millisecond timestamp for a recorded visit.
+ * Extracts normalized attention date and millisecond timestamp for a visit.
  */
-export function getVisitTimestamp(visit?: Visit): number {
-  if (!visit || !visit.date) return 0;
+export function getVisitAttentionRecord(visit?: Visit): PetAttentionRecord | null {
+  if (!visit || !visit.date) return null;
   const dLower = visit.date.trim().toLowerCase();
   let dateObj: Date | null = null;
 
   if (dLower === 'hoy' || dLower.startsWith('hoy')) {
     dateObj = new Date();
+  } else if (dLower === 'ayer' || dLower.startsWith('ayer')) {
+    dateObj = new Date(Date.now() - 86400000);
   } else {
     dateObj = parseSpanishOrIsoDate(visit.date);
   }
 
-  if (!dateObj || isNaN(dateObj.getTime())) return 0;
+  if (!dateObj || isNaN(dateObj.getTime())) return null;
+
+  const year = dateObj.getFullYear();
+  const month = dateObj.getMonth();
+  const day = dateObj.getDate();
 
   const timeParsed = parseTimeString(visit.deliveryTime);
   const hours = timeParsed ? timeParsed.hours : 12;
   const minutes = timeParsed ? timeParsed.minutes : 0;
 
-  return new Date(dateObj.getFullYear(), dateObj.getMonth(), dateObj.getDate(), hours, minutes).getTime();
+  const finalDate = new Date(year, month, day, hours, minutes);
+  return {
+    dateObj: new Date(year, month, day),
+    timestamp: finalDate.getTime()
+  };
+}
+
+/**
+ * Legacy helper for backwards compatibility.
+ */
+export function getAppointmentTimestamp(apt: Appointment): number {
+  const rec = getAppointmentAttentionRecord(apt);
+  return rec ? rec.timestamp : 0;
+}
+
+/**
+ * Legacy helper for backwards compatibility.
+ */
+export function getVisitTimestamp(visit?: Visit): number {
+  const rec = getVisitAttentionRecord(visit);
+  return rec ? rec.timestamp : 0;
 }
 
 /**
@@ -147,21 +198,24 @@ export function isAppointmentForPet(apt: Appointment, pet: Pet): boolean {
 }
 
 /**
- * Finds the latest appointment or visit timestamp for a pet across:
+ * Finds the latest attention record (date and timestamp) for a pet across:
  * 1. Appointments in Agenda (most recent scheduled, in-service, or completed date/time).
  * 2. Pet's lastVisit record.
  * 3. Pet's visitHistory records.
  */
-export function getLatestPetAttentionTimestamp(pet: Pet, appointments?: Appointment[]): number {
-  let maxTimestamp = 0;
+export function getLatestPetAttentionRecord(pet: Pet, appointments?: Appointment[]): PetAttentionRecord {
+  let bestRecord: PetAttentionRecord = {
+    dateObj: null,
+    timestamp: 0
+  };
 
   // 1. Check all matching appointments
   if (Array.isArray(appointments)) {
     for (const apt of appointments) {
       if (isAppointmentForPet(apt, pet)) {
-        const ts = getAppointmentTimestamp(apt);
-        if (ts > maxTimestamp) {
-          maxTimestamp = ts;
+        const rec = getAppointmentAttentionRecord(apt);
+        if (rec && rec.timestamp > bestRecord.timestamp) {
+          bestRecord = rec;
         }
       }
     }
@@ -169,39 +223,77 @@ export function getLatestPetAttentionTimestamp(pet: Pet, appointments?: Appointm
 
   // 2. Check pet.lastVisit
   if (pet.lastVisit) {
-    const ts = getVisitTimestamp(pet.lastVisit);
-    if (ts > maxTimestamp) {
-      maxTimestamp = ts;
+    const rec = getVisitAttentionRecord(pet.lastVisit);
+    if (rec && rec.timestamp > bestRecord.timestamp) {
+      bestRecord = rec;
     }
   }
 
   // 3. Check pet.visitHistory
   if (Array.isArray(pet.visitHistory)) {
     for (const v of pet.visitHistory) {
-      const ts = getVisitTimestamp(v);
-      if (ts > maxTimestamp) {
-        maxTimestamp = ts;
+      const rec = getVisitAttentionRecord(v);
+      if (rec && rec.timestamp > bestRecord.timestamp) {
+        bestRecord = rec;
       }
     }
   }
 
-  return maxTimestamp;
+  return bestRecord;
 }
 
 /**
- * Automatically sorts pets for the "Clientes" directory by their most recent agenda/attention date & time:
- * - Most recent dates first (today at the top, then recent days in descending order).
- * - Within the same day: from most recent appointment time to oldest time.
- * - Previous days follow the same descending order.
- * - Pets with multiple appointments keep their single pet record positioned by their latest appointment.
- * - Pets without valid appointment dates are preserved and placed at the bottom without altering their data.
+ * Legacy helper: finds the latest appointment or visit timestamp for a pet.
  */
-export function sortPetsByAgendaDate(pets: Pet[], appointments?: Appointment[]): Pet[] {
+export function getLatestPetAttentionTimestamp(pet: Pet, appointments?: Appointment[]): number {
+  return getLatestPetAttentionRecord(pet, appointments).timestamp;
+}
+
+/**
+ * Formats a date string respecting the app's configured language.
+ * Default in Spanish: "20 de octubre de 2026".
+ */
+export function formatDateByLanguage(date: Date, lang?: AppLanguage): string {
+  const localeMap: Record<string, string> = {
+    'es-LA': 'es-419',
+    'es-ES': 'es-ES',
+    'en': 'en-US',
+    'pt': 'pt-BR'
+  };
+  const locale = (lang && localeMap[lang]) || 'es-ES';
+  return date.toLocaleDateString(locale, {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric'
+  });
+}
+
+export interface PetDateGroup {
+  dateKey: string; // YYYY-MM-DD or 'no-date'
+  formattedDate: string; // e.g. "20 de octubre de 2026"
+  dateObj: Date | null;
+  dayTimestamp: number;
+  pets: Pet[];
+}
+
+/**
+ * Automatically groups and sorts pets for the "Clientes" directory:
+ * - Grouped by the date of their service/attention.
+ * - Groups sorted descending by date (newest date first, then older days).
+ * - Within each date group, pets sorted from most recent attention time to oldest.
+ * - Single pet profile preserved (no duplicates; placed under their latest attention date).
+ * - Pets without valid appointment dates are preserved at the end under a fallback group.
+ */
+export function groupAndSortPetsByDate(
+  pets: Pet[],
+  appointments?: Appointment[],
+  lang?: AppLanguage
+): PetDateGroup[] {
   if (!Array.isArray(pets) || pets.length === 0) {
     return [];
   }
 
-  // Ensure unique pet cards (prevent any duplicates from appearing)
+  // 1. Ensure unique pet profiles (prevent duplicate cards)
   const uniquePets: Pet[] = [];
   const seenIds = new Set<string>();
 
@@ -214,30 +306,89 @@ export function sortPetsByAgendaDate(pets: Pet[], appointments?: Appointment[]):
     }
   }
 
-  // Pre-calculate timestamps for fast, stable O(N log N) sorting
-  const timestampMap = new Map<string, number>();
+  // 2. Pre-calculate attention record for each pet
+  const petRecordMap = new Map<string, PetAttentionRecord>();
   for (const pet of uniquePets) {
-    const ts = getLatestPetAttentionTimestamp(pet, appointments);
-    timestampMap.set(pet.id, ts);
+    const rec = getLatestPetAttentionRecord(pet, appointments);
+    petRecordMap.set(pet.id, rec);
   }
 
-  return [...uniquePets].sort((a, b) => {
-    const tsA = timestampMap.get(a.id) || 0;
-    const tsB = timestampMap.get(b.id) || 0;
+  // 3. Group pets by their calendar dateKey
+  const groupsMap = new Map<string, PetDateGroup>();
 
-    // Both have valid dates
-    if (tsA > 0 && tsB > 0) {
-      if (tsB !== tsA) {
-        return tsB - tsA; // Descending: newest date & time first
-      }
-      return (a.name || '').localeCompare(b.name || '');
+  for (const pet of uniquePets) {
+    const rec = petRecordMap.get(pet.id)!;
+    let dateKey = 'no-date';
+    let formattedDate = 'Otras mascotas registradas';
+    let dayTimestamp = 0;
+
+    if (lang === 'en') {
+      formattedDate = 'Other registered pets';
+    } else if (lang === 'pt') {
+      formattedDate = 'Outros pets registrados';
     }
 
-    // Only one has a valid date
-    if (tsA > 0 && tsB <= 0) return -1;
-    if (tsA <= 0 && tsB > 0) return 1;
+    if (rec.dateObj && rec.timestamp > 0) {
+      const y = rec.dateObj.getFullYear();
+      const m = String(rec.dateObj.getMonth() + 1).padStart(2, '0');
+      const d = String(rec.dateObj.getDate()).padStart(2, '0');
+      dateKey = `${y}-${m}-${d}`;
+      formattedDate = formatDateByLanguage(rec.dateObj, lang);
+      dayTimestamp = rec.dateObj.getTime();
+    }
 
-    // Neither has a valid date: keep stable alphabetical
-    return (a.name || '').localeCompare(b.name || '');
+    if (!groupsMap.has(dateKey)) {
+      groupsMap.set(dateKey, {
+        dateKey,
+        formattedDate,
+        dateObj: rec.dateObj,
+        dayTimestamp,
+        pets: []
+      });
+    }
+
+    groupsMap.get(dateKey)!.pets.push(pet);
+  }
+
+  // 4. Sort pets inside each group by attention timestamp descending
+  // (most recent time first within the same day)
+  for (const group of groupsMap.values()) {
+    group.pets.sort((a, b) => {
+      const recA = petRecordMap.get(a.id);
+      const recB = petRecordMap.get(b.id);
+      const tsA = recA?.timestamp || 0;
+      const tsB = recB?.timestamp || 0;
+
+      if (tsB !== tsA) {
+        return tsB - tsA; // Most recent attention time first
+      }
+
+      // Stable secondary tie-breaker: pet name, then ID
+      const nameCompare = (a.name || '').localeCompare(b.name || '');
+      if (nameCompare !== 0) return nameCompare;
+      return (a.id || '').localeCompare(b.id || '');
+    });
+  }
+
+  // 5. Sort groups descending by date: newest day first, 'no-date' group at the end
+  const sortedGroups = Array.from(groupsMap.values()).sort((a, b) => {
+    if (a.dateKey === 'no-date') return 1;
+    if (b.dateKey === 'no-date') return -1;
+    return b.dayTimestamp - a.dayTimestamp;
   });
+
+  return sortedGroups;
+}
+
+/**
+ * Automatically sorts pets for the "Clientes" directory by their most recent agenda/attention date & time.
+ * Reuses groupAndSortPetsByDate to guarantee 100% consistent ordering.
+ */
+export function sortPetsByAgendaDate(pets: Pet[], appointments?: Appointment[]): Pet[] {
+  const groups = groupAndSortPetsByDate(pets, appointments);
+  const result: Pet[] = [];
+  for (const g of groups) {
+    result.push(...g.pets);
+  }
+  return result;
 }

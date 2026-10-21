@@ -1554,6 +1554,7 @@ export default function App() {
               selectedPetId={selectedPetId}
               onSelectPet={handleSelectPetFromList}
               onAddNewPet={handleAddNewPet}
+              currentLanguage={currentLanguage}
             />
           )}
         </main>
