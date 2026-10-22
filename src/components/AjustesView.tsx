@@ -25,6 +25,8 @@ import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
 import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
 import { formatPrice } from '../utils/priceUtils';
 import { getAppointmentTimestamp } from '../utils/petSorting';
+import { TimeSelectPicker } from './TimeSelectPicker';
+import { timeTo12H, timeTo24H } from '../utils/scheduleUtils';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -89,6 +91,8 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     if (config.hasDoubleShift !== undefined) setHasDoubleShift(config.hasDoubleShift);
     if (config.morningOpen !== undefined) setMorningOpen(config.morningOpen);
     if (config.morningClose !== undefined) setMorningClose(config.morningClose);
+    if (config.lunchStart !== undefined) setLunchStart(config.lunchStart);
+    if (config.lunchEnd !== undefined) setLunchEnd(config.lunchEnd);
     if (config.afternoonOpen !== undefined) setAfternoonOpen(config.afternoonOpen);
     if (config.afternoonClose !== undefined) setAfternoonClose(config.afternoonClose);
     if (config.staffScheduleConfig !== undefined) setStaffScheduleConfig(config.staffScheduleConfig);
@@ -112,6 +116,8 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [hasDoubleShift, setHasDoubleShift] = useState<boolean>(config.hasDoubleShift ?? true);
   const [morningOpen, setMorningOpen] = useState<string>(config.morningOpen || '08:00');
   const [morningClose, setMorningClose] = useState<string>(config.morningClose || '12:30');
+  const [lunchStart, setLunchStart] = useState<string>(config.lunchStart || config.morningClose || '12:30');
+  const [lunchEnd, setLunchEnd] = useState<string>(config.lunchEnd || config.afternoonOpen || '13:30');
   const [afternoonOpen, setAfternoonOpen] = useState<string>(config.afternoonOpen || '14:00');
   const [afternoonClose, setAfternoonClose] = useState<string>(config.afternoonClose || '19:30');
   const [appointmentIntervalMinutes, setAppointmentIntervalMinutes] = useState<number>(
@@ -629,15 +635,21 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       currency: selectedCurrency,
       simultaneousCapacity,
       staffMembers: staffList,
-      staffScheduleConfig,
+      staffScheduleConfig: {
+        allDay: { start: timeTo24H(morningOpen), end: hasDoubleShift ? timeTo24H(afternoonClose) : timeTo24H(morningClose) },
+        morning: { start: timeTo24H(morningOpen), end: timeTo24H(morningClose) },
+        afternoon: { start: timeTo24H(afternoonOpen), end: timeTo24H(afternoonClose) }
+      },
       services: normalizedServices,
       hasMedicationProductsEnabled,
       medicationProducts: normalizedMedications,
       hasDoubleShift,
-      morningOpen,
-      morningClose,
-      afternoonOpen,
-      afternoonClose,
+      morningOpen: timeTo24H(morningOpen),
+      morningClose: timeTo24H(morningClose),
+      lunchStart: timeTo24H(lunchStart),
+      lunchEnd: timeTo24H(lunchEnd),
+      afternoonOpen: timeTo24H(afternoonOpen),
+      afternoonClose: timeTo24H(afternoonClose),
       appointmentIntervalMinutes,
       activeDays
     };
@@ -1334,42 +1346,43 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                     </div>
 
                     {/* Shifts pickers */}
-                    <div className="space-y-3 pt-1">
-                      <div className="bg-[#f5f2ff] rounded-2xl p-3.5 space-y-2 border border-[#cfc2d2]/30">
+                    <div className="space-y-4 pt-1">
+                      {/* Turnos de la mañana */}
+                      <div className="bg-[#f5f2ff] rounded-2xl p-4 space-y-3 border border-[#cfc2d2]/30">
                         <div className="flex items-center justify-between text-xs font-bold">
                           <span className="flex items-center gap-1.5 text-[#7a5900]">
                             <span>☀️</span> {t.morningShift}
                           </span>
-                          <span className="text-[11px] text-[#7e7482]">{morningOpen} - {morningClose}</span>
+                          <span className="text-[11px] font-extrabold text-[#2e004e] bg-white px-2.5 py-0.5 rounded-lg border border-[#cfc2d2]/40">
+                            {timeTo12H(morningOpen)} - {timeTo12H(morningClose)}
+                          </span>
                         </div>
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center justify-between text-xs font-bold border border-[#cfc2d2]/30">
-                            <span className="text-[#7e7482]">Desde:</span>
-                            <input
-                              type="text"
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
+                            <span className="text-[11px] font-bold text-[#7e7482] block">Desde:</span>
+                            <TimeSelectPicker
                               value={morningOpen}
-                              onChange={(e) => setMorningOpen(e.target.value)}
-                              className="w-16 outline-none font-bold text-[#1a1a26]"
+                              onChange={(_, v24) => setMorningOpen(v24)}
                             />
                           </div>
-                          <span className="text-sm font-bold text-[#7e7482]">➔</span>
-                          <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center justify-between text-xs font-bold border border-[#cfc2d2]/30">
-                            <span className="text-[#7e7482]">Hasta:</span>
-                            <input
-                              type="text"
+                          <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
+                            <span className="text-[11px] font-bold text-[#7e7482] block">Hasta:</span>
+                            <TimeSelectPicker
                               value={morningClose}
-                              onChange={(e) => setMorningClose(e.target.value)}
-                              className="w-16 outline-none font-bold text-[#1a1a26]"
+                              onChange={(_, v24) => setMorningClose(v24)}
                             />
                           </div>
                         </div>
                       </div>
 
-                      {/* Lunch break */}
+                      {/* Lunch break switch */}
                       <div className="flex items-center justify-between py-1 px-1">
                         <div>
-                          <span className="text-xs font-bold text-[#1a1a26] flex items-center gap-1">
+                          <span className="text-xs font-bold text-[#1a1a26] flex items-center gap-1.5">
                             <span>🍔</span> {t.lunchBreak}
+                          </span>
+                          <span className="text-[11px] text-[#7e7482] block">
+                            {hasDoubleShift ? 'Pausa activa durante el mediodía' : 'Jornada continua (sin pausa de almuerzo)'}
                           </span>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -1383,33 +1396,63 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </label>
                       </div>
 
-                      {/* Afternoon shift */}
+                      {/* Pausa para el almuerzo configurable */}
                       {hasDoubleShift && (
-                        <div className="bg-[#f5f2ff] rounded-2xl p-3.5 space-y-2 border border-[#cfc2d2]/30">
+                        <div className="bg-[#fff9ed] rounded-2xl p-4 space-y-3 border border-[#f9b900]/30 animate-in fade-in duration-200">
+                          <div className="flex items-center justify-between text-xs font-bold">
+                            <span className="flex items-center gap-1.5 text-[#b27b00]">
+                              <span>🍔</span> Pausa para el almuerzo
+                            </span>
+                            <span className="text-[11px] font-extrabold text-[#7a5900] bg-white px-2.5 py-0.5 rounded-lg border border-[#f9b900]/40">
+                              {timeTo12H(lunchStart)} - {timeTo12H(lunchEnd)}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-[#7e7482]">
+                            Intervalo de descanso en el que no se ofrecerán citas a los clientes.
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
+                              <span className="text-[11px] font-bold text-[#7e7482] block">Desde:</span>
+                              <TimeSelectPicker
+                                value={lunchStart}
+                                onChange={(_, v24) => setLunchStart(v24)}
+                              />
+                            </div>
+                            <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
+                              <span className="text-[11px] font-bold text-[#7e7482] block">Hasta:</span>
+                              <TimeSelectPicker
+                                value={lunchEnd}
+                                onChange={(_, v24) => setLunchEnd(v24)}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Turnos de la tarde */}
+                      {hasDoubleShift && (
+                        <div className="bg-[#f5f2ff] rounded-2xl p-4 space-y-3 border border-[#cfc2d2]/30 animate-in fade-in duration-200">
                           <div className="flex items-center justify-between text-xs font-bold">
                             <span className="flex items-center gap-1.5 text-[#4b0878]">
                               <span>🌙</span> {t.afternoonShift}
                             </span>
-                            <span className="text-[11px] text-[#7e7482]">{afternoonOpen} - {afternoonClose}</span>
+                            <span className="text-[11px] font-extrabold text-[#2e004e] bg-white px-2.5 py-0.5 rounded-lg border border-[#cfc2d2]/40">
+                              {timeTo12H(afternoonOpen)} - {timeTo12H(afternoonClose)}
+                            </span>
                           </div>
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center justify-between text-xs font-bold border border-[#cfc2d2]/30">
-                              <span className="text-[#7e7482]">Desde:</span>
-                              <input
-                                type="text"
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
+                              <span className="text-[11px] font-bold text-[#7e7482] block">Desde:</span>
+                              <TimeSelectPicker
                                 value={afternoonOpen}
-                                onChange={(e) => setAfternoonOpen(e.target.value)}
-                                className="w-16 outline-none font-bold text-[#1a1a26]"
+                                onChange={(_, v24) => setAfternoonOpen(v24)}
                               />
                             </div>
-                            <span className="text-sm font-bold text-[#7e7482]">➔</span>
-                            <div className="flex-1 bg-white rounded-xl px-3 py-2 flex items-center justify-between text-xs font-bold border border-[#cfc2d2]/30">
-                              <span className="text-[#7e7482]">Hasta:</span>
-                              <input
-                                type="text"
+                            <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
+                              <span className="text-[11px] font-bold text-[#7e7482] block">Hasta:</span>
+                              <TimeSelectPicker
                                 value={afternoonClose}
-                                onChange={(e) => setAfternoonClose(e.target.value)}
-                                className="w-16 outline-none font-bold text-[#1a1a26]"
+                                onChange={(_, v24) => setAfternoonClose(v24)}
                               />
                             </div>
                           </div>

@@ -656,12 +656,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     }`}
                   >
                     <div className="flex items-start gap-3.5 min-w-0">
-                      <div className={`w-12 h-12 rounded-2xl flex flex-col items-center justify-center shrink-0 border font-mono text-xs font-black ${
+                      <div className={`w-14 h-12 rounded-2xl flex flex-col items-center justify-center shrink-0 border font-mono text-[11px] font-black px-1 text-center ${
                         isPending
                           ? 'bg-amber-100 text-amber-900 border-amber-300'
                           : 'bg-[#f5f2ff] text-[#4b0878] border-[#cfc2d2]/30'
                       }`}>
-                        <span>{apt.time.slice(0, 5)}</span>
+                        <span className="leading-tight">{apt.time}</span>
                       </div>
 
                       <div className="min-w-0">

@@ -215,6 +215,8 @@ export interface SalonConfig {
   reviewRequests?: Record<string, { state: ReviewRequestState; requestedAt?: string }>;
   morningOpen: string; // e.g. '08:00'
   morningClose: string; // e.g. '12:30'
+  lunchStart?: string; // e.g. '12:30 PM' or '12:30'
+  lunchEnd?: string; // e.g. '01:30 PM' or '13:30'
   afternoonOpen: string; // e.g. '14:00'
   afternoonClose: string; // e.g. '19:30'
   hasDoubleShift: boolean;

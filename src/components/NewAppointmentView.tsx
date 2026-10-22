@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Appointment, SalonConfig, Pet, BehaviorMood } from '../types';
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { formatPrice } from '../utils/priceUtils';
+import { TimeSelectPicker } from './TimeSelectPicker';
+import { validateCustomAppointmentTime } from '../utils/scheduleUtils';
 
 interface NewAppointmentViewProps {
   onClose: () => void;
@@ -197,6 +199,28 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   }, [salonConfig, simultaneousCapacity, activeService, selectedDate, existingAppointments]);
 
   const [selectedTime, setSelectedTime] = useState<string>('');
+  const [isCustomTime, setIsCustomTime] = useState<boolean>(false);
+  const [customTimeVal, setCustomTimeVal] = useState<string>('09:15 AM');
+
+  // Real-time custom time validation against business hours, lunch break, capacity and overlaps
+  const customValidation = useMemo(() => {
+    if (!salonConfig) {
+      return {
+        isValid: true,
+        isOutsideHours: false,
+        isConflict: false,
+        formattedTime12: customTimeVal,
+        formattedTime24: customTimeVal
+      };
+    }
+    return validateCustomAppointmentTime({
+      config: salonConfig,
+      selectedDate,
+      timeStr: customTimeVal,
+      serviceDurationMin: activeService?.durationMin || 60,
+      existingAppointments
+    });
+  }, [salonConfig, selectedDate, customTimeVal, activeService, existingAppointments]);
 
   React.useEffect(() => {
     const firstAvail = timeSlots.find((s) => s.available);
@@ -281,8 +305,15 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       setFormError('Por favor selecciona una fecha.');
       return;
     }
-    if (!selectedTime) {
+
+    const effectiveTime = isCustomTime ? customValidation.formattedTime12 : selectedTime;
+
+    if (!effectiveTime) {
       setFormError('Por favor selecciona un horario disponible.');
+      return;
+    }
+    if (isCustomTime && !customValidation.isValid) {
+      setFormError(customValidation.reason || 'El horario personalizado no está dentro de la jornada de atención del salón.');
       return;
     }
     if (!tutorName.trim()) {
@@ -330,7 +361,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       tutorName: tutorName.trim(),
       tutorPhone: whatsappPhone.trim(),
       serviceName: activeService.name,
-      time: selectedTime,
+      time: effectiveTime,
       date: selectedDate,
       status: 'confirmada',
       statusLabel: 'CONFIRMADA',
@@ -629,45 +660,111 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
 
             {/* 3. Selecciona el horario disponible */}
             <div className="space-y-3">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center">
-                  3
-                </span>
-                <h4 className="font-extrabold text-sm text-[#1a1a26]">
-                  Horarios disponibles ({selectedDate})
-                </h4>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="w-6 h-6 rounded-full bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center">
+                    3
+                  </span>
+                  <h4 className="font-extrabold text-sm text-[#1a1a26]">
+                    Horarios disponibles ({selectedDate})
+                  </h4>
+                </div>
+                {isCustomTime && (
+                  <span className="text-[11px] font-bold text-[#4b0878] bg-[#f5f2ff] px-2 py-0.5 rounded-full border border-[#cfc2d2]/40 flex items-center gap-1">
+                    <span className="material-symbols-outlined text-xs">edit_calendar</span>
+                    <span>Modo personalizado</span>
+                  </span>
+                )}
               </div>
 
-              {timeSlots.length === 0 ? (
-                <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 text-xs text-[#7e7482] text-center">
-                  No hay turnos disponibles para este día según el horario de atención.
+              <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                {timeSlots.map((slot) => {
+                  const isSelected = !isCustomTime && selectedTime === slot.time;
+                  return (
+                    <button
+                      key={slot.time}
+                      type="button"
+                      disabled={!slot.available}
+                      onClick={() => {
+                        if (slot.available) {
+                          setIsCustomTime(false);
+                          setSelectedTime(slot.time);
+                        }
+                      }}
+                      className={`py-2.5 px-2 rounded-xl text-center font-bold text-xs transition-all ${
+                        !slot.available
+                          ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed line-through'
+                          : isSelected
+                          ? 'bg-[#2e004e] text-white shadow-xs'
+                          : 'bg-white text-[#1a1a26] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff] cursor-pointer'
+                      }`}
+                    >
+                      {slot.time} hs
+                    </button>
+                  );
+                })}
+
+                {/* Opción claramente identificada: Personalizado */}
+                <button
+                  type="button"
+                  onClick={() => setIsCustomTime(true)}
+                  className={`py-2.5 px-2 rounded-xl text-center font-bold text-xs transition-all flex items-center justify-center gap-1 cursor-pointer ${
+                    isCustomTime
+                      ? 'bg-[#2e004e] text-white shadow-xs ring-2 ring-[#2e004e]/20'
+                      : 'bg-white text-[#4b0878] border border-dashed border-[#4b0878]/60 hover:bg-[#f5f2ff]'
+                  }`}
+                  title="Elegir hora y minutos específicos (ej: 9:15 AM, 4:20 PM)"
+                >
+                  <span className="material-symbols-outlined text-sm">schedule</span>
+                  <span>Personalizado</span>
+                </button>
+              </div>
+
+              {timeSlots.length === 0 && !isCustomTime && (
+                <div className="p-3 bg-gray-50 rounded-2xl border border-dashed border-gray-300 text-xs text-[#7e7482] text-center">
+                  No hay intervalos automáticos disponibles para este día según el horario de atención. Puedes pulsar en <strong>Personalizado</strong> para seleccionar una hora exacta.
                 </div>
-              ) : (
-                <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-                  {timeSlots.map((slot) => {
-                    const isSelected = selectedTime === slot.time;
-                    return (
-                      <button
-                        key={slot.time}
-                        type="button"
-                        disabled={!slot.available}
-                        onClick={() => {
-                          if (slot.available) {
-                            setSelectedTime(slot.time);
-                          }
-                        }}
-                        className={`py-2.5 px-2 rounded-xl text-center font-bold text-xs transition-all ${
-                          !slot.available
-                            ? 'bg-gray-100 text-gray-400 opacity-60 cursor-not-allowed line-through'
-                            : isSelected
-                            ? 'bg-[#2e004e] text-white shadow-xs'
-                            : 'bg-white text-[#1a1a26] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff] cursor-pointer'
-                        }`}
-                      >
-                        {slot.time} hs
-                      </button>
-                    );
-                  })}
+              )}
+
+              {/* Panel de Horario Personalizado con los 3 selectores */}
+              {isCustomTime && (
+                <div className="p-4 bg-gradient-to-br from-[#fcf8ff] to-[#f5f2ff] rounded-2xl border border-[#4b0878]/30 space-y-3 animate-in fade-in duration-150 shadow-xs">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h5 className="font-extrabold text-xs text-[#2e004e] flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-sm text-[#4b0878]">edit_calendar</span>
+                        <span>Horario personalizado para la cita:</span>
+                      </h5>
+                      <p className="text-[11px] text-[#7e7482]">
+                        Selecciona la hora, los minutos exactos (00 a 59) y el período AM/PM.
+                      </p>
+                    </div>
+
+                    <div className="bg-white px-2.5 py-1 rounded-xl border border-[#cfc2d2]/60 shadow-2xs font-mono font-black text-xs text-[#2e004e]">
+                      {customValidation.formattedTime12}
+                    </div>
+                  </div>
+
+                  <TimeSelectPicker
+                    value={customTimeVal}
+                    onChange={(val12) => setCustomTimeVal(val12)}
+                  />
+
+                  {/* Feedback de validación en tiempo real contra horarios de negocio y superposiciones */}
+                  {!customValidation.isValid ? (
+                    <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl font-medium flex items-start gap-2 leading-relaxed">
+                      <span className="material-symbols-outlined text-base text-rose-600 shrink-0 mt-0.5">warning</span>
+                      <div>
+                        <strong className="block font-bold text-rose-900">Horario no disponible:</strong>
+                        <span>{customValidation.reason}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-bold flex items-center gap-2">
+                      <span className="material-symbols-outlined text-base text-emerald-600 shrink-0">check_circle</span>
+                      <span>Horario válido: dentro de la jornada de atención del salón y con cupo disponible.</span>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
