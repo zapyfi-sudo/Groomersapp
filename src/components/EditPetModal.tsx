@@ -410,7 +410,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                     onChange={(e) => setDeliveryMinute(e.target.value)}
                     className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs font-bold px-2 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
                   >
-                    {['00', '05', '10', '15', '20', '25', '30', '35', '40', '45', '50', '55'].map((m) => (
+                    {Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0')).map((m) => (
                       <option key={m} value={m}>{m}</option>
                     ))}
                   </select>
