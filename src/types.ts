@@ -157,6 +157,7 @@ export interface SalonService {
   badge?: string;
   icon?: string;
   imageUrl?: string;
+  galleryUrls?: string[]; // Up to 4 additional photos for public booking gallery
   active: boolean;
   rating?: number;
   reviewCount?: number;

@@ -34,6 +34,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     extraGrande: isZeroDecimal ? 35000 : 35
   });
   const [imageUrl, setImageUrl] = useState('');
+  const [galleryUrls, setGalleryUrls] = useState<string[]>([]);
   const [active, setActive] = useState(true);
   const [formError, setFormError] = useState('');
 
@@ -50,6 +51,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       extraGrande: isZeroDecimal ? 35000 : 35
     });
     setImageUrl('');
+    setGalleryUrls([]);
     setActive(true);
     setEditingServiceId(null);
     setFormError('');
@@ -80,6 +82,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       });
     }
     setImageUrl(svc.imageUrl || '');
+    setGalleryUrls(Array.isArray(svc.galleryUrls) ? [...svc.galleryUrls].slice(0, 4) : []);
     setActive(svc.active ?? true);
     setFormError('');
     setIsFormOpen(true);
@@ -96,6 +99,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     }
 
     const basePrice = pricingType === 'unico' ? singlePrice : sizePrices.mediano;
+    const validGallery = galleryUrls.filter((u) => typeof u === 'string' && u.trim()).slice(0, 4);
 
     if (editingServiceId) {
       onChangeServices(
@@ -120,6 +124,11 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
           } else {
             delete updated.imageUrl;
           }
+          if (validGallery.length > 0) {
+            updated.galleryUrls = validGallery;
+          } else {
+            delete updated.galleryUrls;
+          }
           return updated;
         })
       );
@@ -142,6 +151,9 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       if (imageUrl && imageUrl.trim()) {
         newSvc.imageUrl = imageUrl.trim();
       }
+      if (validGallery.length > 0) {
+        newSvc.galleryUrls = validGallery;
+      }
       onChangeServices([...services, newSvc]);
     }
 
@@ -162,12 +174,54 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 480, 0.76);
+        const compressed = await compressImage(file, 640, 0.78);
         setImageUrl(compressed);
       } catch (err) {
         console.warn('Error uploading service image:', err);
       }
     }
+  };
+
+  const handleAdditionalImagesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    const remainingSlots = 4 - galleryUrls.length;
+    if (remainingSlots <= 0) return;
+
+    const filesToProcess = Array.from(files).slice(0, remainingSlots);
+    try {
+      const compressedList = await Promise.all(
+        filesToProcess.map((file) => compressImage(file, 640, 0.78))
+      );
+      setGalleryUrls((prev) => [...prev, ...compressedList].slice(0, 4));
+    } catch (err) {
+      console.warn('Error uploading additional images:', err);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleReplaceAdditionalPhoto = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    try {
+      const compressed = await compressImage(file, 640, 0.78);
+      setGalleryUrls((prev) => {
+        const next = [...prev];
+        next[index] = compressed;
+        return next;
+      });
+    } catch (err) {
+      console.warn('Error replacing additional image:', err);
+    } finally {
+      e.target.value = '';
+    }
+  };
+
+  const handleRemoveAdditionalPhoto = (index: number) => {
+    setGalleryUrls((prev) => prev.filter((_, i) => i !== index));
   };
 
   return (
@@ -375,7 +429,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
             )}
           </div>
 
-          {/* Foto del servicio */}
+          {/* 6. Foto o imagen del servicio */}
           <div>
             <label className="text-xs font-bold text-[#4c4451] block mb-1">
               Foto o imagen del servicio
@@ -410,6 +464,109 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 >
                   Quitar foto
                 </button>
+              )}
+            </div>
+          </div>
+
+          {/* 7. Fotos adicionales (hasta 4 adicionales) */}
+          <div className="pt-3 border-t border-[#efecfd] space-y-2.5">
+            <div>
+              <label className="text-xs font-black text-[#1a1a26] block">
+                Fotos adicionales
+              </label>
+              <p className="text-[11px] text-[#7e7482] mt-0.5">
+                Puedes subir hasta 4 fotos adicionales para mostrar más detalles de este servicio a tus clientes.
+              </p>
+            </div>
+
+            {/* Listado de miniaturas de fotos adicionales */}
+            {galleryUrls.length > 0 && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                {galleryUrls.map((photoUrl, index) => (
+                  <div
+                    key={index}
+                    className="relative group bg-[#f5f2ff] rounded-2xl border border-[#cfc2d2]/40 overflow-hidden aspect-square flex flex-col items-center justify-center shadow-2xs"
+                  >
+                    <img
+                      src={photoUrl}
+                      alt={`Foto adicional ${index + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+
+                    {/* Badge indicador */}
+                    <span className="absolute top-1.5 left-1.5 bg-black/60 text-white font-black text-[10px] px-1.5 py-0.5 rounded-md pointer-events-none">
+                      #{index + 1}
+                    </span>
+
+                    {/* Acciones para reemplazar o eliminar */}
+                    <div className="absolute inset-0 bg-black/50 opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-1.5">
+                      <label
+                        className="w-8 h-8 rounded-xl bg-white text-[#2e004e] hover:bg-[#f9b900] flex items-center justify-center shadow-md cursor-pointer transition-transform active:scale-95"
+                        title="Reemplazar foto"
+                      >
+                        <span className="material-symbols-outlined text-sm font-bold">cached</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleReplaceAdditionalPhoto(index, e)}
+                          className="hidden"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAdditionalPhoto(index)}
+                        className="w-8 h-8 rounded-xl bg-white text-rose-600 hover:bg-rose-50 flex items-center justify-center shadow-md transition-transform active:scale-95 cursor-pointer"
+                        title="Eliminar foto"
+                      >
+                        <span className="material-symbols-outlined text-sm font-bold">delete</span>
+                      </button>
+                    </div>
+
+                    {/* Acciones visibles en móviles */}
+                    <div className="sm:hidden absolute bottom-0 inset-x-0 bg-black/75 flex items-center justify-between px-2 py-1 text-white">
+                      <label className="text-[10px] font-bold flex items-center gap-0.5 cursor-pointer">
+                        <span className="material-symbols-outlined text-xs">cached</span>
+                        <span>Cambiar</span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          onChange={(e) => handleReplaceAdditionalPhoto(index, e)}
+                          className="hidden"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveAdditionalPhoto(index)}
+                        className="text-[10px] text-rose-300 font-bold flex items-center gap-0.5 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-xs">delete</span>
+                        <span>Quitar</span>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Botón Subir foto o aviso de límite alcanzado */}
+            <div>
+              {galleryUrls.length >= 4 ? (
+                <div className="p-2.5 bg-amber-50 border border-amber-200/70 rounded-xl text-amber-800 text-xs font-bold flex items-center gap-2">
+                  <span className="material-symbols-outlined text-base text-amber-600 shrink-0">info</span>
+                  <span>Has alcanzado el límite de 4 fotos adicionales.</span>
+                </div>
+              ) : (
+                <label className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 cursor-pointer shadow-xs transition-all active:scale-95">
+                  <span className="material-symbols-outlined text-sm">photo_camera</span>
+                  <span>Subir foto</span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={handleAdditionalImagesUpload}
+                    className="hidden"
+                  />
+                </label>
               )}
             </div>
           </div>
@@ -467,7 +624,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7e7482]">
+                  <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7e7482] flex-wrap">
                     <span className="flex items-center gap-0.5">
                       <span className="material-symbols-outlined text-xs">schedule</span>
                       {svc.durationMin} min
@@ -475,6 +632,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     {svc.pricingType === 'tamano' && (
                       <span className="px-1.5 py-0.2 rounded bg-[#f2daff] text-[#2e004e] font-bold text-[10px]">
                         Por tamaño
+                      </span>
+                    )}
+                    {svc.galleryUrls && svc.galleryUrls.length > 0 && (
+                      <span className="px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200/60 font-bold text-[10px] flex items-center gap-0.5">
+                        <span className="material-symbols-outlined text-[11px]">photo_library</span>
+                        +{svc.galleryUrls.length} {svc.galleryUrls.length === 1 ? 'foto' : 'fotos'}
                       </span>
                     )}
                   </div>

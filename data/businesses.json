@@ -543,22 +543,6 @@
         "updatedAt": "2026-10-06T16:38:01.410Z"
       },
       {
-        "id": "apt_test_verify_1791238153431",
-        "petId": "#PET-7777",
-        "petName": "Rocky Balboa",
-        "breed": "Bulldog",
-        "tutorName": "Silvestre S.",
-        "tutorPhone": "+54 9 11 8877-6655",
-        "serviceName": "Baño completo",
-        "time": "16:00 hs",
-        "date": "8 de octubre de 2026",
-        "status": "confirmada",
-        "statusLabel": "CONFIRMADA",
-        "price": 22000,
-        "currency": "ARS",
-        "updatedAt": "2026-10-05T22:09:13.564Z"
-      },
-      {
         "id": "apt_test_live_1",
         "petId": "#PET-8888",
         "petName": "Boby",
@@ -635,7 +619,7 @@
     ],
     "bookedRetentions": [],
     "sales": [],
-    "updatedAt": "2026-10-20T15:36:46.801Z"
+    "updatedAt": "2026-10-22T15:43:58.482Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

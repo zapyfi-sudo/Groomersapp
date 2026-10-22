@@ -70,7 +70,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Brand data
-  const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || HOTLINK_IMAGES.logo);
+  const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl !== undefined ? config.logoUrl : HOTLINK_IMAGES.logo);
   const [businessName, setBusinessName] = useState<string>(config.name || 'Groomer Aida');
   const [selectedCountry, setSelectedCountry] = useState<string>(config.country || 'Argentina');
   const [selectedCity, setSelectedCity] = useState<string>(config.city || '');
@@ -80,7 +80,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   useEffect(() => {
     if (!config) return;
     if (config.name !== undefined) setBusinessName(config.name);
-    if (config.logoUrl !== undefined) setLogoUrl(config.logoUrl || HOTLINK_IMAGES.logo);
+    if (config.logoUrl !== undefined) setLogoUrl(config.logoUrl);
     if (config.country !== undefined) setSelectedCountry(config.country);
     if (config.city !== undefined) setSelectedCity(config.city);
     if (config.currency !== undefined) setSelectedCurrency(config.currency);
@@ -606,6 +606,8 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       durationMin: Number(svc.durationMin) || 60,
       price: Number(svc.price) || 0,
       pricingType: svc.pricingType || 'unico',
+      imageUrl: svc.imageUrl?.trim() || undefined,
+      galleryUrls: Array.isArray(svc.galleryUrls) ? svc.galleryUrls.filter(Boolean).slice(0, 4) : undefined,
       active: svc.active !== false
     }));
 
@@ -657,6 +659,23 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     try {
       // 1. Immediately persist full configuration to local database (IndexedDB + local sync mirror)
       await persistActiveConfig(updatedConfig);
+
+      // Cache locally for public booking page instant resolution
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedPublicData = {
+            businessId: persistentBizId,
+            config: updatedConfig,
+            services: updatedConfig.services || [],
+            appointments: appointments || []
+          };
+          const serialized = JSON.stringify(cachedPublicData);
+          localStorage.setItem(`agendacan_public_biz_${persistentBizId}`, serialized);
+          if (safeSlug) {
+            localStorage.setItem(`agendacan_public_biz_${safeSlug}`, serialized);
+          }
+        } catch {}
+      }
 
       // 2. Synchronize to Server API and Cloud Firestore
       const remoteSuccess = await syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments);

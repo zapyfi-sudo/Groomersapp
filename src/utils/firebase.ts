@@ -169,6 +169,8 @@ export async function saveBusinessToFirestore(
     durationMin: Number(s.durationMin) || 60,
     price: Number(s.price) || 0,
     pricingType: s.pricingType || 'unico',
+    ...(s.imageUrl ? { imageUrl: s.imageUrl } : {}),
+    ...(Array.isArray(s.galleryUrls) && s.galleryUrls.length > 0 ? { galleryUrls: s.galleryUrls.filter(Boolean).slice(0, 4) } : {}),
     active: s.active !== false
   }));
 

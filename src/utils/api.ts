@@ -55,39 +55,8 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
   const rawTarget = idOrSlug.trim();
   const cleanTarget = extractSlugOnly(idOrSlug) || rawTarget;
 
-  // 1. Fast local cache check for zero-wait instant load
-  if (typeof window !== 'undefined') {
-    try {
-      const cached =
-        localStorage.getItem(`agendacan_public_biz_${cleanTarget}`) ||
-        localStorage.getItem(`agendacan_public_biz_${rawTarget}`);
-      if (cached) {
-        const parsed = JSON.parse(cached);
-        if (parsed && parsed.businessId && parsed.config && parsed.config.name) {
-          // Trigger background refresh from server to ensure fresh data
-          fetch(getApiUrl(`/api/businesses/${encodeURIComponent(cleanTarget)}`))
-            .then((r) => (r.ok ? r.json() : null))
-            .then((fresh) => {
-              if (fresh && fresh.config) {
-                const refreshed: PublicBusinessResult = {
-                  businessId: fresh.businessId,
-                  config: fresh.config,
-                  services: fresh.services || fresh.config.services || [],
-                  appointments: fresh.appointments || [],
-                  pets: fresh.pets || [],
-                  sales: fresh.sales || []
-                };
-                localStorage.setItem(`agendacan_public_biz_${cleanTarget}`, JSON.stringify(refreshed));
-              }
-            })
-            .catch(() => {});
-          return parsed;
-        }
-      }
-    } catch {}
-  }
-
-  // 2. Primary: Query Server API (/api/businesses/:idOrSlug) - ultra-fast (<20ms response)
+  // 1. Primary: Query Server API (/api/businesses/:idOrSlug) with cache: 'no-store' (<20ms response)
+  // This guarantees that any changes to logo, services, prices, or business name in Ajustes are immediately reflected.
   try {
     const targetsToTry = [cleanTarget];
     if (rawTarget !== cleanTarget && !targetsToTry.includes(rawTarget)) {
@@ -96,9 +65,11 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
 
     for (const target of targetsToTry) {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3000);
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
       try {
         const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(target)}`), {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store' },
           signal: controller.signal
         });
         clearTimeout(timeoutId);
@@ -119,11 +90,12 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
 
             if (typeof window !== 'undefined') {
               try {
-                localStorage.setItem(`agendacan_public_biz_${data.businessId}`, JSON.stringify(result));
+                const serialized = JSON.stringify(result);
+                localStorage.setItem(`agendacan_public_biz_${data.businessId}`, serialized);
                 if (data.config.bookingSlug) {
                   localStorage.setItem(
                     `agendacan_public_biz_${extractSlugOnly(data.config.bookingSlug)}`,
-                    JSON.stringify(result)
+                    serialized
                   );
                 }
               } catch {}
@@ -141,6 +113,58 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
   } catch (err) {
     console.warn('Server API error in fetchBusinessProfile:', err);
+  }
+
+  // 2. Secondary: Query Cloud Firestore if Server API was unreachable
+  try {
+    let firestoreResult = await getBusinessFromFirestore(rawTarget);
+    if (!firestoreResult && cleanTarget !== rawTarget) {
+      firestoreResult = await getBusinessFromFirestore(cleanTarget);
+    }
+
+    if (firestoreResult && firestoreResult.businessId && firestoreResult.config) {
+      const result: PublicBusinessResult = {
+        businessId: firestoreResult.businessId,
+        config: firestoreResult.config,
+        services: firestoreResult.services || firestoreResult.config.services || [],
+        appointments: firestoreResult.appointments || [],
+        pets: firestoreResult.pets || []
+      };
+
+      // Cache locally for fast offline revisit
+      if (typeof window !== 'undefined') {
+        try {
+          const serialized = JSON.stringify(result);
+          localStorage.setItem(`agendacan_public_biz_${result.businessId}`, serialized);
+          if (result.config.bookingSlug) {
+            localStorage.setItem(
+              `agendacan_public_biz_${extractSlugOnly(result.config.bookingSlug)}`,
+              serialized
+            );
+          }
+        } catch {}
+      }
+
+      return result;
+    }
+  } catch (err) {
+    console.warn('[FIRESTORE PROFILE FETCH ERROR]', err);
+  }
+
+  // 3. Fallback: Local storage cache (only when server AND Firestore were unavailable / offline)
+  if (typeof window !== 'undefined') {
+    try {
+      const cachedRaw =
+        localStorage.getItem(`agendacan_public_biz_${cleanTarget}`) ||
+        localStorage.getItem(`agendacan_public_biz_${rawTarget}`) ||
+        localStorage.getItem('agendacan_public_biz_biz_main');
+      if (cachedRaw) {
+        const cached = JSON.parse(cachedRaw);
+        if (cached && cached.config && cached.businessId) {
+          return cached;
+        }
+      }
+    } catch {}
   }
 
   // 3. Fallback: Query Cloud Firestore
@@ -266,6 +290,28 @@ export async function syncBusinessToServer(
   sales?: SaleRecord[]
 ): Promise<boolean> {
   const targetId = businessId || config.id || 'biz_main';
+  const cleanSlug = extractSlugOnly(config.bookingSlug) || config.bookingSlug;
+
+  // Immediately synchronize local public cache for zero-delay synchronization across modules
+  if (typeof window !== 'undefined') {
+    try {
+      const publicData: PublicBusinessResult = {
+        businessId: targetId,
+        config,
+        services: config.services || [],
+        appointments: appointments || [],
+        pets: pets || [],
+        sales: sales || []
+      };
+      const serialized = JSON.stringify(publicData);
+      localStorage.setItem(`agendacan_public_biz_${targetId}`, serialized);
+      if (cleanSlug) {
+        localStorage.setItem(`agendacan_public_biz_${cleanSlug}`, serialized);
+      }
+    } catch (e) {
+      console.warn('Error updating local public cache in syncBusinessToServer:', e);
+    }
+  }
 
   // Concurrently start Firestore sync
   const firestorePromise = saveBusinessToFirestore(targetId, config, appointments, pets).catch((err) => {

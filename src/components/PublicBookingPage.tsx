@@ -7,6 +7,7 @@ import { getSyncActiveData } from '../utils/saasDb';
 import { HOTLINK_IMAGES } from '../mockData';
 import { formatPrice } from '../utils/priceUtils';
 import { parseTimeToMinutes, isDateMatching } from '../utils/scheduleUtils';
+import { extractSlugOnly } from '../utils/slugUtils';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -54,11 +55,48 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [createdAppointment, setCreatedAppointment] = useState<Appointment | null>(null);
 
+  // Gallery viewer state for service additional photos
+  const [galleryModalService, setGalleryModalService] = useState<SalonService | null>(null);
+  const [galleryActiveIndex, setGalleryActiveIndex] = useState<number>(0);
+
   // Load business from persistent storage using URL identifier
   useEffect(() => {
     let isMounted = true;
-    setIsLoading(true);
     setLoadError(null);
+
+    // Eagerly initialize if previewing or if the current session matches this salon
+    if (typeof window !== 'undefined') {
+      try {
+        const syncData = getSyncActiveData();
+        const activeSlug = syncData?.config?.bookingSlug ? extractSlugOnly(syncData.config.bookingSlug) : '';
+        const targetClean = extractSlugOnly(businessIdOrSlug) || businessIdOrSlug.trim();
+        const isMatch =
+          isPreviewMode ||
+          (syncData &&
+            (syncData.businessId === targetClean ||
+              activeSlug === targetClean ||
+              syncData.config?.name?.toLowerCase().replace(/\s+/g, '-') === targetClean));
+
+        if (isMatch && syncData?.config) {
+          setBusinessData({
+            businessId: syncData.businessId || 'biz_main',
+            config: syncData.config,
+            services: syncData.config.services || [],
+            appointments: syncData.appointments || []
+          });
+          if (syncData.config.services && syncData.config.services.length > 0) {
+            setSelectedServiceId(syncData.config.services[0].id);
+          }
+          setIsLoading(false);
+        } else {
+          setIsLoading(true);
+        }
+      } catch {
+        setIsLoading(true);
+      }
+    } else {
+      setIsLoading(true);
+    }
 
     fetchBusinessProfile(businessIdOrSlug)
       .then((result) => {
@@ -115,7 +153,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [businessIdOrSlug]);
+  }, [businessIdOrSlug, isPreviewMode]);
 
   // Real-time synchronization of reviews from Cloud Firestore (Requirement #5)
   useEffect(() => {
@@ -157,6 +195,35 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   const activeService = useMemo(() => {
     return services.find((s) => s.id === selectedServiceId) || services[0];
   }, [services, selectedServiceId]);
+
+  // Consolidate main photo and additional gallery photos for the selected service
+  const galleryPhotos = useMemo(() => {
+    if (!galleryModalService) return [];
+    const list: string[] = [];
+    if (galleryModalService.imageUrl && galleryModalService.imageUrl.trim()) {
+      list.push(galleryModalService.imageUrl.trim());
+    }
+    if (galleryModalService.galleryUrls && Array.isArray(galleryModalService.galleryUrls)) {
+      list.push(...galleryModalService.galleryUrls.filter((u) => u && typeof u === 'string' && u.trim()));
+    }
+    return list;
+  }, [galleryModalService]);
+
+  // Keyboard navigation & escape listener for gallery
+  useEffect(() => {
+    if (!galleryModalService || galleryPhotos.length === 0) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setGalleryModalService(null);
+      } else if (e.key === 'ArrowLeft') {
+        setGalleryActiveIndex((prev) => (prev > 0 ? prev - 1 : galleryPhotos.length - 1));
+      } else if (e.key === 'ArrowRight') {
+        setGalleryActiveIndex((prev) => (prev < galleryPhotos.length - 1 ? prev + 1 : 0));
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [galleryModalService, galleryPhotos.length]);
 
   const currency = config?.currency || 'USD';
 
@@ -676,33 +743,85 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {services.map((svc) => {
                     const isSelected = svc.id === selectedServiceId;
+                    const hasGallery = Array.isArray(svc.galleryUrls) && svc.galleryUrls.length > 0;
+                    const totalPhotosCount = (svc.imageUrl ? 1 : 0) + (hasGallery ? svc.galleryUrls!.length : 0);
+
                     return (
                       <div
                         key={svc.id}
                         onClick={() => setSelectedServiceId(svc.id)}
-                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-2 ${
+                        className={`p-3.5 rounded-2xl border transition-all cursor-pointer flex flex-col justify-between gap-3 ${
                           isSelected
                             ? 'border-[#2e004e] ring-2 ring-[#2e004e]/20 bg-[#f5f2ff]'
                             : 'border-[#cfc2d2]/40 bg-white hover:bg-gray-50'
                         }`}
                       >
-                        <div>
-                          <div className="flex items-center justify-between gap-2">
-                            <h4 className="font-bold text-xs text-[#1a1a26]">{svc.name}</h4>
-                            <span className="font-black text-xs text-[#2e004e] shrink-0">
-                              {formatPrice(svc.price, currency, { includeCode: true })}
-                            </span>
+                        <div className="flex items-start gap-3">
+                          {/* Fotografía principal del servicio si existe */}
+                          {svc.imageUrl ? (
+                            <div className="relative w-16 h-16 sm:w-20 sm:h-20 rounded-xl overflow-hidden bg-gray-100 border border-[#cfc2d2]/40 shrink-0 shadow-2xs">
+                              <img
+                                src={svc.imageUrl}
+                                alt={svc.name}
+                                className="w-full h-full object-cover"
+                                loading="lazy"
+                              />
+                              {hasGallery && (
+                                <span className="absolute bottom-1 right-1 bg-black/65 text-white text-[9px] font-extrabold px-1 py-0.5 rounded flex items-center gap-0.5 pointer-events-none">
+                                  <span className="material-symbols-outlined text-[10px]">photo_library</span>
+                                  {totalPhotosCount}
+                                </span>
+                              )}
+                            </div>
+                          ) : null}
+
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-1.5">
+                              <h4 className="font-bold text-xs sm:text-sm text-[#1a1a26] leading-snug">
+                                {svc.name}
+                              </h4>
+                              <span className="font-black text-xs sm:text-sm text-[#2e004e] shrink-0">
+                                {formatPrice(svc.price, currency, { includeCode: true })}
+                              </span>
+                            </div>
+
+                            {svc.desc && (
+                              <p className="text-[11px] text-[#7e7482] mt-1 line-clamp-2 leading-tight">
+                                {svc.desc}
+                              </p>
+                            )}
                           </div>
-                          {svc.desc && (
-                            <p className="text-[11px] text-[#7e7482] mt-1 line-clamp-2 leading-tight">
-                              {svc.desc}
-                            </p>
+                        </div>
+
+                        {/* Footer de la tarjeta con duración y control de galería (si tiene fotos adicionales) */}
+                        <div className="flex items-center justify-between gap-2 pt-1.5 border-t border-[#cfc2d2]/25">
+                          <span className="text-[10px] text-[#7e7482] font-semibold flex items-center gap-1">
+                            <span className="material-symbols-outlined text-xs">schedule</span>
+                            {svc.durationMin} min
+                            {svc.pricingType === 'tamano' && (
+                              <span className="ml-1 px-1.5 py-0.2 rounded bg-[#f2daff] text-[#2e004e] font-bold text-[9px]">
+                                Por tamaño
+                              </span>
+                            )}
+                          </span>
+
+                          {/* Botón «Ver fotos» ÚNICAMENTE si tiene fotografías adicionales */}
+                          {hasGallery && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setGalleryModalService(svc);
+                                setGalleryActiveIndex(0);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-[#f5f2ff] hover:bg-[#2e004e] hover:text-white text-[#2e004e] border border-[#cfc2d2]/40 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
+                              title="Ver fotos adicionales de este servicio"
+                            >
+                              <span className="material-symbols-outlined text-xs">photo_library</span>
+                              <span>Ver fotos ({totalPhotosCount})</span>
+                            </button>
                           )}
                         </div>
-                        <span className="text-[10px] text-[#7e7482] font-semibold flex items-center gap-1 mt-1">
-                          <span className="material-symbols-outlined text-xs">schedule</span>
-                          {svc.durationMin} min
-                        </span>
                       </div>
                     );
                   })}
@@ -1174,6 +1293,115 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       <footer className="py-6 text-center text-xs text-[#7e7482] border-t border-[#cfc2d2]/30 bg-white">
         <p>Sistema de Reservas Online para Peluquerías Caninas</p>
       </footer>
+
+      {/* Modal de Galería de Fotos del Servicio */}
+      {galleryModalService && galleryPhotos.length > 0 && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-xs animate-in fade-in duration-200"
+          onClick={() => setGalleryModalService(null)}
+        >
+          <div
+            className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Cabecera del modal */}
+            <div className="p-4 sm:p-5 border-b border-[#cfc2d2]/30 flex items-center justify-between gap-3 bg-[#fcf8ff]">
+              <div className="min-w-0">
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#7a5900] block">
+                  Galería del servicio
+                </span>
+                <h3 className="font-black text-base sm:text-lg text-[#1a1a26] truncate">
+                  {galleryModalService.name}
+                </h3>
+              </div>
+
+              <div className="flex items-center gap-2 shrink-0">
+                <span className="text-xs font-bold text-[#7e7482] bg-white px-2.5 py-1 rounded-full border border-[#cfc2d2]/40 shadow-2xs">
+                  {galleryActiveIndex + 1} de {galleryPhotos.length}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setGalleryModalService(null)}
+                  className="w-9 h-9 rounded-full bg-white hover:bg-gray-100 text-[#1a1a26] flex items-center justify-center border border-[#cfc2d2]/40 transition-colors cursor-pointer shadow-2xs"
+                  title="Cerrar galería"
+                >
+                  <span className="material-symbols-outlined text-xl">close</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Visor principal de la imagen */}
+            <div className="relative flex-1 bg-black/5 flex items-center justify-center min-h-[250px] sm:min-h-[360px] max-h-[58vh] p-3 select-none overflow-hidden">
+              <img
+                src={galleryPhotos[galleryActiveIndex]}
+                alt={`${galleryModalService.name} - Foto ${galleryActiveIndex + 1}`}
+                className="max-h-[54vh] w-auto max-w-full object-contain rounded-xl shadow-md transition-all duration-200"
+              />
+
+              {/* Botones de navegación Anterior / Siguiente (si hay más de 1 imagen) */}
+              {galleryPhotos.length > 1 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGalleryActiveIndex((prev) =>
+                        prev > 0 ? prev - 1 : galleryPhotos.length - 1
+                      )
+                    }
+                    className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/95 hover:bg-white text-[#2e004e] shadow-lg flex items-center justify-center transition-all active:scale-90 cursor-pointer"
+                    title="Foto anterior"
+                  >
+                    <span className="material-symbols-outlined text-2xl font-bold">chevron_left</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setGalleryActiveIndex((prev) =>
+                        prev < galleryPhotos.length - 1 ? prev + 1 : 0
+                      )
+                    }
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/95 hover:bg-white text-[#2e004e] shadow-lg flex items-center justify-center transition-all active:scale-90 cursor-pointer"
+                    title="Siguiente foto"
+                  >
+                    <span className="material-symbols-outlined text-2xl font-bold">chevron_right</span>
+                  </button>
+                </>
+              )}
+            </div>
+
+            {/* Tira inferior de miniaturas */}
+            {galleryPhotos.length > 1 && (
+              <div className="p-3 sm:p-4 bg-white border-t border-[#cfc2d2]/30 flex items-center justify-center gap-2.5 overflow-x-auto">
+                {galleryPhotos.map((photo, idx) => (
+                  <button
+                    key={idx}
+                    type="button"
+                    onClick={() => setGalleryActiveIndex(idx)}
+                    className={`relative w-14 h-14 sm:w-16 sm:h-16 rounded-xl overflow-hidden shrink-0 transition-all cursor-pointer ${
+                      galleryActiveIndex === idx
+                        ? 'ring-2 ring-[#2e004e] ring-offset-2 opacity-100 scale-105 shadow-sm'
+                        : 'opacity-60 hover:opacity-100'
+                    }`}
+                  >
+                    <img
+                      src={photo}
+                      alt={`Miniatura ${idx + 1}`}
+                      className="w-full h-full object-cover"
+                    />
+                    {idx === 0 && galleryModalService.imageUrl && (
+                      <span className="absolute bottom-0 inset-x-0 bg-black/65 text-[9px] font-bold text-white text-center py-0.5 leading-tight">
+                        Principal
+                      </span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

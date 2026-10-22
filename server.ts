@@ -196,6 +196,10 @@ app.get('/api/businesses', (_req, res) => {
 });
 
 app.get('/api/businesses/:idOrSlug', (req, res) => {
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+
   const { idOrSlug } = req.params;
   const db = readDb();
   const business = findBusiness(idOrSlug, db);
@@ -256,6 +260,7 @@ app.post('/api/businesses', (req, res) => {
     id,
     bookingSlug: cleanSlug,
     name: (config.name !== undefined ? config.name : existing.config?.name) || 'Groomer Aida',
+    logoUrl: config.logoUrl !== undefined ? config.logoUrl : (existing.config?.logoUrl || ''),
     currency: config.currency || existing.config?.currency || 'USD',
     services: config.services !== undefined ? config.services : (existing.config?.services || [])
   };
