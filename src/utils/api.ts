@@ -79,10 +79,18 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
         if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           if (data && data.businessId && data.config) {
+            const rawSvcs = data.services && data.services.length > 0 ? data.services : data.config.services || [];
+            const cleanSvcs = rawSvcs.filter((s: SalonService) => s && s.id && s.active !== false);
+            const resolvedConfig: SalonConfig = {
+              ...data.config,
+              currency: data.config.currency || 'USD',
+              services: cleanSvcs
+            };
+
             const result: PublicBusinessResult = {
               businessId: data.businessId,
-              config: data.config,
-              services: data.services || data.config.services || [],
+              config: resolvedConfig,
+              services: cleanSvcs,
               appointments: data.appointments || [],
               pets: data.pets || [],
               sales: data.sales || []
@@ -123,10 +131,21 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
 
     if (firestoreResult && firestoreResult.businessId && firestoreResult.config) {
+      const cleanSvcs = (firestoreResult.services && firestoreResult.services.length > 0
+        ? firestoreResult.services
+        : firestoreResult.config.services || []
+      ).filter((s) => s && s.id && s.active !== false);
+
+      const resolvedConfig: SalonConfig = {
+        ...firestoreResult.config,
+        currency: firestoreResult.config.currency || 'USD',
+        services: cleanSvcs
+      };
+
       const result: PublicBusinessResult = {
         businessId: firestoreResult.businessId,
-        config: firestoreResult.config,
-        services: firestoreResult.services || firestoreResult.config.services || [],
+        config: resolvedConfig,
+        services: cleanSvcs,
         appointments: firestoreResult.appointments || [],
         pets: firestoreResult.pets || []
       };
@@ -151,63 +170,35 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     console.warn('[FIRESTORE PROFILE FETCH ERROR]', err);
   }
 
-  // 3. Fallback: Local storage cache (only when server AND Firestore were unavailable / offline)
+  // 3. Fallback: Local storage cache (strictly for the requested target or slug, NEVER substituting with demo data)
   if (typeof window !== 'undefined') {
     try {
-      const cachedRaw =
-        localStorage.getItem(`agendacan_public_biz_${cleanTarget}`) ||
-        localStorage.getItem(`agendacan_public_biz_${rawTarget}`) ||
-        localStorage.getItem('agendacan_public_biz_biz_main');
-      if (cachedRaw) {
-        const cached = JSON.parse(cachedRaw);
-        if (cached && cached.config && cached.businessId) {
-          return cached;
+      const keysToTry = [`agendacan_public_biz_${cleanTarget}`];
+      if (rawTarget !== cleanTarget) {
+        keysToTry.push(`agendacan_public_biz_${rawTarget}`);
+      }
+      if (cleanTarget === 'biz_main' || rawTarget === 'biz_main') {
+        keysToTry.push('agendacan_public_biz_biz_main');
+      }
+
+      for (const k of keysToTry) {
+        const cachedRaw = localStorage.getItem(k);
+        if (cachedRaw) {
+          const cached = JSON.parse(cachedRaw);
+          if (cached && cached.config && cached.businessId) {
+            return cached;
+          }
         }
       }
     } catch {}
   }
 
-  // 3. Fallback: Query Cloud Firestore
-  try {
-    let firestoreResult = await getBusinessFromFirestore(rawTarget);
-    if (!firestoreResult && cleanTarget !== rawTarget) {
-      firestoreResult = await getBusinessFromFirestore(cleanTarget);
-    }
-
-    if (firestoreResult && firestoreResult.businessId && firestoreResult.config) {
-      const result: PublicBusinessResult = {
-        businessId: firestoreResult.businessId,
-        config: firestoreResult.config,
-        services: firestoreResult.services || firestoreResult.config.services || [],
-        appointments: firestoreResult.appointments || [],
-        pets: firestoreResult.pets || []
-      };
-
-      // Cache locally for fast offline revisit
-      if (typeof window !== 'undefined') {
-        try {
-          localStorage.setItem(`agendacan_public_biz_${result.businessId}`, JSON.stringify(result));
-          if (result.config.bookingSlug) {
-            localStorage.setItem(
-              `agendacan_public_biz_${extractSlugOnly(result.config.bookingSlug)}`,
-              JSON.stringify(result)
-            );
-          }
-        } catch {}
-      }
-
-      return result;
-    }
-  } catch (err) {
-    console.warn('[FIRESTORE PROFILE FETCH ERROR]', err);
-  }
-
-  // 3. Query params check ?businessId= or ?bid=
+  // 4. Query params check ?businessId= or ?bid=
   if (typeof window !== 'undefined') {
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const queryBizId = searchParams.get('businessId') || searchParams.get('bid');
-      if (queryBizId && queryBizId !== cleanTarget) {
+      if (queryBizId && queryBizId !== cleanTarget && queryBizId !== rawTarget) {
         // Try Firestore with queryBizId
         const fbResult = await getBusinessFromFirestore(queryBizId);
         if (fbResult && fbResult.config) {
@@ -237,7 +228,7 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     } catch {}
   }
 
-  // 4. Backward-compatibility: Check for legacy URL token (&p=...)
+  // 5. Backward-compatibility: Check for legacy URL token (&p=...)
   if (typeof window !== 'undefined') {
     try {
       const searchParams = new URLSearchParams(window.location.search);
@@ -256,22 +247,6 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     } catch (err) {
       console.warn('Error reading URL token:', err);
     }
-  }
-
-  // 5. Local storage cache fallback
-  if (typeof window !== 'undefined') {
-    try {
-      const cachedRaw =
-        localStorage.getItem(`agendacan_public_biz_${cleanTarget}`) ||
-        localStorage.getItem(`agendacan_public_biz_${rawTarget}`) ||
-        localStorage.getItem('agendacan_public_biz_biz_main');
-      if (cachedRaw) {
-        const cached = JSON.parse(cachedRaw);
-        if (cached && cached.config && cached.businessId) {
-          return cached;
-        }
-      }
-    } catch {}
   }
 
   // 6. Zero demo fallback: If not found anywhere, return null so the proper Spanish error is displayed

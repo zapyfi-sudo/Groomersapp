@@ -86,6 +86,7 @@ export interface FirestoreBusinessData {
   businessId: string;
   name: string;
   bookingSlug: string;
+  currency?: string;
   config: SalonConfig;
   services?: SalonService[];
   medicationProducts?: MedicationProduct[];
@@ -205,6 +206,7 @@ export async function saveBusinessToFirestore(
     businessId: cleanId,
     name: cleanConfig.name,
     bookingSlug: cleanSlug,
+    currency: cleanConfig.currency || 'USD',
     config: cleanConfig,
     services: sanitizedServices,
     medicationProducts: sanitizedMedications,
@@ -219,9 +221,21 @@ export async function saveBusinessToFirestore(
       // 1. Save main business document with full config and services
       await setDoc(bizRef, payloadToSave, { merge: true });
 
-      // 2. Persist services and medications to subcollections
+      // 2. Persist services and medications to subcollections, cleaning up obsolete/removed services
       try {
         const batch = writeBatch(db);
+        const activeServiceIds = new Set(sanitizedServices.map((s) => s.id));
+
+        // Fetch existing subcollection services to delete any removed ones
+        try {
+          const existingSubSnap = await getDocs(collection(db, 'businesses', cleanId, 'services'));
+          existingSubSnap.forEach((docSnap) => {
+            if (!activeServiceIds.has(docSnap.id)) {
+              batch.delete(docSnap.ref);
+            }
+          });
+        } catch {}
+
         for (const svc of sanitizedServices) {
           if (svc.id) {
             const svcRef = doc(db, 'businesses', cleanId, 'services', svc.id);
@@ -379,21 +393,41 @@ export async function getBusinessFromFirestore(
       }
 
     const b = bizSnap.data() as FirestoreBusinessData;
-    let services = b.services || b.config?.services || [];
+    let rawServices: SalonService[] = [];
 
-    // Also attempt reading subcollection services to guarantee fresh modular services
-    try {
-      const subServicesSnap = await getDocs(collection(db, 'businesses', targetBizId, 'services'));
-      if (!subServicesSnap.empty) {
-        const subList: SalonService[] = [];
-        subServicesSnap.forEach((d) => {
-          subList.push(d.data() as SalonService);
-        });
-        if (subList.length > 0) {
-          services = subList.filter((s) => s.active !== false);
+    if (Array.isArray(b.config?.services) && b.config.services.length > 0) {
+      // Authoritative services saved by the salon owner in Configuración del negocio
+      rawServices = b.config.services;
+    } else if (Array.isArray(b.services) && b.services.length > 0) {
+      rawServices = b.services;
+    } else {
+      // Fallback: Read modular subcollection only if no services exist on root document
+      try {
+        const subServicesSnap = await getDocs(collection(db, 'businesses', targetBizId, 'services'));
+        if (!subServicesSnap.empty) {
+          const subList: SalonService[] = [];
+          subServicesSnap.forEach((d) => {
+            subList.push(d.data() as SalonService);
+          });
+          if (subList.length > 0) {
+            rawServices = subList;
+          }
         }
+      } catch {}
+    }
+
+    // Filter active services and eliminate duplicates by ID, ensuring images and galleries are clean
+    const svcMap = new Map<string, SalonService>();
+    for (const svc of rawServices) {
+      if (svc && svc.id && svc.active !== false) {
+        svcMap.set(svc.id, {
+          ...svc,
+          imageUrl: svc.imageUrl?.trim() || undefined,
+          galleryUrls: Array.isArray(svc.galleryUrls) ? svc.galleryUrls.filter(Boolean).slice(0, 4) : undefined
+        });
       }
-    } catch {}
+    }
+    const services: SalonService[] = Array.from(svcMap.values());
 
     // Read appointments from subcollection to guarantee all public bookings are present
     let appointments = b.appointments || [];
@@ -448,9 +482,11 @@ export async function getBusinessFromFirestore(
       }
     } catch {}
 
+    const resolvedCurrency = b.config?.currency || b.currency || 'USD';
     const config: SalonConfig = {
       ...b.config,
       id: b.businessId,
+      currency: resolvedCurrency,
       services,
       reviews
     };

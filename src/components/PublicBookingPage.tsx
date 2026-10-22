@@ -107,10 +107,19 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             setSelectedServiceId(result.services[0].id);
           }
         } else {
-          // Robust fallback: if preview mode or active local data is available
+          // Robust fallback: ONLY if in preview mode or active local session actually belongs to this business
           if (typeof window !== 'undefined') {
             const syncData = getSyncActiveData();
-            if (syncData && syncData.config) {
+            const activeSlug = syncData?.config?.bookingSlug ? extractSlugOnly(syncData.config.bookingSlug) : '';
+            const targetClean = extractSlugOnly(businessIdOrSlug) || businessIdOrSlug.trim();
+            const isMatch =
+              isPreviewMode ||
+              (syncData &&
+                (syncData.businessId === targetClean ||
+                  activeSlug === targetClean ||
+                  syncData.config?.name?.toLowerCase().replace(/\s+/g, '-') === targetClean));
+
+            if (isMatch && syncData?.config) {
               setBusinessData({
                 businessId: syncData.businessId || 'biz_main',
                 config: syncData.config,
@@ -131,7 +140,16 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         console.error('Error loading public business:', err);
         if (typeof window !== 'undefined') {
           const syncData = getSyncActiveData();
-          if (syncData && syncData.config) {
+          const activeSlug = syncData?.config?.bookingSlug ? extractSlugOnly(syncData.config.bookingSlug) : '';
+          const targetClean = extractSlugOnly(businessIdOrSlug) || businessIdOrSlug.trim();
+          const isMatch =
+            isPreviewMode ||
+            (syncData &&
+              (syncData.businessId === targetClean ||
+                activeSlug === targetClean ||
+                syncData.config?.name?.toLowerCase().replace(/\s+/g, '-') === targetClean));
+
+          if (isMatch && syncData?.config) {
             setBusinessData({
               businessId: syncData.businessId || 'biz_main',
               config: syncData.config,
@@ -188,12 +206,25 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   const rawAvg = totalReviews > 0 ? sumStars / totalReviews : 0;
   const avgRating = totalReviews > 0 ? (rawAvg % 1 === 0 ? rawAvg.toFixed(1) : rawAvg.toFixed(1).replace('.', ',')) : null;
 
+  // Real configured services only, filtering out inactive or malformed services
   const services = useMemo(() => {
-    return businessData?.services || [];
+    const list = businessData?.services && businessData.services.length > 0
+      ? businessData.services
+      : businessData?.config?.services || [];
+    return list.filter((s) => s && s.id && s.active !== false);
   }, [businessData]);
 
   const activeService = useMemo(() => {
     return services.find((s) => s.id === selectedServiceId) || services[0];
+  }, [services, selectedServiceId]);
+
+  // Keep selectedServiceId in sync when services change
+  useEffect(() => {
+    if (services.length > 0) {
+      if (!selectedServiceId || !services.some((s) => s.id === selectedServiceId)) {
+        setSelectedServiceId(services[0].id);
+      }
+    }
   }, [services, selectedServiceId]);
 
   // Consolidate main photo and additional gallery photos for the selected service
@@ -225,7 +256,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [galleryModalService, galleryPhotos.length]);
 
-  const currency = config?.currency || 'USD';
+  const currency = config?.currency || businessData?.config?.currency || 'USD';
 
   useEffect(() => {
     if (config?.name) {

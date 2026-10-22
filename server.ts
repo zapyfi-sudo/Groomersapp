@@ -171,11 +171,7 @@ function findBusiness(idOrSlug: string, db: Record<string, StoredBusiness>): Sto
       stripped === 'main';
 
     if (isGenericTarget) {
-      return db['biz_main'] || all[0];
-    }
-
-    if (all.length === 1) {
-      return all[0];
+      return db['biz_main'] || null;
     }
   }
 
@@ -220,11 +216,12 @@ businessId: ${business ? business.businessId : 'null'}`);
     return;
   }
 
-  // Return complete business profile with all services, appointments, pets, and sales
-  const allServices = business.config?.services || [];
+  // Return complete business profile with strictly active services, appointments, pets, and sales
+  const allServices = (business.config?.services || []).filter((s: any) => s && s.id && s.active !== false);
   const publicConfig = {
     ...business.config,
     id: business.businessId,
+    currency: business.config?.currency || 'USD',
     services: allServices
   };
 
