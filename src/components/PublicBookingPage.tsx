@@ -104,7 +104,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         if (result && result.config) {
           setBusinessData(result);
           if (result.services && result.services.length > 0) {
-            setSelectedServiceId(result.services[0].id);
+            setSelectedServiceId((prev) => (prev && result.services.some((s) => s.id === prev) ? prev : result.services[0].id));
           }
         } else {
           // Robust fallback: ONLY if in preview mode or active local session actually belongs to this business

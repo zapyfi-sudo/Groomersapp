@@ -363,11 +363,21 @@ export async function getBusinessFromFirestore(
         const qSlug = query(collection(db, 'businesses'), where('bookingSlug', '==', clean));
         const snapSlug = await getDocs(qSlug);
         if (!snapSlug.empty) {
-          targetBizId = snapSlug.docs[0].id;
+          const sorted = snapSlug.docs.slice().sort((a, b) => {
+            const timeA = a.data()?.updatedAt || '';
+            const timeB = b.data()?.updatedAt || '';
+            return timeB.localeCompare(timeA);
+          });
+          targetBizId = sorted[0].id;
         } else if (clean !== raw) {
           const snapRawSlug = await getDocs(query(collection(db, 'businesses'), where('bookingSlug', '==', raw)));
           if (!snapRawSlug.empty) {
-            targetBizId = snapRawSlug.docs[0].id;
+            const sortedRaw = snapRawSlug.docs.slice().sort((a, b) => {
+              const timeA = a.data()?.updatedAt || '';
+              const timeB = b.data()?.updatedAt || '';
+              return timeB.localeCompare(timeA);
+            });
+            targetBizId = sortedRaw[0].id;
           }
         }
       }
