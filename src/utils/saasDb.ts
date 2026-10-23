@@ -1,6 +1,8 @@
 import { UserAccount, BusinessAccountData, SalonConfig, Pet, Appointment, SalonService, SaleRecord } from '../types';
 import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressImage } from './storage';
 import { generateStableBusinessId, slugify, extractSlugOnly } from './slugUtils';
+import { saveBusinessToFirestore } from './firebase';
+import { syncBusinessToServer } from './api';
 
 const DB_NAME = 'agendacan_saas_db';
 const DB_VERSION = 3;
@@ -357,8 +359,11 @@ export async function createNewBusinessAccount(params: {
   currency?: string;
   phonePrefix?: string;
   phone?: string;
+  firebaseUid?: string;
+  authProvider?: 'google' | 'password' | 'legacy';
+  photoUrl?: string;
 }): Promise<{ account: UserAccount; data: BusinessAccountData }> {
-  const newUserId = `usr_${Date.now()}`;
+  const newUserId = params.firebaseUid || `usr_${Date.now()}`;
   const newBizId = generateStableBusinessId(params.businessName);
   const now = new Date().toISOString();
 
@@ -424,6 +429,9 @@ export async function createNewBusinessAccount(params: {
     email: params.email.trim().toLowerCase(),
     name: params.name || params.businessName,
     businessId: newBizId,
+    authProvider: params.authProvider || 'password',
+    firebaseUid: params.firebaseUid,
+    photoUrl: params.photoUrl,
     createdAt: now,
     lastLoginAt: now
   };
@@ -450,6 +458,12 @@ export async function createNewBusinessAccount(params: {
   memoryActiveData = newData;
 
   updateSyncMirror(newAccount, newData, allAccounts);
+
+  // Background cloud and server sync
+  try {
+    saveBusinessToFirestore(newBizId, newConfig).catch(() => {});
+    syncBusinessToServer(newBizId, newConfig).catch(() => {});
+  } catch {}
 
   return { account: newAccount, data: newData };
 }

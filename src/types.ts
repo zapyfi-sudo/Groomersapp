@@ -73,6 +73,9 @@ export interface UserAccount {
   email: string;
   name: string;
   businessId: string;
+  authProvider?: 'google' | 'password' | 'legacy';
+  firebaseUid?: string;
+  photoUrl?: string;
   createdAt: string;
   lastLoginAt: string;
 }

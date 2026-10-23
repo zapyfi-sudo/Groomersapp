@@ -2,11 +2,38 @@ import React, { useState } from 'react';
 import { UserAccount, BusinessAccountData } from '../types';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
 import { createNewBusinessAccount, switchAccount, loginWithEmail } from '../utils/saasDb';
+import {
+  authWithGoogle,
+  registerWithEmailPassword,
+  loginWithEmailPassword,
+  translateFirebaseAuthError
+} from '../utils/firebase';
 
 interface LoginScreenProps {
   accountsList: UserAccount[];
   onLoginSuccess: (data: BusinessAccountData, account: UserAccount) => void;
 }
+
+const GoogleLogo = () => (
+  <svg className="w-5 h-5 shrink-0" viewBox="0 0 24 24" aria-hidden="true">
+    <path
+      fill="#4285F4"
+      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z"
+    />
+    <path
+      fill="#34A853"
+      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.25v3.15C3.26 21.36 7.33 24 12 24z"
+    />
+    <path
+      fill="#FBBC05"
+      d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.25C.45 8.18 0 9.99 0 12s.45 3.82 1.25 5.42l4.03-3.15z"
+    />
+    <path
+      fill="#EA4335"
+      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.25 6.58l4.03 3.15c.95-2.83 3.6-4.98 6.72-4.98z"
+    />
+  </svg>
+);
 
 export const LoginScreen: React.FC<LoginScreenProps> = ({
   accountsList,
@@ -18,17 +45,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   // Email login state
   const [emailInput, setEmailInput] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [showLoginPassword, setShowLoginPassword] = useState(false);
 
   // Register state
+  const [registerMethod, setRegisterMethod] = useState<'google' | 'email'>('google');
+  const [googleUser, setGoogleUser] = useState<{
+    uid: string;
+    email: string;
+    displayName: string;
+    photoURL?: string;
+  } | null>(null);
+
   const [businessName, setBusinessName] = useState('');
   const [ownerName, setOwnerName] = useState('');
   const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const [country, setCountry] = useState('Ecuador');
   const [currency, setCurrency] = useState('USD');
   const [phonePrefix, setPhonePrefix] = useState('+593');
   const [phone, setPhone] = useState('');
 
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const handleCountryChange = (cName: string) => {
@@ -58,6 +101,40 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
   };
 
+  // Google Login / Quick Account Recognition
+  const handleGoogleAuthAction = async () => {
+    setGoogleLoading(true);
+    setErrorMsg(null);
+    try {
+      const gUser = await authWithGoogle();
+      if (!gUser || !gUser.email) return;
+
+      // Check if an existing local account matches this Google email
+      const matched = accountsList.find(
+        (a) => a.email.toLowerCase() === gUser.email.toLowerCase()
+      );
+
+      if (matched) {
+        const data = await switchAccount(matched.id);
+        if (data) {
+          onLoginSuccess(data, matched);
+          return;
+        }
+      }
+
+      // If no account exists with this email, prepare registration with Google credentials
+      setGoogleUser(gUser);
+      setRegEmail(gUser.email);
+      if (gUser.displayName) setOwnerName(gUser.displayName);
+      setRegisterMethod('google');
+      setMode('register');
+    } catch (err: any) {
+      setErrorMsg(translateFirebaseAuthError(err));
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
+
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailInput.trim()) return;
@@ -65,6 +142,16 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setLoading(true);
     setErrorMsg(null);
     try {
+      // 1. Try Firebase Auth with password if entered
+      if (loginPassword) {
+        try {
+          await loginWithEmailPassword(emailInput.trim(), loginPassword);
+        } catch (authErr) {
+          console.warn('[FIREBASE EMAIL LOGIN WARN]', authErr);
+        }
+      }
+
+      // 2. Load SaaS account from storage
       const res = await loginWithEmail(emailInput);
       if (res) {
         onLoginSuccess(res.data, res.account);
@@ -80,27 +167,90 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!businessName.trim() || !regEmail.trim()) {
-      setErrorMsg('Por favor completa el nombre del negocio y el correo.');
+    setErrorMsg(null);
+
+    if (!businessName.trim()) {
+      setErrorMsg('Por favor completa el nombre de la peluquería.');
       return;
     }
 
-    setLoading(true);
-    setErrorMsg(null);
+    let authUid: string | undefined = undefined;
+    let authEmail: string = regEmail.trim().toLowerCase();
+    let authProviderType: 'google' | 'password' = 'password';
+    let photoUrl: string | undefined = undefined;
+
+    if (registerMethod === 'google') {
+      authProviderType = 'google';
+      if (!googleUser) {
+        setLoading(true);
+        try {
+          const gUser = await authWithGoogle();
+          if (!gUser || !gUser.email) {
+            setErrorMsg('No se pudo completar la autenticación con Google.');
+            setLoading(false);
+            return;
+          }
+          authUid = gUser.uid;
+          authEmail = gUser.email.toLowerCase();
+          photoUrl = gUser.photoURL;
+          setGoogleUser(gUser);
+        } catch (gErr: any) {
+          setErrorMsg(translateFirebaseAuthError(gErr));
+          setLoading(false);
+          return;
+        }
+      } else {
+        authUid = googleUser.uid;
+        authEmail = googleUser.email.toLowerCase();
+        photoUrl = googleUser.photoURL;
+      }
+    } else {
+      authProviderType = 'password';
+      if (!authEmail || !authEmail.includes('@')) {
+        setErrorMsg('Por favor ingresa un correo electrónico válido.');
+        return;
+      }
+      if (!regPassword || regPassword.length < 6) {
+        setErrorMsg('La contraseña debe tener al menos 6 caracteres.');
+        return;
+      }
+      if (regPassword !== confirmPassword) {
+        setErrorMsg('Las contraseñas no coinciden.');
+        return;
+      }
+
+      setLoading(true);
+      try {
+        const cred = await registerWithEmailPassword(
+          authEmail,
+          regPassword,
+          ownerName.trim() || businessName.trim()
+        );
+        authUid = cred.uid;
+      } catch (authErr: any) {
+        setErrorMsg(translateFirebaseAuthError(authErr));
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
       const res = await createNewBusinessAccount({
         name: ownerName.trim() || businessName.trim(),
-        email: regEmail.trim(),
+        email: authEmail,
         businessName: businessName.trim(),
         country,
         currency,
         phonePrefix,
-        phone: phone.trim()
+        phone: phone.trim(),
+        firebaseUid: authUid,
+        authProvider: authProviderType,
+        photoUrl
       });
 
       onLoginSuccess(res.data, res.account);
     } catch {
-      setErrorMsg('Error al crear la cuenta.');
+      setErrorMsg('Error al registrar la cuenta en el sistema.');
     } finally {
       setLoading(false);
     }
@@ -121,10 +271,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         </div>
 
         {/* Content */}
-        <div className="p-6 space-y-5">
+        <div className="p-6 space-y-4">
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
-              <span className="material-symbols-outlined text-base text-red-600">error</span>
+              <span className="material-symbols-outlined text-base text-red-600 shrink-0">error</span>
               <span>{errorMsg}</span>
             </div>
           )}
@@ -135,11 +285,28 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <div className="text-center">
                 <h2 className="text-base font-bold text-[#1a1a26]">Selecciona tu cuenta</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Cuentas guardadas permanentemente en este dispositivo
+                  Cuentas guardadas en este dispositivo
                 </p>
               </div>
 
-              <div className="space-y-2.5 max-h-60 overflow-y-auto">
+              {/* Botón rápido con Google */}
+              <button
+                type="button"
+                disabled={googleLoading}
+                onClick={handleGoogleAuthAction}
+                className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
+              >
+                <GoogleLogo />
+                <span>{googleLoading ? 'Conectando con Google...' : 'Acceder con Google'}</span>
+              </button>
+
+              <div className="flex items-center gap-2 my-2">
+                <div className="h-px bg-gray-200 flex-1"></div>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">O selecciona una cuenta</span>
+                <div className="h-px bg-gray-200 flex-1"></div>
+              </div>
+
+              <div className="space-y-2.5 max-h-56 overflow-y-auto">
                 {accountsList.map((acc) => (
                   <button
                     key={acc.id}
@@ -182,7 +349,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   onClick={() => setMode('email')}
                   className="text-xs font-semibold text-[#4b0878] hover:underline"
                 >
-                  O ingresar con otro correo
+                  O ingresar con correo y contraseña
                 </button>
               </div>
             </div>
@@ -190,12 +357,29 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
           {/* Mode 2: Login with Email */}
           {mode === 'email' && (
-            <form onSubmit={handleEmailLogin} className="space-y-4">
+            <form onSubmit={handleEmailLogin} className="space-y-3.5">
               <div className="text-center">
                 <h2 className="text-base font-bold text-[#1a1a26]">Iniciar sesión</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Ingresa el correo registrado de tu negocio
+                  Ingresa con las credenciales de tu negocio
                 </p>
+              </div>
+
+              {/* Botón rápido con Google */}
+              <button
+                type="button"
+                disabled={googleLoading}
+                onClick={handleGoogleAuthAction}
+                className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
+              >
+                <GoogleLogo />
+                <span>Continuar con Google</span>
+              </button>
+
+              <div className="flex items-center gap-2 my-1">
+                <div className="h-px bg-gray-200 flex-1"></div>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">O con correo</span>
+                <div className="h-px bg-gray-200 flex-1"></div>
               </div>
 
               <div>
@@ -208,8 +392,32 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   placeholder="ej. contacto@mipeluqueria.com"
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
-                  className="w-full px-4 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-sm bg-white"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs bg-white"
                 />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
+                  Contraseña (opcional para cuentas locales)
+                </label>
+                <div className="relative">
+                  <input
+                    type={showLoginPassword ? 'text' : 'password'}
+                    placeholder="Contraseña de acceso"
+                    value={loginPassword}
+                    onChange={(e) => setLoginPassword(e.target.value)}
+                    className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs bg-white"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLoginPassword(!showLoginPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-700 cursor-pointer"
+                  >
+                    <span className="material-symbols-outlined text-lg">
+                      {showLoginPassword ? 'visibility_off' : 'visibility'}
+                    </span>
+                  </button>
+                </div>
               </div>
 
               <button
@@ -247,9 +455,139 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <div className="text-center pb-1">
                 <h2 className="text-base font-bold text-[#1a1a26]">Nueva Cuenta de Negocio</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Configura tu peluquería en menos de un minuto
+                  Elige cómo quieres autenticarte
                 </p>
               </div>
+
+              {/* Selector de Método de Registro */}
+              <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-xl">
+                <button
+                  type="button"
+                  onClick={() => setRegisterMethod('google')}
+                  className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    registerMethod === 'google'
+                      ? 'bg-[#2e004e] text-white shadow-xs'
+                      : 'text-[#4c4451] hover:bg-gray-200'
+                  }`}
+                >
+                  <GoogleLogo />
+                  <span>Google</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRegisterMethod('email')}
+                  className={`py-2 px-2.5 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                    registerMethod === 'email'
+                      ? 'bg-[#2e004e] text-white shadow-xs'
+                      : 'text-[#4c4451] hover:bg-gray-200'
+                  }`}
+                >
+                  <span className="material-symbols-outlined text-base">mail</span>
+                  <span>Correo</span>
+                </button>
+              </div>
+
+              {registerMethod === 'google' ? (
+                <div>
+                  {googleUser ? (
+                    <div className="p-3 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <GoogleLogo />
+                        <span className="text-xs font-bold text-emerald-950 truncate">
+                          {googleUser.email}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setGoogleUser(null);
+                          setRegEmail('');
+                        }}
+                        className="text-xs font-bold text-emerald-800 underline shrink-0 cursor-pointer"
+                      >
+                        Cambiar
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      disabled={googleLoading}
+                      onClick={handleGoogleAuthAction}
+                      className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
+                    >
+                      <GoogleLogo />
+                      <span>{googleLoading ? 'Conectando...' : 'Continuar con Google'}</span>
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  <div>
+                    <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
+                      Correo Electrónico *
+                    </label>
+                    <input
+                      type="email"
+                      required
+                      placeholder="admin@mipeluqueria.com"
+                      value={regEmail}
+                      onChange={(e) => setRegEmail(e.target.value)}
+                      className="w-full px-3 py-2 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
+                        Contraseña *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showRegPassword ? 'text' : 'password'}
+                          required
+                          placeholder="Mín. 6 car."
+                          value={regPassword}
+                          onChange={(e) => setRegPassword(e.target.value)}
+                          className="w-full px-3 py-2 pr-8 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowRegPassword(!showRegPassword)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                        >
+                          <span className="material-symbols-outlined text-sm">
+                            {showRegPassword ? 'visibility_off' : 'visibility'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
+                        Confirmar *
+                      </label>
+                      <div className="relative">
+                        <input
+                          type={showConfirmPassword ? 'text' : 'password'}
+                          required
+                          placeholder="Repite"
+                          value={confirmPassword}
+                          onChange={(e) => setConfirmPassword(e.target.value)}
+                          className="w-full px-3 py-2 pr-8 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                        >
+                          <span className="material-symbols-outlined text-sm">
+                            {showConfirmPassword ? 'visibility_off' : 'visibility'}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
@@ -267,15 +605,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                  Correo Electrónico *
+                  Nombre del Responsable
                 </label>
                 <input
-                  type="email"
-                  required
-                  placeholder="admin@mipeluqueria.com"
-                  value={regEmail}
-                  onChange={(e) => setRegEmail(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-sm bg-white"
+                  type="text"
+                  placeholder="ej. Carlos Silva"
+                  value={ownerName}
+                  onChange={(e) => setOwnerName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
                 />
               </div>
 
@@ -334,8 +671,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full py-3 px-4 rounded-xl bg-[#f9b900] text-[#261900] font-black text-sm shadow-md hover:bg-[#ffdea1] transition-all flex items-center justify-center gap-2 cursor-pointer mt-2"
+                disabled={loading || googleLoading}
+                className="w-full py-3 px-4 rounded-xl bg-[#f9b900] text-[#261900] font-black text-sm shadow-md hover:bg-[#ffdea1] transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 active:scale-95 disabled:opacity-60"
               >
                 {loading ? 'Creando cuenta...' : 'Crear Peluquería y Comenzar'}
               </button>

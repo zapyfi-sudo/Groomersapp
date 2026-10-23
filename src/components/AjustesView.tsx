@@ -870,7 +870,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   className="px-4 py-2.5 rounded-xl bg-[#2e004e] text-white hover:bg-[#4b0878] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                 >
                   <span className="material-symbols-outlined text-base">manage_accounts</span>
-                  Gestionar / Cambiar Cuenta
+                  Gestionar cuentas
                 </button>
               </div>
             </div>

@@ -136,31 +136,16 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           </nav>
 
-          {/* Profile & Account Switcher Badge */}
-          <div className="flex items-center gap-3 shrink-0">
+          {/* Discreet Administrative Access for Desktop (No avatar image, no arrow) */}
+          <div className="hidden lg:flex items-center gap-2 shrink-0">
             <button
               type="button"
               onClick={onOpenAccountModal}
-              title="Gestionar Cuentas y Sesión"
-              className="flex items-center gap-2.5 bg-white/10 hover:bg-white/20 px-2.5 py-1.5 rounded-2xl transition-all cursor-pointer border border-white/10 text-left active:scale-95"
+              title="Gestionar Cuentas y Negocios"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer border border-white/10 active:scale-95"
             >
-              <div className="w-8 h-8 rounded-full overflow-hidden ring-2 ring-[#f9b900] shadow-md shrink-0">
-                <img
-                  alt="Profile"
-                  className="w-full h-full object-cover"
-                  src={HOTLINK_IMAGES.profileAvatar}
-                />
-              </div>
-              <div className="hidden lg:block text-left">
-                <span className="text-xs font-bold text-white block leading-tight truncate max-w-[130px]">
-                  {activeAccount?.name || 'Admin Salón'}
-                </span>
-                <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
-                  Cuenta Activa
-                </span>
-              </div>
-              <span className="material-symbols-outlined text-white/70 text-base">expand_more</span>
+              <span className="material-symbols-outlined text-base text-[#f9b900]">manage_accounts</span>
+              <span>Gestionar cuentas</span>
             </button>
           </div>
         </div>

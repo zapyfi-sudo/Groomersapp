@@ -1,5 +1,17 @@
 import { initializeApp, getApps, getApp, FirebaseApp } from 'firebase/app';
 import {
+  getAuth,
+  Auth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signOut,
+  updateProfile,
+  User as FirebaseUser,
+  onAuthStateChanged
+} from 'firebase/auth';
+import {
   getFirestore,
   Firestore,
   doc,
@@ -33,10 +45,121 @@ const firebaseConfig = {
 export const app: FirebaseApp =
   getApps().length > 0 ? getApp() : initializeApp(firebaseConfig);
 
+// Initialize Firebase Authentication
+export const auth: Auth = getAuth(app);
+
 // Initialize Firestore with specific database ID if configured
 export const db: Firestore = firebaseConfig.firestoreDatabaseId
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
+
+/**
+ * Real Google Authentication using Firebase Auth signInWithPopup
+ */
+export async function authWithGoogle(): Promise<{
+  uid: string;
+  email: string;
+  displayName: string;
+  photoURL?: string;
+}> {
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  const result = await signInWithPopup(auth, provider);
+  const user = result.user;
+  return {
+    uid: user.uid,
+    email: user.email || '',
+    displayName: user.displayName || '',
+    photoURL: user.photoURL || undefined
+  };
+}
+
+/**
+ * Real Email & Password Registration using Firebase Auth createUserWithEmailAndPassword
+ */
+export async function registerWithEmailPassword(
+  email: string,
+  password: string,
+  displayName?: string
+): Promise<{
+  uid: string;
+  email: string;
+  displayName: string;
+}> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cred = await createUserWithEmailAndPassword(auth, cleanEmail, password);
+  if (displayName && cred.user) {
+    try {
+      await updateProfile(cred.user, { displayName: displayName.trim() });
+    } catch (e) {
+      console.warn('Could not update profile displayName:', e);
+    }
+  }
+  return {
+    uid: cred.user.uid,
+    email: cred.user.email || cleanEmail,
+    displayName: displayName?.trim() || cred.user.displayName || ''
+  };
+}
+
+/**
+ * Real Email & Password Login using Firebase Auth
+ */
+export async function loginWithEmailPassword(
+  email: string,
+  password: string
+): Promise<FirebaseUser> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+  return cred.user;
+}
+
+/**
+ * Sign out from Firebase Auth
+ */
+export async function logoutFirebaseAuth(): Promise<void> {
+  try {
+    await signOut(auth);
+  } catch (err) {
+    console.warn('Error signing out from Firebase Auth:', err);
+  }
+}
+
+/**
+ * Translates Firebase Auth error codes into helpful Spanish user messages
+ */
+export function translateFirebaseAuthError(err: any): string {
+  const code = err?.code || '';
+  switch (code) {
+    case 'auth/email-already-in-use':
+      return 'Este correo electrónico ya está registrado en el sistema. Puedes acceder a él desde la pestaña «Mis Cuentas».';
+    case 'auth/invalid-email':
+      return 'El formato del correo electrónico ingresado no es válido.';
+    case 'auth/weak-password':
+      return 'La contraseña debe tener al menos 6 caracteres.';
+    case 'auth/popup-closed-by-user':
+      return 'Se cerró la ventana de inicio de sesión con Google antes de completar la autenticación.';
+    case 'auth/popup-blocked':
+      return 'El navegador bloqueó la ventana emergente de Google. Por favor permite popups para este sitio.';
+    case 'auth/cancelled-popup-request':
+      return 'Ya hay una solicitud de autenticación en curso.';
+    case 'auth/account-exists-with-different-credential':
+      return 'Ya existe una cuenta registrada con este correo mediante otro método de acceso.';
+    case 'auth/wrong-password':
+    case 'auth/invalid-credential':
+      return 'Credenciales inválidas. Verifica tu correo y contraseña.';
+    case 'auth/user-not-found':
+      return 'No existe ninguna cuenta registrada con este correo.';
+    case 'auth/too-many-requests':
+      return 'Demasiados intentos fallidos. Por favor espera unos momentos antes de intentar nuevamente.';
+    case 'auth/network-request-failed':
+      return 'Error de conexión de red. Verifica tu conexión a internet.';
+    case 'auth/operation-not-allowed':
+      return 'El proveedor de inicio de sesión seleccionado no está habilitado actualmente en el proyecto.';
+    default:
+      return err?.message || 'Ocurrió un error en la autenticación. Por favor intenta nuevamente.';
+  }
+}
 
 // Connectivity check (as per Firebase skill)
 let connectionTested = false;
