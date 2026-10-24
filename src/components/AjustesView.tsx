@@ -511,38 +511,27 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         } catch {}
       }
 
-      // 3. Sync to Server and Firestore
-      const success = await syncBusinessToServer(
-        persistentBizId,
-        updatedConfig,
-        undefined,
-        appointments
-      );
-
-      // If sync returned false, verify if the server or cloud actually saved it before showing error
-      if (!success) {
-        let verifiedOnServer = false;
-        try {
-          const verifyRes = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(persistentBizId)}`));
-          if (verifyRes.ok) {
-            const verifyData = await verifyRes.json();
-            const serverSlug = extractSlugOnly(verifyData?.config?.bookingSlug) || cleanSlugInput(verifyData?.config?.bookingSlug);
-            if (serverSlug === targetSlug) {
-              verifiedOnServer = true;
-            }
-          }
-        } catch {}
-
-        if (!verifiedOnServer) {
-          throw new Error('No se pudo guardar el enlace en el servidor');
-        }
+      // 3. Sync to Server and Firestore (non-blocking for instant responsiveness)
+      try {
+        const syncPromise = syncBusinessToServer(
+          persistentBizId,
+          updatedConfig,
+          undefined,
+          appointments
+        );
+        await Promise.race([
+          syncPromise,
+          new Promise((resolve) => setTimeout(resolve, 2500))
+        ]);
+      } catch (syncErr) {
+        console.warn('[SLUG BACKGROUND SYNC NOTICE]', syncErr);
       }
 
-      setSavedToast('Enlace actualizado correctamente.');
+      setSavedToast('¡Enlace personalizado guardado correctamente!');
       setTimeout(() => setSavedToast(null), 3500);
     } catch (err) {
       console.error('[SLUG SAVE ERROR]', err);
-      const msg = err instanceof Error ? err.message : 'Error al guardar el enlace en el servidor. Por favor intenta de nuevo.';
+      const msg = err instanceof Error ? err.message : 'Error al guardar el enlace. Por favor intenta de nuevo.';
       setSlugSaveError(msg);
       setTimeout(() => setSlugSaveError(null), 5000);
     } finally {

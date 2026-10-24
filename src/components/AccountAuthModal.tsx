@@ -431,7 +431,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                     }`}
                   >
                     <GoogleLogo />
-                    <span>Continuar con Google</span>
+                    <span>Continuar con Google (Gmail)</span>
                   </button>
                   <button
                     type="button"
@@ -453,7 +453,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                 <div className="space-y-3 p-4 bg-white rounded-2xl border border-[#cfc2d2]/60">
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-xs font-bold text-[#1a1a26]">
-                      Opción A: Registro con Google
+                      Opción A: Registro con cuenta de Google (Gmail)
                     </span>
                     <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
                       Acceso Rápido y Seguro
@@ -469,7 +469,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                         <div className="min-w-0">
                           <div className="flex items-center gap-1">
                             <span className="text-xs font-black text-emerald-950 truncate">
-                              {googleUser.displayName || 'Usuario de Google'}
+                              {googleUser.displayName || 'Usuario de Google / Gmail'}
                             </span>
                             <span className="material-symbols-outlined text-sm text-emerald-600">verified</span>
                           </div>
@@ -492,7 +492,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                   ) : (
                     <div>
                       <p className="text-xs text-[#7e7482] mb-3">
-                        Utiliza tu cuenta de Google para registrarte en un clic sin necesidad de recordar contraseñas adicionales.
+                        Utiliza tu cuenta de Google (Gmail) para registrarte en un clic sin necesidad de recordar contraseñas adicionales.
                       </p>
                       <button
                         type="button"
@@ -501,7 +501,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                         className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
                       >
                         <GoogleLogo />
-                        <span>{googleLoading ? 'Conectando con Google...' : 'Continuar con Google'}</span>
+                        <span>{googleLoading ? 'Conectando con Google...' : 'Continuar con cuenta de Google (Gmail)'}</span>
                       </button>
                     </div>
                   )}

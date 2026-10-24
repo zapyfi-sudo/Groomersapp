@@ -102,7 +102,49 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       .then((result) => {
         if (!isMounted) return;
         if (result && result.config) {
-          setBusinessData(result);
+          setBusinessData((prevData) => {
+            // Anti-overwrite protection:
+            // If the page already has valid data with custom services or photos,
+            // ensure photos and configured fields are NEVER wiped out by stale network responses.
+            if (prevData && prevData.config) {
+              const prevHasPhotos = (prevData.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
+              const resultHasPhotos = (result.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
+
+              let mergedServices = result.services || [];
+              if (prevHasPhotos && !resultHasPhotos) {
+                const prevSvcMap = new Map((prevData.services || []).map((s) => [s.name.trim().toLowerCase(), s]));
+                mergedServices = (result.services || []).map((resSvc) => {
+                  const match = prevSvcMap.get(resSvc.name.trim().toLowerCase());
+                  if (match && (match.imageUrl || match.galleryUrls)) {
+                    return {
+                      ...resSvc,
+                      imageUrl: match.imageUrl || resSvc.imageUrl,
+                      galleryUrls: match.galleryUrls || resSvc.galleryUrls
+                    };
+                  }
+                  return resSvc;
+                });
+              }
+
+              const keepCustomConfig = {
+                ...result.config,
+                name: prevData.config.name && prevData.config.name !== 'Groomer Aida' ? prevData.config.name : result.config.name,
+                country: prevData.config.country && prevData.config.country !== 'Argentina' ? prevData.config.country : result.config.country,
+                city: prevData.config.city || result.config.city,
+                currency: prevData.config.currency || result.config.currency,
+                address: prevData.config.address || result.config.address,
+                services: mergedServices
+              };
+
+              return {
+                ...result,
+                config: keepCustomConfig,
+                services: mergedServices
+              };
+            }
+            return result;
+          });
+
           if (result.services && result.services.length > 0) {
             setSelectedServiceId((prev) => (prev && result.services.some((s) => s.id === prev) ? prev : result.services[0].id));
           }

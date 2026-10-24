@@ -240,14 +240,39 @@ export default function App() {
         fetchBusinessProfile(bizId)
           .then((profile) => {
             if (profile && profile.config) {
-              setSalonConfig((prev) => ({
-                ...prev,
-                ...profile.config,
-                bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
-                services: (profile.config.services && profile.config.services.length > 0)
+              setSalonConfig((prev) => {
+                const prevHasPhotos = (prev.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
+                const profileHasPhotos = (profile.config.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
+
+                let mergedServices = (profile.config.services && profile.config.services.length > 0)
                   ? profile.config.services
-                  : (prev.services || [])
-              }));
+                  : (prev.services || []);
+
+                if (prevHasPhotos && !profileHasPhotos) {
+                  const prevSvcMap = new Map((prev.services || []).map((s) => [s.name.trim().toLowerCase(), s]));
+                  mergedServices = mergedServices.map((resSvc) => {
+                    const match = prevSvcMap.get(resSvc.name.trim().toLowerCase());
+                    if (match && (match.imageUrl || match.galleryUrls)) {
+                      return {
+                        ...resSvc,
+                        imageUrl: match.imageUrl || resSvc.imageUrl,
+                        galleryUrls: match.galleryUrls || resSvc.galleryUrls
+                      };
+                    }
+                    return resSvc;
+                  });
+                }
+
+                return {
+                  ...prev,
+                  ...profile.config,
+                  name: prev.name && prev.name !== 'Groomer Aida' ? prev.name : profile.config.name,
+                  country: prev.country && prev.country !== 'Argentina' ? prev.country : profile.config.country,
+                  currency: prev.currency || profile.config.currency,
+                  bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
+                  services: mergedServices
+                };
+              });
 
               if (profile.appointments && profile.appointments.length > 0) {
                 setAppointments((prev) => {

@@ -313,14 +313,14 @@ export async function syncBusinessToServer(
       })
     });
     clearTimeout(timeoutId);
-    if (res.ok) {
+    const contentType = res.headers.get('content-type') || '';
+    if (res.ok && contentType.includes('application/json')) {
       const data = await res.json().catch(() => null);
       if (data && data.success !== false) {
         serverSuccess = true;
       }
     } else {
-      const errText = await res.text().catch(() => '');
-      console.warn('[SERVER SYNC FAILED]', res.status, errText);
+      console.warn('[SERVER SYNC NOTICE] Non-JSON or static response received:', res.status, contentType);
     }
   } catch (err) {
     console.warn('Server API sync not reachable:', err);

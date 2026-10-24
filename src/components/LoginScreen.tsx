@@ -373,7 +373,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
               >
                 <GoogleLogo />
-                <span>Continuar con Google</span>
+                <span>Continuar con cuenta de Google (Gmail)</span>
               </button>
 
               <div className="flex items-center gap-2 my-1">
@@ -471,7 +471,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   }`}
                 >
                   <GoogleLogo />
-                  <span>Google</span>
+                  <span>Google (Gmail)</span>
                 </button>
                 <button
                   type="button"
@@ -516,7 +516,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
                     >
                       <GoogleLogo />
-                      <span>{googleLoading ? 'Conectando...' : 'Continuar con Google'}</span>
+                      <span>{googleLoading ? 'Conectando...' : 'Continuar con cuenta de Google (Gmail)'}</span>
                     </button>
                   )}
                 </div>

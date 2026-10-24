@@ -48,7 +48,7 @@
       "afternoonOpen": "14:00",
       "afternoonClose": "19:30",
       "hasDoubleShift": true,
-      "bookingSlug": "luna",
+      "bookingSlug": "groomeraida",
       "activeDays": [
         "L",
         "M",
@@ -619,7 +619,7 @@
     ],
     "bookedRetentions": [],
     "sales": [],
-    "updatedAt": "2026-10-22T15:43:58.482Z"
+    "updatedAt": "2026-10-24T16:23:19.867Z"
   },
   "robocat_k9x2m4": {
     "businessId": "robocat_k9x2m4",

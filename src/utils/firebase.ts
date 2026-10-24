@@ -156,6 +156,10 @@ export function translateFirebaseAuthError(err: any): string {
       return 'Error de conexión de red. Verifica tu conexión a internet.';
     case 'auth/operation-not-allowed':
       return 'El proveedor de inicio de sesión seleccionado no está habilitado actualmente en el proyecto.';
+    case 'auth/unauthorized-domain': {
+      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'este dominio';
+      return `Dominio no autorizado en Firebase (${currentHost}). Para permitir el acceso con Google, este dominio debe agregarse en Firebase Console → Authentication → Ajustes → Dominios autorizados. Puedes utilizar la opción «Correo y Contraseña» para continuar sin restricciones.`;
+    }
     default:
       return err?.message || 'Ocurrió un error en la autenticación. Por favor intenta nuevamente.';
   }
