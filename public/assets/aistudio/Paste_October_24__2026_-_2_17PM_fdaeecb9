@@ -1,0 +1,502 @@
+# MENSAJE MAESTRO DE CORRECCIÓN INTEGRAL — AGENDA CAN
+## Persistencia de datos, sincronización de servicios e imágenes, reservas públicas, aislamiento de negocios y registro de nuevas cuentas
+
+Necesito que realices una revisión técnica del proyecto actual de Agenda Can y corrijas los errores que siguen apareciendo durante las pruebas.
+
+Agenda Can es una aplicación de gestión para peluquerías caninas y groomers. Incluye agenda, proceso de atención y salud, fichas de clientes y mascotas, recordatorios de retorno, configuración del negocio y un enlace público que permite a los clientes consultar los servicios y solicitar citas.
+
+Actualmente estamos probando la aplicación con diferentes cuentas y negocios ficticios, como Groomer Aida, Crocat y Peluquería Luna. Estos nombres son ejemplos de prueba, no deben quedar codificados como valores predeterminados de producción.
+
+Ya se han realizado varias correcciones, pero algunos errores reaparecen, otros solo se corrigen durante unos segundos y otros se comportan de manera diferente según la cuenta utilizada.
+
+**El objetivo es corregir de forma definitiva los problemas de persistencia, sincronización, aislamiento de datos y reservas, respetando la arquitectura y las funcionalidades existentes.**
+
+Antes de modificar el código, analiza cómo están conectados el frontend, el backend, la base de datos, Firebase Authentication, el almacenamiento de imágenes, los identificadores de negocio y las rutas públicas.
+
+No reconstruyas la aplicación ni cambies módulos que funcionan correctamente.
+
+---
+
+# 1. CORREGIR DEFINITIVAMENTE LA SINCRONIZACIÓN ENTRE LA CONFIGURACIÓN DEL NEGOCIO Y EL ENLACE PÚBLICO
+
+Dentro de «Ajustes → Configuración del negocio» podemos configurar el nombre, logotipo, país, ciudad, moneda, servicios, precios, duración, horarios y fotografías.
+
+Después, dentro de «Comparte tu agenda para redes», obtenemos un enlace público para compartir en Instagram, Facebook, TikTok, WhatsApp y otros canales.
+
+Ambas partes deben trabajar con la información persistente del mismo negocio.
+
+Actualmente encontramos comportamientos inconsistentes:
+
+- En algunas cuentas se refleja correctamente el nombre del negocio y el resto de la información, pero no aparecen las fotografías.
+- En otras cuentas, los datos se muestran correctamente durante aproximadamente cuatro segundos y luego la página cambia y muestra servicios antiguos o información de demostración.
+- En otras pruebas, el logotipo y las fotografías aparecen momentáneamente y después desaparecen.
+- En ocasiones se muestra un país o una moneda diferentes de los que configuramos.
+- Algunos cambios funcionan en una cuenta nueva, pero vuelven a fallar en cuentas que ya existían.
+- En determinados casos, después de guardar los cambios, la página pública no refleja ninguna actualización.
+
+## Corrección requerida
+
+Investiga la causa raíz. No vuelvas a implementar únicamente cambios visuales ni soluciones temporales.
+
+Revisa:
+
+1. La función que guarda la configuración del negocio.
+2. La persistencia real de los cambios en la base de datos.
+3. El identificador utilizado para relacionar el negocio con sus servicios y fotografías.
+4. La consulta que utiliza el enlace público para obtener la configuración.
+5. Los estados iniciales del frontend.
+6. Los datos de demostración o valores predeterminados.
+7. Las peticiones asíncronas que podrían sobrescribir los datos.
+8. La caché del navegador, del servidor o de las consultas.
+9. Las posibles diferencias entre los datos de la sesión actual y los datos guardados.
+10. Las rutas públicas que puedan estar utilizando otro identificador de negocio.
+
+Busca específicamente si la página muestra primero la información real y después otra consulta, un estado inicial o una respuesta antigua reemplaza esos datos.
+
+La página pública debe mostrar los datos correctos desde que termina su carga y mantenerlos estables. No debe cambiar de negocio ni volver a los datos de demostración después de unos segundos.
+
+Si los datos todavía se están cargando, utiliza un estado de carga adecuado. Si ocurre un error, muestra un mensaje claro. Nunca muestres información de otro negocio como si perteneciera al negocio solicitado.
+
+# 2. LOS SERVICIOS Y SUS FOTOGRAFÍAS DEBEN CORRESPONDER AL NEGOCIO CORRECTO
+
+En las pruebas hemos creado negocios con servicios diferentes.
+
+Por ejemplo, en Peluquería Luna eliminamos los servicios de ejemplo y añadimos tres servicios propios:
+
+- Corte.
+- Baño.
+- Baño y corte para Shih-tzu.
+
+A cada servicio le asignamos sus datos y sus fotografías.
+
+En esta prueba, la página pública llegó a mostrar correctamente el logotipo, los servicios, la moneda y las fotografías. Sin embargo, en otras cuentas los cambios no se reflejan, aparecen servicios que no hemos creado o se muestran fotografías asociadas al servicio equivocado.
+
+## Comportamiento obligatorio
+
+La lista de servicios del enlace público debe generarse a partir de los servicios guardados para el negocio correspondiente.
+
+- Un servicio nuevo debe aparecer después de guardarse correctamente.
+- Un servicio editado debe mostrar su nombre, descripción, duración y precio actualizados.
+- Un servicio eliminado no debe seguir disponible para nuevas reservas.
+- No deben aparecer servicios de demostración en negocios reales.
+- Las fotografías no deben intercambiarse entre servicios.
+- No deben mezclarse servicios de dos negocios diferentes.
+- Los servicios deben conservar su identificador estable, sin depender de su posición en una lista o de su nombre.
+- Los cambios deben mantenerse después de recargar la página y abrir el enlace desde otro navegador.
+
+No soluciones este problema creando una lista fija con los tres servicios de la prueba. La solución debe funcionar con cualquier cantidad de servicios y con cualquier nombre que configure cada negocio.
+
+Respeta los modelos de precio ya existentes: precio único o precio según el tamaño de la mascota. Si el servicio utiliza precio único, no muestres un selector de tamaños innecesario.
+
+# 3. CORREGIR EL ALMACENAMIENTO Y LA VISUALIZACIÓN DE LAS FOTOGRAFÍAS
+
+En la configuración de cada servicio existe una fotografía principal y la posibilidad de subir hasta cuatro fotografías adicionales.
+
+En algunos negocios estas imágenes aparecen correctamente. En otros, el nombre y la descripción del servicio aparecen, pero las fotografías no se muestran. En otras ocasiones, las imágenes aparecen durante unos segundos y después desaparecen.
+
+## Revisa todo el proceso
+
+- Selección de la fotografía desde el dispositivo.
+- Subida efectiva al almacenamiento persistente.
+- Guardado de la referencia o URL de la imagen en el servicio correspondiente.
+- Guardado de las fotografías adicionales.
+- Recuperación de las imágenes desde la base de datos.
+- Asociación de cada imagen con el identificador correcto del servicio.
+- Accesibilidad de las imágenes desde un navegador público sin sesión iniciada.
+- Actualización de las imágenes después de sustituirlas.
+- Persistencia después de cerrar y volver a abrir la aplicación.
+
+No dependas únicamente de una vista previa temporal del navegador, de datos guardados en memoria o de URL temporales que dejan de funcionar.
+
+La fotografía principal debe aparecer en la tarjeta del servicio dentro del enlace público. Las fotografías adicionales deben poder consultarse mediante la opción «Ver fotos» o el mecanismo de galería que ya se ha implementado.
+
+Mantén el diseño visual actual de las tarjetas y de la galería, ya que en las pruebas en las que funciona correctamente nos gusta el resultado.
+
+Si un servicio no tiene imágenes, presenta la tarjeta de forma adecuada, sin asignarle imágenes de otro servicio.
+
+# 4. MANTENER CORRECTAMENTE EL LOGOTIPO, EL PAÍS Y LA MONEDA
+
+La configuración de cada negocio debe determinar lo que aparece en su página pública.
+
+Por ejemplo, durante las pruebas configuramos Ecuador con moneda de dólares estadounidenses en una cuenta, y Ecuador con moneda de pesos mexicanos en otra. Estos valores son únicamente ejemplos para comprobar que la aplicación respeta las preferencias configuradas.
+
+La página pública debe reflejar siempre:
+
+- El logotipo guardado.
+- El nombre actual del negocio.
+- El país y la ciudad configurados.
+- La moneda seleccionada.
+- Los precios guardados.
+- Los servicios y sus fotografías.
+- Los demás datos que corresponda mostrar al cliente.
+
+No impongas una moneda predeterminada ni una configuración regional fija.
+
+Si un negocio utiliza dólares estadounidenses, muestra los precios con el formato correspondiente a esa moneda. Si utiliza otra moneda disponible en la configuración, respeta esa selección.
+
+El formato de presentación no debe alterar el valor numérico real del precio.
+
+El logotipo debe permanecer visible y no desaparecer después de la carga inicial.
+
+# 5. CORREGIR LAS RESERVAS QUE SE QUEDAN EN «PROCESANDO SOLICITUD»
+
+Hemos realizado una prueba real de reserva desde el enlace público.
+
+Seleccionamos un servicio, elegimos una fecha y una hora, completamos la información de la mascota y del propietario, y enviamos la solicitud.
+
+Durante el proceso introdujimos información como:
+
+- Fotografía de la mascota.
+- Comportamiento: inquieto.
+- Alergias: ninguna.
+- Observaciones: tener cuidado con la cabeza.
+- Precio del servicio: 25 dólares.
+
+Después pulsamos «Solicitar turno».
+
+La página mostró «Procesando solicitud» y permaneció así durante más de 15 segundos.
+
+Sin embargo, mientras la página pública seguía mostrando ese mensaje, la solicitud terminó apareciendo en la agenda interna del negocio.
+
+Esto indica que, al menos en esa prueba, la reserva pudo procesarse en el servidor, pero la interfaz pública no terminó correctamente el flujo de confirmación o no recibió y procesó adecuadamente la respuesta.
+
+## Corrección requerida
+
+Analiza el proceso completo de creación de una reserva, desde que el cliente pulsa «Solicitar turno» hasta que recibe el resultado.
+
+Comprueba:
+
+1. La petición que se envía al servidor.
+2. El tiempo que tarda en completarse.
+3. Si la reserva se guarda correctamente.
+4. Si la respuesta del servidor se recibe y se interpreta.
+5. Si existe alguna operación secundaria que mantiene bloqueada la interfaz.
+6. Si la subida de fotografías o el guardado de datos adicionales está retrasando la respuesta.
+7. Si hay errores de red, excepciones o promesas que no finalizan correctamente.
+8. Si el estado de carga depende de una operación que no llega a resolverse.
+9. Si existe una redirección o actualización de estado que se ejecuta incorrectamente.
+
+No reduzcas artificialmente el tiempo de carga ni ocultes el problema con un temporizador.
+
+## Comportamiento esperado
+
+Cuando se envíe una solicitud:
+
+- Debe mostrarse un estado de carga mientras la operación está realmente en curso.
+- El servidor debe guardar la solicitud y devolver una respuesta clara.
+- Cuando el servidor confirme que la reserva se ha registrado, la página debe salir del estado de carga.
+- Debe mostrarse una confirmación clara para el cliente.
+- Si la operación falla, debe mostrarse un mensaje de error que permita entender que la solicitud no se ha completado.
+- No debe duplicarse la reserva si el cliente pulsa varias veces.
+- Si el cliente reintenta una solicitud cuyo resultado anterior es incierto, debe evitarse crear duplicados.
+
+Si el envío de la solicitud y las operaciones adicionales requieren tiempos diferentes, separa correctamente el guardado de la reserva de las tareas secundarias que no sean necesarias para confirmar su creación.
+
+No muestres una reserva como exitosa si el servidor no la ha confirmado.
+
+# 6. ASEGURAR QUE LA RESERVA SE GUARDE EN EL NEGOCIO CORRECTO
+
+Durante una prueba desde el teléfono, enviamos una solicitud desde el enlace público. La solicitud apareció en una agenda interna abierta en el ordenador, pero la información visible del negocio en ese ordenador era diferente.
+
+En una prueba, el enlace público correspondía a un negocio, mientras que la aplicación abierta en el ordenador mostraba otro nombre.
+
+Esto hace necesario verificar si la reserva se está guardando y consultando con el identificador correcto del negocio.
+
+## Requisitos
+
+Cada enlace público debe identificar de forma inequívoca el negocio al que pertenece.
+
+Cuando se crea una reserva:
+
+- Debe asociarse al identificador persistente del negocio propietario del enlace.
+- Debe aparecer únicamente en la agenda de ese negocio.
+- Debe conservar los datos del servicio seleccionado para esa reserva.
+- No debe utilizar por error el negocio activo de otra pestaña, otra sesión o una cuenta diferente.
+- No debe depender únicamente de un nombre visible o de un estado global compartido.
+
+Comprueba que la agenda interna filtre las reservas por el negocio correcto y que la ruta pública no herede accidentalmente el contexto de otro negocio.
+
+Prueba este flujo con dos negocios abiertos en navegadores diferentes.
+
+# 7. AISLAR COMPLETAMENTE LOS DATOS DE CADA CUENTA
+
+Actualmente utilizamos diferentes cuentas y negocios de prueba para desarrollar Agenda Can.
+
+Necesitamos que cada negocio disponga de sus propios datos, incluso cuando varias cuentas utilizan la misma aplicación publicada en Vercel.
+
+El enlace general de la aplicación no debe mostrar automáticamente los datos de prueba del último negocio que se utilizó durante el desarrollo.
+
+Tampoco debe mostrar las cuentas que se hayan creado anteriormente por otras personas.
+
+## 7.1. Separación de datos
+
+Revisa cómo están aislados los siguientes elementos:
+
+- Usuarios autenticados.
+- Cuentas y negocios.
+- Agenda y reservas.
+- Procesos de atención y salud.
+- Clientes y mascotas.
+- Historiales y fichas.
+- Recordatorios de retorno.
+- Configuración del negocio.
+- Servicios.
+- Fotografías y logotipos.
+- Ingresos y ventas.
+- Enlaces públicos.
+
+Todos los datos operativos deben pertenecer al negocio correcto y consultarse con el identificador adecuado.
+
+No utilices un único estado global, un registro compartido o datos guardados localmente como fuente principal para todos los negocios.
+
+La información del negocio A no debe aparecer en el negocio B, aunque ambos se abran desde el mismo dominio de Vercel.
+
+## 7.2. No borrar datos de negocios existentes
+
+La corrección del aislamiento no debe eliminar los datos de las cuentas que ya existen.
+
+Cada cuenta debe seguir accediendo a sus propios datos. El objetivo es evitar mezclas, no reiniciar indiscriminadamente la base de datos.
+
+Si hace falta corregir relaciones o registros antiguos, identifica los registros afectados y aplica una migración segura que preserve la información.
+
+# 8. FLUJO INICIAL PARA UNA PERSONA QUE ABRE LA APLICACIÓN POR PRIMERA VEZ
+
+Cuando una persona copie el enlace general de Agenda Can y lo abra desde otro navegador o dispositivo, no debe acceder automáticamente a las cuentas de prueba utilizadas durante el desarrollo.
+
+El flujo debe comenzar por el acceso a su propia cuenta.
+
+## Comportamiento esperado
+
+Si el visitante no tiene una sesión autenticada:
+
+1. Debe mostrarse la pantalla de acceso o registro.
+2. Debe existir la posibilidad de crear una cuenta nueva.
+3. Debe poder registrar su propio negocio.
+4. No debe mostrarse una lista de cuentas de otras personas.
+5. No deben mostrarse reservas, clientes, mascotas ni datos de otros negocios.
+6. No debe acceder directamente al panel de administración de cuentas SaaS.
+
+Si el usuario ya tiene una sesión autenticada, debe poder acceder a su negocio autorizado, sin necesidad de registrarse de nuevo.
+
+Si el usuario tiene una cuenta pero todavía no ha creado su negocio, debe continuar con el flujo de configuración inicial correspondiente.
+
+Después de registrarse, el sistema debe asociar su usuario con el negocio que acaba de crear y llevarlo al panel correspondiente.
+
+## 8.1. Configuración inicial del negocio
+
+La aplicación puede conservar una configuración inicial genérica y editable para facilitar el comienzo, siempre que no se confunda con datos reales.
+
+Por ejemplo, se pueden proporcionar campos iniciales o servicios de ejemplo que el usuario pueda editar o eliminar.
+
+Pero deben cumplirse estas condiciones:
+
+- No deben aparecer servicios de demostración que no correspondan a la configuración guardada.
+- Los servicios iniciales deben pertenecer exclusivamente al negocio nuevo.
+- El logotipo, el nombre, los horarios, la moneda y el resto de los datos deben poder editarse.
+- La agenda debe comenzar sin reservas ficticias.
+- La sección de clientes debe comenzar sin clientes ficticios.
+- El historial de atención y salud debe comenzar vacío.
+- La sección «Por volver» debe comenzar sin recordatorios ficticios.
+- Los ingresos y las ventas deben comenzar sin operaciones ficticias.
+
+No es necesario que todos los apartados de configuración estén vacíos: pueden existir valores iniciales editables, pero deben estar asociados al negocio nuevo y nunca contener información privada o datos de otra cuenta.
+
+## 8.2. No mostrar las cuentas creadas durante las pruebas
+
+La pantalla «Cuentas y Gestión SaaS» debe mantener su función administrativa actual y sus permisos.
+
+Un usuario normal no debe ver las cuentas que se crearon durante las pruebas ni las cuentas de otros negocios.
+
+La opción «Mis cuentas» debe mostrar únicamente las cuentas o negocios a los que el usuario autenticado tenga acceso legítimo.
+
+No conviertas el registro normal de un negocio en un acceso al panel de administración SaaS.
+
+# 9. REVISAR LA AUTENTICACIÓN CON GMAIL Y FIREBASE
+
+En el módulo «Crear una cuenta nueva» ya se incorporó una opción para continuar con Google, pero al utilizarla aparece un error similar a:
+
+`Firebase: Error (auth/unauthorized-domain).`
+
+El proceso de autenticación no se completa.
+
+Queremos que el registro sea sencillo para los groomers y que puedan utilizar su cuenta Gmail.
+
+## Requisitos
+
+- Mantén el registro mediante correo electrónico y contraseña.
+- Mantén la posibilidad de iniciar sesión con las credenciales de una cuenta ya creada.
+- Si se ofrece el acceso con Gmail, debe utilizarse la autenticación oficial de Google mediante Firebase Authentication.
+- No solicites al usuario que escriba su contraseña de Gmail en un formulario propio.
+- No simules una autenticación que realmente no funciona.
+
+Revisa si el proveedor Google está habilitado, si el dominio real de producción está autorizado en Firebase Authentication y si las credenciales y las URL de redirección corresponden al entorno actual.
+
+Si la autenticación con Google no puede completarse hasta modificar una configuración externa, indica exactamente qué debe cambiarse en Firebase.
+
+No afirmes que el problema está resuelto hasta comprobar el flujo real de inicio de sesión.
+
+Si decides retirar temporalmente el botón de acceso con Google porque no puede funcionar correctamente en el entorno actual, conserva el registro e inicio de sesión mediante correo y contraseña. Sin embargo, no elimines definitivamente la posibilidad de acceso con Google sin evaluar primero la corrección de su configuración.
+
+# 10. REVISAR EL FUNCIONAMIENTO DE LAS CUENTAS EXISTENTES Y NUEVAS
+
+El comportamiento de la aplicación ha sido diferente según el negocio utilizado.
+
+En algunas cuentas nuevas, los servicios y las fotografías se muestran correctamente. En cuentas anteriores, los cambios no aparecen o la página vuelve a mostrar datos antiguos.
+
+No soluciones el problema únicamente para las cuentas creadas después de la modificación.
+
+Revisa si las cuentas antiguas utilizan:
+
+- Una estructura de datos anterior.
+- Campos diferentes para las fotografías.
+- Identificadores antiguos de negocio.
+- Datos almacenados en otra ubicación.
+- Una versión distinta de la configuración.
+- Relaciones incompletas entre negocio, servicios y usuarios.
+
+Si existe una diferencia de estructura entre cuentas antiguas y nuevas, implementa una solución compatible o una migración segura.
+
+No borres ni recrees todas las cuentas para evitar el error.
+
+La misma lógica de persistencia y sincronización debe funcionar para los negocios existentes y para los que se creen en el futuro.
+
+# 11. NO ALTERAR LAS FUNCIONALIDADES QUE YA FUNCIONAN
+
+Las siguientes áreas deben conservar su comportamiento actual, salvo las modificaciones estrictamente necesarias para solucionar los errores descritos:
+
+- Agenda interna y creación manual de citas.
+- Proceso de atención y salud.
+- Fichas de clientes y mascotas.
+- Recomendaciones y fotografías de antes y después.
+- Cálculo de la fecha de retorno.
+- Recordatorios de WhatsApp.
+- Configuración de horarios.
+- Configuración de precios y tamaños.
+- Panel de clientes.
+- Ingresos y ventas.
+- Diseño visual general.
+- Navegación y adaptación a dispositivos móviles.
+
+La reserva creada desde el enlace público debe integrarse con la agenda interna y el flujo actual de atención, sin crear un sistema de reservas paralelo.
+
+No modifiques la agenda interna que ya funciona correctamente solo para corregir el estado de carga del enlace público.
+
+# 12. PRUEBAS OBLIGATORIAS ANTES DE DAR POR TERMINADO EL TRABAJO
+
+Realiza las siguientes pruebas con datos ficticios y controlados, sin borrar información real.
+
+## Prueba A: negocio nuevo
+
+1. Abre la aplicación desde un navegador sin sesión iniciada.
+2. Comprueba que aparece el flujo de acceso o registro.
+3. Crea una cuenta nueva y un negocio de prueba.
+4. Comprueba que la agenda está vacía.
+5. Comprueba que clientes, historial de atención, recordatorios e ingresos no contienen datos ficticios.
+6. Completa la configuración inicial del negocio.
+7. Añade servicios y fotografías.
+8. Guarda y vuelve a abrir la configuración.
+
+Resultado esperado: el negocio conserva sus propios datos y no hereda información de las cuentas utilizadas durante el desarrollo.
+
+## Prueba B: servicios y fotografías
+
+1. Configura tres servicios diferentes.
+2. Asigna una fotografía principal y hasta cuatro fotografías adicionales a cada servicio.
+3. Guarda los cambios.
+4. Abre el enlace público en una ventana privada.
+5. Comprueba que aparecen únicamente los tres servicios configurados.
+6. Abre «Ver fotos» en cada servicio.
+7. Verifica que todas las imágenes corresponden al servicio correcto.
+8. Recarga la página varias veces y espera a que terminen todas las operaciones de carga.
+
+Resultado esperado: no desaparecen las imágenes, no cambian los servicios y no aparecen datos antiguos.
+
+## Prueba C: edición y eliminación
+
+1. Cambia el nombre, la descripción, el precio y la fotografía de un servicio.
+2. Guarda los cambios.
+3. Comprueba la actualización en el enlace público.
+4. Elimina un servicio de prueba.
+5. Comprueba que deja de ofrecerse para nuevas reservas.
+
+Resultado esperado: la página pública refleja los datos guardados y no recupera los anteriores después de unos segundos.
+
+## Prueba D: dos negocios independientes
+
+1. Configura dos negocios con nombres, logotipos, monedas, servicios y fotografías diferentes.
+2. Abre ambos enlaces públicos en navegadores separados.
+3. Realiza un cambio en el primer negocio.
+4. Comprueba que el segundo no cambia.
+5. Crea una reserva en cada uno.
+6. Comprueba que cada reserva aparece exclusivamente en la agenda correspondiente.
+
+Resultado esperado: no existe ninguna mezcla de información entre negocios.
+
+## Prueba E: reserva pública completa
+
+1. Abre el enlace público de un negocio de prueba.
+2. Selecciona un servicio, una fecha y una hora disponibles.
+3. Completa los datos del propietario y de la mascota.
+4. Añade observaciones y fotografías si están habilitadas.
+5. Envía la solicitud.
+6. Comprueba que el estado «Procesando solicitud» termina cuando el servidor devuelve el resultado.
+7. Verifica que aparece la confirmación correcta.
+8. Comprueba que la reserva aparece en la agenda interna del mismo negocio.
+9. Verifica que no se crea una reserva duplicada.
+
+Resultado esperado: el cliente recibe una respuesta coherente y la solicitud queda asociada al negocio correcto.
+
+## Prueba F: persistencia y recarga
+
+Después de guardar cualquier cambio:
+
+1. Recarga la página.
+2. Espera a que finalicen las consultas.
+3. Comprueba nuevamente los datos.
+4. Abre el enlace desde otro navegador.
+5. Comprueba el mismo enlace después de cerrar la sesión administrativa.
+
+Resultado esperado: los datos persistentes siguen siendo correctos y no se sustituyen por configuraciones antiguas.
+
+## Prueba G: autenticación
+
+Prueba el registro y el inicio de sesión mediante correo y contraseña. Si se ofrece autenticación con Google, comprueba el flujo real de Firebase Authentication y el retorno correcto a la aplicación.
+
+No marques una prueba como completada si no se ejecutó realmente.
+
+# 13. RESTRICCIONES TÉCNICAS
+
+- No reconstruyas el proyecto desde cero.
+- No sustituyas los servicios dinámicos por listas estáticas.
+- No utilices los datos de la última cuenta abierta como datos predeterminados para todos.
+- No compartas el estado de un negocio entre usuarios diferentes.
+- No guardes información privada de todos los usuarios en un almacenamiento global accesible desde el navegador.
+- No elimines registros para ocultar los errores.
+- No cambies la moneda ni el país de forma arbitraria.
+- No alteres el diseño visual que ya funciona correctamente.
+- No afirmes que la información está guardada si solo existe en el estado temporal del frontend.
+- No afirmes que el error está corregido si únicamente desaparece después de recargar.
+- No des por resuelto el problema de reservas si la solicitud aparece en la agenda, pero el cliente continúa viendo «Procesando solicitud».
+- No modifiques permisos para facilitar las pruebas si eso permite que un usuario acceda a datos de otro negocio.
+
+# 14. RESULTADO FINAL ESPERADO
+
+Quiero que Agenda Can funcione como una aplicación SaaS real, donde cada usuario pueda crear su cuenta, configurar su negocio, publicar su enlace de reservas y gestionar sus propios clientes y citas sin interferir con otros negocios.
+
+La configuración del negocio debe ser la fuente persistente de los datos que se muestran en su enlace público.
+
+Las fotografías deben guardarse y recuperarse correctamente. Las reservas deben procesarse y confirmarse sin dejar la interfaz bloqueada. Cada negocio debe tener sus propios datos. Los usuarios nuevos deben comenzar con su propio espacio de trabajo vacío en los apartados operativos, sin heredar datos de las pruebas anteriores.
+
+**Antes de terminar, informa de:**
+
+1. Las causas raíz que hayas identificado.
+2. Los archivos, componentes y procesos modificados.
+3. Los cambios realizados en la persistencia y la consulta de datos.
+4. Los cambios relacionados con las fotografías.
+5. La corrección del proceso de reserva.
+6. La solución aplicada al aislamiento de cuentas.
+7. El estado real de la autenticación con Google.
+8. Las pruebas que ejecutaste y sus resultados.
+9. Cualquier ajuste externo que todavía sea necesario.
+
+Implementa las correcciones en el proyecto actual, priorizando la estabilidad, la persistencia y la separación de datos por negocio. No des por finalizado el trabajo hasta verificar los flujos completos y comprobar que los errores no reaparecen después de recargar.

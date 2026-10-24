@@ -159,12 +159,13 @@ export function getSyncActiveData(): BusinessAccountData {
   }
 
   // Safe fallback before async init completes
+  // Safe fallback before async init completes (empty operational data per spec)
   const fallbackData: BusinessAccountData = {
     businessId: 'biz_main',
     userId: 'usr_owner',
     config: { ...DEFAULT_SALON_CONFIG, id: 'biz_main', userId: 'usr_owner' },
-    pets: getDefaultPets(),
-    appointments: getDefaultAppointments(),
+    pets: [],
+    appointments: [],
     bookedRetentions: [],
     sales: [],
     updatedAt: new Date().toISOString()
@@ -283,61 +284,85 @@ export async function initSaasDatabase(): Promise<{
     // Case 2: No accounts yet in IndexedDB - Check for legacy data to migrate
     const legacy = checkLegacyLocalStorageData();
 
-    const primaryUserId = legacy.config?.userId || 'usr_owner';
-    const primaryBizId = (legacy.config?.id && legacy.config.id !== 'biz_default')
-      ? legacy.config.id
-      : 'biz_main';
+    if (legacy.hasLegacy && (legacy.config?.name || (legacy.appointments && legacy.appointments.length > 0))) {
+      const primaryUserId = legacy.config?.userId || 'usr_owner';
+      const primaryBizId = (legacy.config?.id && legacy.config.id !== 'biz_default')
+        ? legacy.config.id
+        : 'biz_main';
 
-    const initialConfig: SalonConfig = {
-      ...DEFAULT_SALON_CONFIG,
-      ...(legacy.config || {}),
-      id: primaryBizId,
-      userId: primaryUserId
-    };
+      const initialConfig: SalonConfig = {
+        ...DEFAULT_SALON_CONFIG,
+        ...(legacy.config || {}),
+        id: primaryBizId,
+        userId: primaryUserId
+      };
 
-    initialConfig.id = primaryBizId;
-    initialConfig.userId = primaryUserId;
-    initialConfig.bookingSlug = extractSlugOnly(initialConfig.bookingSlug) || 'pelo';
+      initialConfig.id = primaryBizId;
+      initialConfig.userId = primaryUserId;
+      initialConfig.bookingSlug = extractSlugOnly(initialConfig.bookingSlug) || 'pelo';
 
-    const initialPets: Pet[] = legacy.pets && legacy.pets.length > 0 ? legacy.pets : getDefaultPets();
-    const initialAppointments: Appointment[] = legacy.appointments && legacy.appointments.length > 0 ? legacy.appointments : getDefaultAppointments();
-    const initialRetentions: string[] = legacy.bookedRetentions || [];
+      const initialPets: Pet[] = legacy.pets && legacy.pets.length > 0 ? legacy.pets : [];
+      const initialAppointments: Appointment[] = legacy.appointments && legacy.appointments.length > 0 ? legacy.appointments : [];
+      const initialRetentions: string[] = legacy.bookedRetentions || [];
 
-    const ownerAccount: UserAccount = {
-      id: primaryUserId,
-      email: 'propietario@agendacan.com',
-      name: initialConfig.name || 'Groomer Aida',
-      businessId: primaryBizId,
-      createdAt: new Date().toISOString(),
-      lastLoginAt: new Date().toISOString()
-    };
+      const ownerAccount: UserAccount = {
+        id: primaryUserId,
+        email: 'propietario@agendacan.com',
+        name: initialConfig.name || 'Mi Peluquería Canina',
+        businessId: primaryBizId,
+        createdAt: new Date().toISOString(),
+        lastLoginAt: new Date().toISOString()
+      };
 
-    const initialBizData: BusinessAccountData = {
-      businessId: primaryBizId,
-      userId: primaryUserId,
-      config: initialConfig,
-      pets: initialPets,
-      appointments: initialAppointments,
-      bookedRetentions: initialRetentions,
+      const initialBizData: BusinessAccountData = {
+        businessId: primaryBizId,
+        userId: primaryUserId,
+        config: initialConfig,
+        pets: initialPets,
+        appointments: initialAppointments,
+        bookedRetentions: initialRetentions,
+        sales: [],
+        updatedAt: new Date().toISOString()
+      };
+
+      // Save to IndexedDB
+      await dbPut(STORE_ACCOUNTS, ownerAccount);
+      await dbPut(STORE_BUSINESS_DATA, initialBizData);
+      await dbPut(STORE_SESSIONS, { id: 'active_session', userId: primaryUserId, businessId: primaryBizId });
+
+      memoryActiveAccount = ownerAccount;
+      memoryActiveData = initialBizData;
+      memoryAccountsList = [ownerAccount];
+
+      updateSyncMirror(ownerAccount, initialBizData, [ownerAccount]);
+
+      return {
+        activeAccount: ownerAccount,
+        activeData: initialBizData,
+        accounts: [ownerAccount]
+      };
+    }
+
+    // Case 3: Fresh visitor / unauthenticated user (Section 8: Show Login / Registration flow)
+    const cleanGuestData: BusinessAccountData = {
+      businessId: '',
+      userId: '',
+      config: { ...DEFAULT_SALON_CONFIG, id: '', name: 'Mi Peluquería Canina', services: [] },
+      pets: [],
+      appointments: [],
+      bookedRetentions: [],
       sales: [],
       updatedAt: new Date().toISOString()
     };
-
-    // Save to IndexedDB
-    await dbPut(STORE_ACCOUNTS, ownerAccount);
-    await dbPut(STORE_BUSINESS_DATA, initialBizData);
-    await dbPut(STORE_SESSIONS, { id: 'active_session', userId: primaryUserId, businessId: primaryBizId });
-
-    memoryActiveAccount = ownerAccount;
-    memoryActiveData = initialBizData;
-    memoryAccountsList = [ownerAccount];
-
-    updateSyncMirror(ownerAccount, initialBizData, [ownerAccount]);
+    memoryActiveAccount = null;
+    memoryActiveData = cleanGuestData;
+    memoryAccountsList = [];
+    updateSyncMirror(null, cleanGuestData, []);
 
     return {
-      activeAccount: ownerAccount,
-      activeData: initialBizData,
-      accounts: [ownerAccount]
+      activeAccount: null,
+      activeData: cleanGuestData,
+      accounts: []
     };
   } catch (err) {
     console.error('Error during initSaasDatabase:', err);

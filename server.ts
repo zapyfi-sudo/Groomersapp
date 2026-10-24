@@ -341,22 +341,21 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
   let business = findBusiness(idOrSlug, db);
 
   if (!business) {
-    const fallbackId = idOrSlug && !idOrSlug.includes('/') ? idOrSlug : 'biz_main';
-    business = db['biz_main'] || {
-      businessId: fallbackId,
+    const cleanId = cleanString(idOrSlug) || idOrSlug.trim();
+    business = {
+      businessId: cleanId,
       config: {
-        id: fallbackId,
-        name: 'Peluquería Luna',
-        bookingSlug: 'pelo',
-        currency: '$',
-        phonePrefix: '+54'
+        id: cleanId,
+        name: idOrSlug,
+        bookingSlug: cleanId,
+        currency: 'USD'
       },
       appointments: [],
       pets: [],
       bookedRetentions: [],
       updatedAt: new Date().toISOString()
     };
-    db[business.businessId] = business;
+    db[cleanId] = business;
   }
 
   const apts = business.appointments || [];

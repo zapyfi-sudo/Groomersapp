@@ -49,6 +49,21 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
 }) => {
   const [tab, setTab] = useState<'switch' | 'create'>('switch');
 
+  // Strict account isolation: A user only sees accounts belonging to their verified identity (Section 8.2)
+  const userVisibleAccounts = React.useMemo(() => {
+    if (!activeAccount) return [];
+    const currentEmail = (activeAccount.email || '').trim().toLowerCase();
+    const isMasterAdmin = currentEmail === 'admin@agendacan.com' || currentEmail === 'zapyfi@gmail.com';
+    if (isMasterAdmin) {
+      return accountsList;
+    }
+    return accountsList.filter(
+      (acc) =>
+        acc.id === activeAccount.id ||
+        (acc.email && acc.email.trim().toLowerCase() === currentEmail)
+    );
+  }, [accountsList, activeAccount]);
+
   // Registration method selection: 'google' | 'email'
   const [registerMethod, setRegisterMethod] = useState<'google' | 'email'>('google');
 
@@ -333,7 +348,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
               </p>
 
               <div className="space-y-2.5">
-                {accountsList.map((acc) => {
+                {userVisibleAccounts.map((acc) => {
                   const isActive = activeAccount?.id === acc.id;
                   const isGoogle = acc.authProvider === 'google';
 

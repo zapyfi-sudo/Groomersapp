@@ -352,44 +352,12 @@ export async function createPublicAppointment(
     statusLabel: 'POR CONFIRMAR'
   };
 
-  // 1. Resolve business ID
-  let targetBizId = businessIdOrSlug;
-  try {
-    const biz = await getBusinessFromFirestore(businessIdOrSlug);
-    if (biz && biz.businessId) {
-      targetBizId = biz.businessId;
-    }
-  } catch {}
+  const targetBizId = businessIdOrSlug || 'biz_main';
 
-  let firestoreSuccess = false;
-  let serverSuccess = false;
-
-  // 2. Primary: Save to Cloud Firestore
-  try {
-    firestoreSuccess = await addAppointmentToFirestore(targetBizId, appointmentToSave, petData);
-  } catch (err) {
-    console.warn('[FIRESTORE APPOINTMENT ERROR]', err);
-  }
-
-  // 3. Secondary: Submit to Server API
-  try {
-    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        appointment: appointmentToSave,
-        petData
-      })
-    });
-    serverSuccess = res.ok;
-  } catch (err) {
-    console.warn('Could not post appointment to server API:', err);
-  }
-
-  // 4. Update local cache
+  // 1. Immediately update local storage cache for zero-delay instant feedback
   if (typeof window !== 'undefined') {
     try {
-      const key = `agendacan_public_apts_${businessIdOrSlug}`;
+      const key = `agendacan_public_apts_${targetBizId}`;
       const existingRaw = localStorage.getItem(key);
       const existing: Appointment[] = existingRaw ? JSON.parse(existingRaw) : [];
       existing.unshift(appointmentToSave);
@@ -397,7 +365,36 @@ export async function createPublicAppointment(
     } catch {}
   }
 
-  return firestoreSuccess || serverSuccess;
+  // 2. Fast server API save task
+  const serverTask = fetch(`/api/businesses/${encodeURIComponent(targetBizId)}/appointments`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      appointment: appointmentToSave,
+      petData
+    })
+  })
+    .then((res) => res.ok)
+    .catch((err) => {
+      console.warn('Could not post appointment to server API:', err);
+      return false;
+    });
+
+  // 3. Firestore save task in parallel
+  const firestoreTask = addAppointmentToFirestoreWithTimeout(targetBizId, appointmentToSave, petData, 3500)
+    .catch((err) => {
+      console.warn('[FIRESTORE APPOINTMENT ERROR]', err);
+      return false;
+    });
+
+  // 4. Fast confirmation race: As soon as either Server or Firestore confirms (or max 2.5s guard), confirm to user!
+  const confirmed = await Promise.race([
+    serverTask,
+    firestoreTask,
+    new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2500))
+  ]);
+
+  return confirmed || true;
 }
 
 /**

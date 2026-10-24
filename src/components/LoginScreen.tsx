@@ -40,7 +40,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   onLoginSuccess
 }) => {
   const [mode, setMode] = useState<'select' | 'email' | 'register'>(
-    accountsList.length > 0 ? 'select' : 'register'
+    accountsList.length > 0 ? 'email' : 'register'
   );
 
   // Email login state
@@ -279,13 +279,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             </div>
           )}
 
-          {/* Mode 1: Select Stored Account */}
+          {/* Mode 1: Select Stored Account (Only if explicitly enabled or multiple user accounts exist) */}
           {mode === 'select' && (
             <div className="space-y-4">
               <div className="text-center">
-                <h2 className="text-base font-bold text-[#1a1a26]">Selecciona tu cuenta</h2>
+                <h2 className="text-base font-bold text-[#1a1a26]">Bienvenido a Agenda Can</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Cuentas guardadas en este dispositivo
+                  Accede a tu cuenta de peluquería canina
                 </p>
               </div>
 
@@ -297,43 +297,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
               >
                 <GoogleLogo />
-                <span>{googleLoading ? 'Conectando con Google...' : 'Acceder con Google'}</span>
+                <span>{googleLoading ? 'Conectando con Google...' : 'Continuar con cuenta de Google (Gmail)'}</span>
               </button>
-
-              <div className="flex items-center gap-2 my-2">
-                <div className="h-px bg-gray-200 flex-1"></div>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">O selecciona una cuenta</span>
-                <div className="h-px bg-gray-200 flex-1"></div>
-              </div>
-
-              <div className="space-y-2.5 max-h-56 overflow-y-auto">
-                {accountsList.map((acc) => (
-                  <button
-                    key={acc.id}
-                    type="button"
-                    disabled={loading}
-                    onClick={() => handleSelectAccount(acc.id)}
-                    className="w-full p-3.5 rounded-2xl border border-[#cfc2d2]/60 hover:border-[#2e004e] bg-[#fcf8ff] hover:bg-[#f5f0fb] text-left transition-all flex items-center justify-between group cursor-pointer"
-                  >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div className="w-10 h-10 rounded-xl bg-[#2e004e] text-white flex items-center justify-center font-bold text-sm shrink-0 group-hover:scale-105 transition-transform">
-                        {acc.name.charAt(0).toUpperCase()}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="font-extrabold text-sm text-[#1a1a26] block truncate">
-                          {acc.name}
-                        </span>
-                        <span className="text-xs text-[#7e7482] block truncate">
-                          {acc.email}
-                        </span>
-                      </div>
-                    </div>
-                    <span className="material-symbols-outlined text-lg text-[#2e004e] group-hover:translate-x-1 transition-transform">
-                      arrow_forward
-                    </span>
-                  </button>
-                ))}
-              </div>
 
               <div className="pt-3 border-t border-[#cfc2d2]/40 flex flex-col gap-2 text-center">
                 <button
@@ -342,14 +307,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   className="w-full py-2.5 px-4 rounded-xl bg-[#f9b900] text-[#261900] font-bold text-xs shadow-xs hover:bg-[#ffdea1] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-base">add_business</span>
-                  Crear Nueva Peluquería / Cuenta
+                  Registrar Mi Peluquería / Cuenta Nueva
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode('email')}
                   className="text-xs font-semibold text-[#4b0878] hover:underline"
                 >
-                  O ingresar con correo y contraseña
+                  O ingresar con correo electrónico y contraseña
                 </button>
               </div>
             </div>

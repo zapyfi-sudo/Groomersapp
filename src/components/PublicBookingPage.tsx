@@ -104,16 +104,25 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         if (result && result.config) {
           setBusinessData((prevData) => {
             // Anti-overwrite protection:
-            // If the page already has valid data with custom services or photos,
-            // ensure photos and configured fields are NEVER wiped out by stale network responses.
+            // Only merge if this is the SAME business. If a different business is requested, use result directly!
             if (prevData && prevData.config) {
+              const isSameBiz =
+                prevData.businessId === result.businessId ||
+                (prevData.config?.bookingSlug &&
+                  result.config?.bookingSlug &&
+                  extractSlugOnly(prevData.config.bookingSlug) === extractSlugOnly(result.config.bookingSlug));
+
+              if (!isSameBiz) {
+                return result;
+              }
+
               const prevHasPhotos = (prevData.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
               const resultHasPhotos = (result.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
 
-              let mergedServices = result.services || [];
+              let mergedServices = (result.services && result.services.length > 0) ? result.services : (prevData.services || []);
               if (prevHasPhotos && !resultHasPhotos) {
                 const prevSvcMap = new Map((prevData.services || []).map((s) => [s.name.trim().toLowerCase(), s]));
-                mergedServices = (result.services || []).map((resSvc) => {
+                mergedServices = mergedServices.map((resSvc) => {
                   const match = prevSvcMap.get(resSvc.name.trim().toLowerCase());
                   if (match && (match.imageUrl || match.galleryUrls)) {
                     return {
@@ -128,11 +137,11 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
               const keepCustomConfig = {
                 ...result.config,
-                name: prevData.config.name && prevData.config.name !== 'Groomer Aida' ? prevData.config.name : result.config.name,
-                country: prevData.config.country && prevData.config.country !== 'Argentina' ? prevData.config.country : result.config.country,
-                city: prevData.config.city || result.config.city,
-                currency: prevData.config.currency || result.config.currency,
-                address: prevData.config.address || result.config.address,
+                name: result.config.name || prevData.config.name,
+                country: result.config.country || prevData.config.country,
+                city: result.config.city || prevData.config.city,
+                currency: result.config.currency || prevData.config.currency,
+                address: result.config.address || prevData.config.address,
                 services: mergedServices
               };
 
@@ -478,6 +487,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       return;
     }
 
+    if (isSubmitting) return;
     setIsSubmitting(true);
 
     const normalizedDigits = normalizePhoneForWhatsApp(whatsappPhone.trim(), config);
