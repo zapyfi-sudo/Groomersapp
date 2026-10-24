@@ -493,6 +493,59 @@ export async function createNewBusinessAccount(params: {
   return { account: newAccount, data: newData };
 }
 
+/**
+ * Restores an existing remote business account discovered in Firestore (e.g. logging in on a new device)
+ */
+export async function restoreRemoteAccount(params: {
+  businessId: string;
+  config: SalonConfig;
+  appointments?: Appointment[];
+  pets?: Pet[];
+  user: {
+    uid: string;
+    email: string;
+    displayName?: string;
+    photoURL?: string;
+    authProvider?: 'google' | 'password';
+  };
+}): Promise<{ account: UserAccount; data: BusinessAccountData }> {
+  const now = new Date().toISOString();
+  const account: UserAccount = {
+    id: params.user.uid,
+    email: params.user.email.toLowerCase(),
+    name: params.user.displayName || params.config.name || 'Propietario',
+    businessId: params.businessId,
+    authProvider: params.user.authProvider || 'google',
+    firebaseUid: params.user.uid,
+    photoUrl: params.user.photoURL,
+    createdAt: now,
+    lastLoginAt: now
+  };
+
+  const data: BusinessAccountData = {
+    businessId: params.businessId,
+    userId: params.user.uid,
+    config: params.config,
+    pets: params.pets || [],
+    appointments: params.appointments || [],
+    bookedRetentions: [],
+    sales: [],
+    updatedAt: now
+  };
+
+  await dbPut(STORE_ACCOUNTS, account);
+  await dbPut(STORE_BUSINESS_DATA, data);
+  await dbPut(STORE_SESSIONS, { id: 'active_session', userId: account.id, businessId: account.businessId });
+
+  const allAccounts = await dbGetAll<UserAccount>(STORE_ACCOUNTS);
+  memoryAccountsList = allAccounts;
+  memoryActiveAccount = account;
+  memoryActiveData = data;
+  updateSyncMirror(account, data, allAccounts);
+
+  return { account, data };
+}
+
 // Switch between existing accounts (Requirement #6, #27)
 export async function switchAccount(userId: string): Promise<BusinessAccountData | null> {
   const accounts = await dbGetAll<UserAccount>(STORE_ACCOUNTS);

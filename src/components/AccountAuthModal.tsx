@@ -327,9 +327,36 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
         {/* Modal Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
           {errorMsg && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2 animate-in fade-in">
-              <span className="material-symbols-outlined text-base text-red-600 shrink-0">error</span>
-              <span className="flex-1">{errorMsg}</span>
+            <div className="p-3.5 bg-amber-50/90 border border-amber-200 text-amber-950 text-xs rounded-2xl flex flex-col gap-2 shadow-xs animate-in fade-in">
+              <div className="flex items-start gap-2.5">
+                <span className="material-symbols-outlined text-lg text-amber-600 shrink-0 mt-0.5">warning</span>
+                <span className="flex-1 font-medium leading-relaxed">{errorMsg}</span>
+              </div>
+              {(errorMsg.includes('Firebase Console') || errorMsg.includes('deshabilitado') || errorMsg.includes('Dominio no autorizado')) && (
+                <div className="mt-1 pt-2 border-t border-amber-200 text-[11px] text-amber-900 leading-normal bg-amber-100/60 p-2.5 rounded-xl">
+                  <p className="font-bold text-amber-950 flex items-center gap-1 mb-1.5">
+                    <span className="material-symbols-outlined text-sm">tune</span>
+                    Configuración requerida en Firebase Console:
+                  </p>
+                  {errorMsg.includes('Dominio no autorizado') && (
+                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
+                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
+                      <li>Menú lateral: <strong>Authentication → pestaña Settings (Ajustes)</strong>.</li>
+                      <li>Sección <strong>Authorized domains (Dominios autorizados)</strong> → <strong>Agregar dominio</strong>.</li>
+                      <li>Añade <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">groomers-app.vercel.app</code> y <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">{typeof window !== 'undefined' ? window.location.hostname : 'este-dominio'}</code>.</li>
+                    </ol>
+                  )}
+                  {errorMsg.includes('deshabilitado') && (
+                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
+                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
+                      <li>Menú lateral: <strong>Authentication → pestaña Sign-in method (Métodos de acceso)</strong>.</li>
+                      <li>En proveedores de acceso, haz clic en <strong>Correo electrónico/contraseña</strong>.</li>
+                      <li>Activa la casilla <strong>Habilitar</strong> (la primera) y pulsa <strong>Guardar</strong>.</li>
+                      <li>Si deseas habilitar Google, haz clic en <strong>Google</strong>, activa <strong>Habilitar</strong>, selecciona tu correo de soporte y pulsa <strong>Guardar</strong>.</li>
+                    </ol>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

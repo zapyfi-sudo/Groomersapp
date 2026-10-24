@@ -31,14 +31,14 @@ import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientR
 import { slugify, cleanSlugInput, extractSlugOnly } from './slugUtils';
 
 const firebaseConfig = {
-  projectId: firebaseConfigRaw.projectId,
-  appId: firebaseConfigRaw.appId,
-  apiKey: firebaseConfigRaw.apiKey,
-  authDomain: firebaseConfigRaw.authDomain,
-  firestoreDatabaseId: firebaseConfigRaw.firestoreDatabaseId,
-  storageBucket: firebaseConfigRaw.storageBucket,
-  messagingSenderId: firebaseConfigRaw.messagingSenderId,
-  measurementId: firebaseConfigRaw.measurementId
+  projectId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) || firebaseConfigRaw.projectId,
+  appId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_APP_ID) || firebaseConfigRaw.appId,
+  apiKey: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_API_KEY) || firebaseConfigRaw.apiKey,
+  authDomain: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_AUTH_DOMAIN) || firebaseConfigRaw.authDomain,
+  firestoreDatabaseId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_DATABASE_ID) || firebaseConfigRaw.firestoreDatabaseId,
+  storageBucket: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_STORAGE_BUCKET) || firebaseConfigRaw.storageBucket,
+  messagingSenderId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MESSAGING_SENDER_ID) || firebaseConfigRaw.messagingSenderId,
+  measurementId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_MEASUREMENT_ID) || firebaseConfigRaw.measurementId
 };
 
 // Initialize Firebase App
@@ -126,28 +126,31 @@ export async function logoutFirebaseAuth(): Promise<void> {
 }
 
 /**
- * Translates Firebase Auth error codes into helpful Spanish user messages
+ * Translates Firebase Auth error codes into helpful Spanish user messages with exact console actions
  */
 export function translateFirebaseAuthError(err: any): string {
   const code = err?.code || '';
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'este dominio';
+  const projectId = firebaseConfig.projectId || 'third-strength-vh7nb';
+
   switch (code) {
     case 'auth/email-already-in-use':
-      return 'Este correo electrónico ya está registrado en el sistema. Puedes acceder a él desde la pestaña «Mis Cuentas».';
+      return 'Este correo electrónico ya está registrado en Firebase. Inicia sesión con tu contraseña o con Google.';
     case 'auth/invalid-email':
       return 'El formato del correo electrónico ingresado no es válido.';
     case 'auth/weak-password':
       return 'La contraseña debe tener al menos 6 caracteres.';
     case 'auth/popup-closed-by-user':
-      return 'Se cerró la ventana de inicio de sesión con Google antes de completar la autenticación.';
+      return 'Se cerró la ventana de inicio de sesión de Google antes de completar la autenticación.';
     case 'auth/popup-blocked':
-      return 'El navegador bloqueó la ventana emergente de Google. Por favor permite popups para este sitio.';
+      return 'El navegador bloqueó la ventana emergente de Google. Por favor permite las ventanas emergentes (popups) para este sitio.';
     case 'auth/cancelled-popup-request':
       return 'Ya hay una solicitud de autenticación en curso.';
     case 'auth/account-exists-with-different-credential':
-      return 'Ya existe una cuenta registrada con este correo mediante otro método de acceso.';
+      return 'Ya existe una cuenta con este correo vinculada a otro método de acceso. Inicia sesión con tu método original.';
     case 'auth/wrong-password':
     case 'auth/invalid-credential':
-      return 'Credenciales inválidas. Verifica tu correo y contraseña.';
+      return 'Credenciales inválidas o contraseña incorrecta. Verifica tu correo y contraseña.';
     case 'auth/user-not-found':
       return 'No existe ninguna cuenta registrada con este correo.';
     case 'auth/too-many-requests':
@@ -155,11 +158,9 @@ export function translateFirebaseAuthError(err: any): string {
     case 'auth/network-request-failed':
       return 'Error de conexión de red. Verifica tu conexión a internet.';
     case 'auth/operation-not-allowed':
-      return 'El proveedor de inicio de sesión seleccionado no está habilitado actualmente en el proyecto.';
-    case 'auth/unauthorized-domain': {
-      const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'este dominio';
-      return `Dominio no autorizado en Firebase (${currentHost}). Para permitir el acceso con Google, este dominio debe agregarse en Firebase Console → Authentication → Ajustes → Dominios autorizados. Puedes utilizar la opción «Correo y Contraseña» para continuar sin restricciones.`;
-    }
+      return `El método de acceso (Correo y Contraseña o Google) está deshabilitado en Firebase. Debes habilitarlo en Firebase Console (Proyecto: ${projectId}) → Authentication → pestaña "Sign-in method" → activar "Correo electrónico/contraseña".`;
+    case 'auth/unauthorized-domain':
+      return `Dominio no autorizado en Firebase (${currentHost}). Para permitir el acceso con Google, agrega "${currentHost}" y "groomers-app.vercel.app" en Firebase Console (Proyecto: ${projectId}) → Authentication → pestaña "Settings" → "Authorized domains".`;
     default:
       return err?.message || 'Ocurrió un error en la autenticación. Por favor intenta nuevamente.';
   }
@@ -220,6 +221,68 @@ export interface FirestoreBusinessData {
   appointments?: Appointment[];
   pets?: Pet[];
   updatedAt: string;
+}
+
+/**
+ * Searches Firestore for an existing business owned by the user (by Firebase UID or Email).
+ */
+export async function findBusinessByOwner(
+  uid: string,
+  email?: string
+): Promise<{ businessId: string; config: SalonConfig; appointments?: Appointment[]; pets?: Pet[] } | null> {
+  if (!uid && !email) return null;
+
+  try {
+    // 1. Search by config.userId == uid
+    if (uid) {
+      const qUid = query(collection(db, 'businesses'), where('config.userId', '==', uid));
+      const snapUid = await getDocs(qUid);
+      if (!snapUid.empty) {
+        const d = snapUid.docs[0];
+        const data = d.data() as FirestoreBusinessData;
+        return {
+          businessId: data.businessId || d.id,
+          config: data.config,
+          appointments: data.appointments || [],
+          pets: data.pets || []
+        };
+      }
+
+      // Check direct document with ID uid
+      const directDoc = await getDoc(doc(db, 'businesses', uid));
+      if (directDoc.exists()) {
+        const data = directDoc.data() as FirestoreBusinessData;
+        return {
+          businessId: data.businessId || directDoc.id,
+          config: data.config,
+          appointments: data.appointments || [],
+          pets: data.pets || []
+        };
+      }
+    }
+
+    // 2. Search by email if available
+    if (email) {
+      const cleanEmail = email.trim().toLowerCase();
+      const qEmail = query(collection(db, 'businesses'), where('config.email', '==', cleanEmail));
+      const snapEmail = await getDocs(qEmail);
+      if (!snapEmail.empty) {
+        const d = snapEmail.docs[0];
+        const data = d.data() as FirestoreBusinessData;
+        return {
+          businessId: data.businessId || d.id,
+          config: data.config,
+          appointments: data.appointments || [],
+          pets: data.pets || []
+        };
+      }
+    }
+
+    return null;
+  } catch (err) {
+    console.warn('[FIRESTORE FIND BIZ WARNING]', err);
+    return null;
+  }
 }
 
 /**

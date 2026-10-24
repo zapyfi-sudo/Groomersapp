@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { UserAccount, BusinessAccountData } from '../types';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
-import { createNewBusinessAccount, switchAccount, loginWithEmail } from '../utils/saasDb';
+import { createNewBusinessAccount, switchAccount, loginWithEmail, restoreRemoteAccount } from '../utils/saasDb';
 import {
   authWithGoogle,
   registerWithEmailPassword,
   loginWithEmailPassword,
-  translateFirebaseAuthError
+  translateFirebaseAuthError,
+  findBusinessByOwner
 } from '../utils/firebase';
 
 interface LoginScreenProps {
@@ -109,9 +110,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       const gUser = await authWithGoogle();
       if (!gUser || !gUser.email) return;
 
-      // Check if an existing local account matches this Google email
+      // 1. Check local accounts first
       const matched = accountsList.find(
-        (a) => a.email.toLowerCase() === gUser.email.toLowerCase()
+        (a) => a.email.toLowerCase() === gUser.email.toLowerCase() || (a.firebaseUid && a.firebaseUid === gUser.uid)
       );
 
       if (matched) {
@@ -122,7 +123,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         }
       }
 
-      // If no account exists with this email, prepare registration with Google credentials
+      // 2. Check remote Firestore for an existing business owned by this Google account
+      const remoteBiz = await findBusinessByOwner(gUser.uid, gUser.email);
+      if (remoteBiz) {
+        const restored = await restoreRemoteAccount({
+          businessId: remoteBiz.businessId,
+          config: remoteBiz.config,
+          appointments: remoteBiz.appointments,
+          pets: remoteBiz.pets,
+          user: {
+            uid: gUser.uid,
+            email: gUser.email,
+            displayName: gUser.displayName,
+            photoURL: gUser.photoURL,
+            authProvider: 'google'
+          }
+        });
+        onLoginSuccess(restored.data, restored.account);
+        return;
+      }
+
+      // 3. New Google User: seamlessly proceed to business registration with Google info prefilled
       setGoogleUser(gUser);
       setRegEmail(gUser.email);
       if (gUser.displayName) setOwnerName(gUser.displayName);
@@ -137,27 +158,64 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!emailInput.trim()) return;
+    const cleanEmail = emailInput.trim().toLowerCase();
+    if (!cleanEmail) return;
+
+    if (!loginPassword) {
+      setErrorMsg('Por favor ingresa tu contraseña.');
+      return;
+    }
 
     setLoading(true);
     setErrorMsg(null);
     try {
-      // 1. Try Firebase Auth with password if entered
-      if (loginPassword) {
-        try {
-          await loginWithEmailPassword(emailInput.trim(), loginPassword);
-        } catch (authErr) {
-          console.warn('[FIREBASE EMAIL LOGIN WARN]', authErr);
-        }
+      // 1. Real Firebase Auth validation with email and password
+      let fbUser: any = null;
+      try {
+        fbUser = await loginWithEmailPassword(cleanEmail, loginPassword);
+      } catch (authErr: any) {
+        // Show authentic Firebase error (e.g. auth/operation-not-allowed, auth/wrong-password)
+        setErrorMsg(translateFirebaseAuthError(authErr));
+        setLoading(false);
+        return;
       }
 
-      // 2. Load SaaS account from storage
-      const res = await loginWithEmail(emailInput);
+      // 2. Check local accounts for match
+      const res = await loginWithEmail(cleanEmail);
       if (res) {
         onLoginSuccess(res.data, res.account);
-      } else {
-        setErrorMsg('No se encontró ninguna cuenta registrada con este correo electrónico.');
+        return;
       }
+
+      // 3. Check remote Firestore if logging in on a new device/browser
+      if (fbUser) {
+        const remoteBiz = await findBusinessByOwner(fbUser.uid, cleanEmail);
+        if (remoteBiz) {
+          const restored = await restoreRemoteAccount({
+            businessId: remoteBiz.businessId,
+            config: remoteBiz.config,
+            appointments: remoteBiz.appointments,
+            pets: remoteBiz.pets,
+            user: {
+              uid: fbUser.uid,
+              email: cleanEmail,
+              displayName: fbUser.displayName,
+              authProvider: 'password'
+            }
+          });
+          onLoginSuccess(restored.data, restored.account);
+          return;
+        }
+
+        // Firebase Auth account exists, but no business created yet: route to finish onboarding
+        setRegEmail(cleanEmail);
+        setRegisterMethod('email');
+        setMode('register');
+        setErrorMsg('Cuenta autenticada en Firebase. Por favor ingresa los datos de tu peluquería para comenzar.');
+        return;
+      }
+
+      setErrorMsg('No se encontró ninguna cuenta registrada con este correo electrónico.');
     } catch {
       setErrorMsg('Error al iniciar sesión.');
     } finally {
@@ -273,9 +331,36 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         {/* Content */}
         <div className="p-6 space-y-4">
           {errorMsg && (
-            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-2">
-              <span className="material-symbols-outlined text-base text-red-600 shrink-0">error</span>
-              <span>{errorMsg}</span>
+            <div className="p-3.5 bg-amber-50/90 border border-amber-200 text-amber-950 text-xs rounded-2xl flex flex-col gap-2 shadow-xs">
+              <div className="flex items-start gap-2.5">
+                <span className="material-symbols-outlined text-lg text-amber-600 shrink-0 mt-0.5">warning</span>
+                <span className="flex-1 font-medium leading-relaxed">{errorMsg}</span>
+              </div>
+              {(errorMsg.includes('Firebase Console') || errorMsg.includes('deshabilitado') || errorMsg.includes('Dominio no autorizado')) && (
+                <div className="mt-1 pt-2 border-t border-amber-200 text-[11px] text-amber-900 leading-normal bg-amber-100/60 p-2.5 rounded-xl">
+                  <p className="font-bold text-amber-950 flex items-center gap-1 mb-1.5">
+                    <span className="material-symbols-outlined text-sm">tune</span>
+                    Configuración requerida en Firebase Console:
+                  </p>
+                  {errorMsg.includes('Dominio no autorizado') && (
+                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
+                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
+                      <li>Menú lateral: <strong>Authentication → pestaña Settings (Ajustes)</strong>.</li>
+                      <li>Sección <strong>Authorized domains (Dominios autorizados)</strong> → <strong>Agregar dominio</strong>.</li>
+                      <li>Añade <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">groomers-app.vercel.app</code> y <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">{typeof window !== 'undefined' ? window.location.hostname : 'este-dominio'}</code>.</li>
+                    </ol>
+                  )}
+                  {errorMsg.includes('deshabilitado') && (
+                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
+                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
+                      <li>Menú lateral: <strong>Authentication → pestaña Sign-in method (Métodos de acceso)</strong>.</li>
+                      <li>En proveedores de acceso, haz clic en <strong>Correo electrónico/contraseña</strong>.</li>
+                      <li>Activa la casilla <strong>Habilitar</strong> (la primera) y pulsa <strong>Guardar</strong>.</li>
+                      <li>Si deseas habilitar Google, haz clic en <strong>Google</strong>, activa <strong>Habilitar</strong>, selecciona tu correo de soporte y pulsa <strong>Guardar</strong>.</li>
+                    </ol>
+                  )}
+                </div>
+              )}
             </div>
           )}
 
