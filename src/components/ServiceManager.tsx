@@ -174,7 +174,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       try {
-        const compressed = await compressImage(file, 640, 0.78);
+        const compressed = await compressImage(file, 480, 0.70);
         setImageUrl(compressed);
       } catch (err) {
         console.warn('Error uploading service image:', err);
@@ -192,7 +192,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const filesToProcess = Array.from(files).slice(0, remainingSlots);
     try {
       const compressedList = await Promise.all(
-        filesToProcess.map((file) => compressImage(file, 640, 0.78))
+        filesToProcess.map((file) => compressImage(file, 480, 0.70))
       );
       setGalleryUrls((prev) => [...prev, ...compressedList].slice(0, 4));
     } catch (err) {
@@ -207,7 +207,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     if (!file) return;
 
     try {
-      const compressed = await compressImage(file, 640, 0.78);
+      const compressed = await compressImage(file, 480, 0.70);
       setGalleryUrls((prev) => {
         const next = [...prev];
         next[index] = compressed;

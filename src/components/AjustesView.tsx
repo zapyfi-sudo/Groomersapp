@@ -487,9 +487,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       const updatedConfig: SalonConfig = {
         ...config,
         id: persistentBizId,
-        name: businessName,
+        name: businessName.trim() || config.name,
         city: selectedCity.trim(),
-        bookingSlug: targetSlug
+        bookingSlug: targetSlug,
+        services: servicesList,
+        medicationProducts: medicationProducts
       };
 
       // 2. Persist locally first so UI is immediately responsive and active link reflects the new slug
@@ -537,6 +539,49 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     } finally {
       setIsSavingSlug(false);
     }
+  };
+
+  const handleServicesChange = (updatedServices: SalonService[]) => {
+    setServicesList(updatedServices);
+    const persistentBizId = activeAccount?.businessId || config.id || 'biz_main';
+    const safeSlug =
+      cleanSlugInput(customSlug) ||
+      extractSlugOnly(config.bookingSlug) ||
+      'luna';
+
+    const updatedConfig: SalonConfig = {
+      ...config,
+      id: persistentBizId,
+      bookingSlug: safeSlug,
+      name: businessName.trim() || config.name,
+      currency: selectedCurrency,
+      services: updatedServices,
+      medicationProducts: medicationProducts
+    };
+
+    // 1. Immediately persist locally (IndexedDB + local sync mirror)
+    persistActiveConfig(updatedConfig);
+    onUpdateConfig(updatedConfig);
+
+    // 2. Cache locally for public booking page instant resolution
+    if (typeof window !== 'undefined') {
+      try {
+        const cachedPublicData = {
+          businessId: persistentBizId,
+          config: updatedConfig,
+          services: updatedServices,
+          appointments: appointments || []
+        };
+        const serialized = JSON.stringify(cachedPublicData);
+        localStorage.setItem(`agendacan_public_biz_${persistentBizId}`, serialized);
+        if (safeSlug) {
+          localStorage.setItem(`agendacan_public_biz_${safeSlug}`, serialized);
+        }
+      } catch {}
+    }
+
+    // 3. Sync to Cloud Firestore and Server in background
+    syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments).catch(() => {});
   };
 
   const handleSaveAll = async (e?: React.FormEvent | React.MouseEvent) => {
@@ -1729,9 +1774,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               {/* SECCIÓN SERVICIOS: Integrada directamente */}
               <ServiceManager
                 services={servicesList}
-                onChangeServices={(updated) => {
-                  setServicesList(updated);
-                }}
+                onChangeServices={handleServicesChange}
                 currency={selectedCurrency}
               />
 

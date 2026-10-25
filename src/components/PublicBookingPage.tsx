@@ -116,32 +116,84 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 return result;
               }
 
-              const prevHasPhotos = (prevData.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
-              const resultHasPhotos = (result.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
+              const prevSvcs = prevData.services || [];
+              const resultSvcs = result.services || [];
 
-              let mergedServices = (result.services && result.services.length > 0) ? result.services : (prevData.services || []);
-              if (prevHasPhotos && !resultHasPhotos) {
-                const prevSvcMap = new Map((prevData.services || []).map((s) => [s.name.trim().toLowerCase(), s]));
-                mergedServices = mergedServices.map((resSvc) => {
-                  const match = prevSvcMap.get(resSvc.name.trim().toLowerCase());
-                  if (match && (match.imageUrl || match.galleryUrls)) {
+              // Helper to detect generic placeholder default services that should NEVER replace real customized services
+              const isDefaultPlaceholder = (s: SalonService) =>
+                (s.name === 'Corte Completo + Baño' && s.price === 30) ||
+                (s.name === 'Deslanado Profundo' && s.price === 25) ||
+                (s.name === 'Baño + corte' && s.price === 25000);
+
+              const resultOnlyHasDefaults =
+                resultSvcs.length > 0 &&
+                resultSvcs.some(isDefaultPlaceholder) &&
+                !prevSvcs.some(isDefaultPlaceholder);
+
+              let mergedServices: SalonService[] = [];
+
+              if (prevSvcs.length > 0 && resultOnlyHasDefaults) {
+                // If prevData already has the owner's custom services and result returned stale generic placeholders,
+                // KEEP prevSvcs so the owner's customized services are NEVER replaced!
+                mergedServices = prevSvcs;
+              } else if (prevSvcs.length >= resultSvcs.length && prevSvcs.length > 0) {
+                // prevData has equal or more services: keep all services from prevData,
+                // merging any fresh field from result without losing photos or services!
+                const resMap = new Map(resultSvcs.map((s) => [s.id, s]));
+                mergedServices = prevSvcs.map((pSvc) => {
+                  const rSvc = resMap.get(pSvc.id);
+                  if (rSvc) {
                     return {
-                      ...resSvc,
-                      imageUrl: match.imageUrl || resSvc.imageUrl,
-                      galleryUrls: match.galleryUrls || resSvc.galleryUrls
+                      ...rSvc,
+                      imageUrl: pSvc.imageUrl || rSvc.imageUrl,
+                      galleryUrls:
+                        Array.isArray(pSvc.galleryUrls) && pSvc.galleryUrls.length > 0
+                          ? pSvc.galleryUrls
+                          : rSvc.galleryUrls
                     };
                   }
-                  return resSvc;
+                  return pSvc;
                 });
+              } else if (resultSvcs.length > 0) {
+                // Result has more services: merge photos from prevData by ID and name
+                const prevIdMap = new Map(prevSvcs.map((s) => [s.id, s]));
+                const prevNameMap = new Map(prevSvcs.map((s) => [s.name.trim().toLowerCase(), s]));
+
+                mergedServices = resultSvcs.map((rSvc) => {
+                  const match = prevIdMap.get(rSvc.id) || prevNameMap.get(rSvc.name.trim().toLowerCase());
+                  if (match) {
+                    return {
+                      ...rSvc,
+                      imageUrl: match.imageUrl || rSvc.imageUrl,
+                      galleryUrls:
+                        Array.isArray(match.galleryUrls) && match.galleryUrls.length > 0
+                          ? match.galleryUrls
+                          : rSvc.galleryUrls
+                    };
+                  }
+                  return rSvc;
+                });
+
+                // Also keep any customized services from prevData that were not in result
+                const resIdSet = new Set(resultSvcs.map((s) => s.id));
+                for (const pSvc of prevSvcs) {
+                  if (!resIdSet.has(pSvc.id) && !isDefaultPlaceholder(pSvc)) {
+                    mergedServices.push(pSvc);
+                  }
+                }
+              } else {
+                mergedServices = prevSvcs;
               }
 
               const keepCustomConfig = {
                 ...result.config,
                 name: result.config.name || prevData.config.name,
+                logoUrl: result.config.logoUrl || prevData.config.logoUrl,
                 country: result.config.country || prevData.config.country,
                 city: result.config.city || prevData.config.city,
                 currency: result.config.currency || prevData.config.currency,
                 address: result.config.address || prevData.config.address,
+                phone: result.config.phone || prevData.config.phone,
                 services: mergedServices
               };
 

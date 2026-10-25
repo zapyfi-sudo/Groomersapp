@@ -159,8 +159,10 @@ export function translateFirebaseAuthError(err: any): string {
       return 'Error de conexión de red. Verifica tu conexión a internet.';
     case 'auth/operation-not-allowed':
       return `El método de acceso (Correo y Contraseña o Google) está deshabilitado en Firebase. Debes habilitarlo en Firebase Console (Proyecto: ${projectId}) → Authentication → pestaña "Sign-in method" → activar "Correo electrónico/contraseña".`;
-    case 'auth/unauthorized-domain':
-      return `Dominio no autorizado en Firebase (${currentHost}). Para permitir el acceso con Google, agrega "${currentHost}" y "groomers-app.vercel.app" en Firebase Console (Proyecto: ${projectId}) → Authentication → pestaña "Settings" → "Authorized domains".`;
+    case 'auth/unauthorized-domain': {
+      const uniqueDomains = Array.from(new Set([currentHost, 'groomers-app.vercel.app'])).filter(Boolean);
+      return `Dominio no autorizado en Firebase (${currentHost}). Para permitir el acceso con Google, agrega ${uniqueDomains.map((d) => `"${d}"`).join(' y ')} en Firebase Console (Proyecto: ${projectId}) → Authentication → pestaña "Settings" → "Authorized domains".`;
+    }
     default:
       return err?.message || 'Ocurrió un error en la autenticación. Por favor intenta nuevamente.';
   }
@@ -405,13 +407,7 @@ export async function saveBusinessToFirestore(
 
   const executeSave = async (): Promise<boolean> => {
     try {
-      const bizRef = doc(db, 'businesses', cleanId);
-      const payloadToSave = cleanFirestoreData(businessData);
-
-      // 1. Save main business document with full config and services
-      await setDoc(bizRef, payloadToSave, { merge: true });
-
-      // 2. Persist services and medications to subcollections, cleaning up obsolete/removed services
+      // 1. Persist services and medications to subcollections FIRST to guarantee individual document persistence
       try {
         const batch = writeBatch(db);
         const activeServiceIds = new Set(sanitizedServices.map((s) => s.id));
@@ -442,6 +438,11 @@ export async function saveBusinessToFirestore(
       } catch (subErr) {
         console.warn('[FIRESTORE SUBCOLLECTIONS WARN]', subErr);
       }
+
+      // 2. Save main business document
+      const bizRef = doc(db, 'businesses', cleanId);
+      const payloadToSave = cleanFirestoreData(businessData);
+      await setDoc(bizRef, payloadToSave, { merge: true });
 
       // 3. Save slug mapping document for O(1) public booking URL resolution
       if (cleanSlug) {
@@ -595,25 +596,42 @@ export async function getBusinessFromFirestore(
     const b = bizSnap.data() as FirestoreBusinessData;
     let rawServices: SalonService[] = [];
 
-    if (Array.isArray(b.config?.services) && b.config.services.length > 0) {
-      // Authoritative services saved by the salon owner in Configuración del negocio
-      rawServices = b.config.services;
-    } else if (Array.isArray(b.services) && b.services.length > 0) {
-      rawServices = b.services;
-    } else {
-      // Fallback: Read modular subcollection only if no services exist on root document
-      try {
-        const subServicesSnap = await getDocs(collection(db, 'businesses', targetBizId, 'services'));
-        if (!subServicesSnap.empty) {
-          const subList: SalonService[] = [];
-          subServicesSnap.forEach((d) => {
-            subList.push(d.data() as SalonService);
-          });
-          if (subList.length > 0) {
-            rawServices = subList;
+    // 1. First, read from modular subcollection (individual documents with independent limits)
+    try {
+      const subServicesSnap = await getDocs(collection(db, 'businesses', targetBizId, 'services'));
+      if (!subServicesSnap.empty) {
+        const subList: SalonService[] = [];
+        subServicesSnap.forEach((d) => {
+          subList.push(d.data() as SalonService);
+        });
+        if (subList.length > 0) {
+          rawServices = subList;
+        }
+      }
+    } catch (subErr) {
+      console.warn('[FIRESTORE SUBCOLLECTION READ NOTICE]', subErr);
+    }
+
+    // 2. Combine with root document services to guarantee no services or photos are missed
+    const rootServices = Array.isArray(b.config?.services) && b.config.services.length > 0
+      ? b.config.services
+      : (Array.isArray(b.services) ? b.services : []);
+
+    if (rawServices.length === 0) {
+      rawServices = rootServices;
+    } else if (rootServices.length > 0) {
+      const subMap = new Map(rawServices.map((s) => [s.id, s]));
+      for (const rSvc of rootServices) {
+        if (!subMap.has(rSvc.id)) {
+          rawServices.push(rSvc);
+        } else {
+          const existing = subMap.get(rSvc.id)!;
+          if (!existing.imageUrl && rSvc.imageUrl) existing.imageUrl = rSvc.imageUrl;
+          if ((!existing.galleryUrls || existing.galleryUrls.length === 0) && rSvc.galleryUrls) {
+            existing.galleryUrls = rSvc.galleryUrls;
           }
         }
-      } catch {}
+      }
     }
 
     // Filter active services and eliminate duplicates by ID, ensuring images and galleries are clean

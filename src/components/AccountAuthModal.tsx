@@ -343,7 +343,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                       <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
                       <li>Menú lateral: <strong>Authentication → pestaña Settings (Ajustes)</strong>.</li>
                       <li>Sección <strong>Authorized domains (Dominios autorizados)</strong> → <strong>Agregar dominio</strong>.</li>
-                      <li>Añade <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">groomers-app.vercel.app</code> y <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">{typeof window !== 'undefined' ? window.location.hostname : 'este-dominio'}</code>.</li>
+                      <li>Añade el dominio de tu aplicación: <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">groomers-app.vercel.app</code> (y si estás en desarrollo, añade también <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">{typeof window !== 'undefined' ? window.location.hostname : 'este-dominio'}</code>).</li>
                     </ol>
                   )}
                   {errorMsg.includes('deshabilitado') && (
