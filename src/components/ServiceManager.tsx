@@ -173,11 +173,18 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
+      if (file.size > 5 * 1024 * 1024) {
+        setFormError('La imagen supera el tamaño máximo permitido de 5 MB.');
+        return;
+      }
       try {
-        const compressed = await compressImage(file, 480, 0.70);
+        setFormError('');
+        // 480x600 px (4:5 aspect ratio = 0.8)
+        const compressed = await compressImage(file, 480, 0.72, 4 / 5);
         setImageUrl(compressed);
       } catch (err) {
         console.warn('Error uploading service image:', err);
+        setFormError('Error al procesar la imagen. Intenta con otra foto.');
       }
     }
   };
@@ -189,14 +196,24 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const remainingSlots = 4 - galleryUrls.length;
     if (remainingSlots <= 0) return;
 
-    const filesToProcess = Array.from(files).slice(0, remainingSlots);
+    const filesArray = Array.from(files);
+    const oversized = filesArray.find((f) => f.size > 5 * 1024 * 1024);
+    if (oversized) {
+      setFormError(`La imagen "${oversized.name}" supera el tamaño máximo permitido de 5 MB.`);
+      return;
+    }
+
+    const filesToProcess = filesArray.slice(0, remainingSlots);
     try {
+      setFormError('');
+      // 480x600 px (4:5 aspect ratio = 0.8)
       const compressedList = await Promise.all(
-        filesToProcess.map((file) => compressImage(file, 480, 0.70))
+        filesToProcess.map((file) => compressImage(file, 480, 0.72, 4 / 5))
       );
       setGalleryUrls((prev) => [...prev, ...compressedList].slice(0, 4));
     } catch (err) {
       console.warn('Error uploading additional images:', err);
+      setFormError('Error al procesar las imágenes adicionales.');
     } finally {
       e.target.value = '';
     }
@@ -206,8 +223,15 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 5 * 1024 * 1024) {
+      setFormError('La imagen supera el tamaño máximo permitido de 5 MB.');
+      return;
+    }
+
     try {
-      const compressed = await compressImage(file, 480, 0.70);
+      setFormError('');
+      // 480x600 px (4:5 aspect ratio = 0.8)
+      const compressed = await compressImage(file, 480, 0.72, 4 / 5);
       setGalleryUrls((prev) => {
         const next = [...prev];
         next[index] = compressed;
@@ -215,6 +239,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       });
     } catch (err) {
       console.warn('Error replacing additional image:', err);
+      setFormError('Error al procesar la imagen.');
     } finally {
       e.target.value = '';
     }
@@ -460,12 +485,16 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 <button
                   type="button"
                   onClick={() => setImageUrl('')}
-                  className="text-xs text-rose-600 font-bold hover:underline"
+                  className="text-xs text-rose-600 font-bold hover:underline cursor-pointer"
                 >
                   Quitar foto
                 </button>
               )}
             </div>
+            {/* Indicación visual formato y tamaño */}
+            <p className="text-[11px] text-[#7e7482] mt-1.5 leading-relaxed bg-[#faf8fd] p-2 rounded-xl border border-[#efe9f6]">
+              <span className="font-bold text-[#4b0878]">Formato recomendado:</span> 480 × 600 px (proporción 4:5). <span className="font-bold text-[#4b0878]">Tamaño máximo:</span> 5 MB. Se recomienda utilizar imágenes optimizadas para una carga rápida.
+            </p>
           </div>
 
           {/* 7. Fotos adicionales (hasta 4 adicionales) */}
@@ -569,6 +598,11 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 </label>
               )}
             </div>
+
+            {/* Indicación visual formato y tamaño fotos adicionales */}
+            <p className="text-[11px] text-[#7e7482] leading-relaxed bg-[#faf8fd] p-2 rounded-xl border border-[#efe9f6]">
+              <span className="font-bold text-[#4b0878]">Formato recomendado:</span> 480 × 600 px (proporción 4:5). <span className="font-bold text-[#4b0878]">Tamaño máximo:</span> 5 MB por imagen. Puedes subir hasta 4 imágenes adicionales.
+            </p>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#cfc2d2]/30">

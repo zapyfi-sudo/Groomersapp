@@ -70,7 +70,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
 
   // Brand data
-  const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl !== undefined ? config.logoUrl : HOTLINK_IMAGES.logo);
+  const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || '');
   const [businessName, setBusinessName] = useState<string>(config.name || 'Groomer Aida');
   const [selectedCountry, setSelectedCountry] = useState<string>(config.country || 'Argentina');
   const [selectedCity, setSelectedCity] = useState<string>(config.city || '');
@@ -249,22 +249,66 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     setActiveDays(['L', 'M', 'X', 'J', 'V']);
   };
 
-  // Logo file upload with compression and size validation
+  // Logo file upload with compression, size validation, and immediate persistent save
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
         setSavedToast('El archivo supera el tamaño máximo de 5 MB.');
-        setTimeout(() => setSavedToast(null), 3000);
+        setTimeout(() => setSavedToast(null), 3500);
         return;
       }
       try {
         const compressed = await compressImage(file, 380, 0.76);
         setLogoUrl(compressed);
-        setSavedToast('Logo cargado correctamente. Recuerda guardar cambios.');
+
+        // Instantly persist logo in local database & sync to cloud so it never disappears on refresh
+        const persistentBizId = activeAccount?.businessId || config.id || 'biz_main';
+        const safeSlug =
+          cleanSlugInput(customSlug) ||
+          extractSlugOnly(config.bookingSlug) ||
+          'luna';
+
+        const updatedConfig: SalonConfig = {
+          ...config,
+          id: persistentBizId,
+          bookingSlug: safeSlug,
+          name: businessName.trim() || config.name,
+          logoUrl: compressed,
+          services: servicesList,
+          medicationProducts: medicationProducts
+        };
+
+        // 1. Persist locally to IndexedDB & sync mirror
+        await persistActiveConfig(updatedConfig);
+        onUpdateConfig(updatedConfig);
+
+        // 2. Cache locally for public booking page
+        if (typeof window !== 'undefined') {
+          try {
+            const cachedPublicData = {
+              businessId: persistentBizId,
+              config: updatedConfig,
+              services: updatedConfig.services || [],
+              appointments: appointments || []
+            };
+            const serialized = JSON.stringify(cachedPublicData);
+            localStorage.setItem(`agendacan_public_biz_${persistentBizId}`, serialized);
+            if (safeSlug) {
+              localStorage.setItem(`agendacan_public_biz_${safeSlug}`, serialized);
+            }
+          } catch {}
+        }
+
+        // 3. Sync to Cloud Firestore and Server in background
+        syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments).catch(() => {});
+
+        setSavedToast('Logo guardado y actualizado con éxito.');
         setTimeout(() => setSavedToast(null), 3000);
       } catch (err) {
         console.warn('Error compressing logo:', err);
+        setSavedToast('Error al procesar la imagen del logo.');
+        setTimeout(() => setSavedToast(null), 3000);
       }
     }
   };
@@ -488,6 +532,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         ...config,
         id: persistentBizId,
         name: businessName.trim() || config.name,
+        logoUrl: logoUrl || config.logoUrl || '',
         city: selectedCity.trim(),
         bookingSlug: targetSlug,
         services: servicesList,
@@ -554,6 +599,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       id: persistentBizId,
       bookingSlug: safeSlug,
       name: businessName.trim() || config.name,
+      logoUrl: logoUrl || config.logoUrl || '',
       currency: selectedCurrency,
       services: updatedServices,
       medicationProducts: medicationProducts

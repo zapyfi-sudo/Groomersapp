@@ -58,6 +58,11 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   // Gallery viewer state for service additional photos
   const [galleryModalService, setGalleryModalService] = useState<SalonService | null>(null);
   const [galleryActiveIndex, setGalleryActiveIndex] = useState<number>(0);
+  const [logoLoadFailed, setLogoLoadFailed] = useState<boolean>(false);
+
+  useEffect(() => {
+    setLogoLoadFailed(false);
+  }, [businessData?.config?.logoUrl]);
 
   // Load business from persistent storage using URL identifier
   useEffect(() => {
@@ -687,14 +692,18 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         {/* Salon Branding Card */}
         <header className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 mb-6 flex flex-col sm:flex-row items-center sm:items-start gap-4 text-center sm:text-left">
           <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-2xl bg-[#f5f2ff] p-2 flex items-center justify-center overflow-hidden border border-[#cfc2d2]/30 shrink-0 shadow-xs">
-            <img
-              src={config?.logoUrl || HOTLINK_IMAGES.logo}
-              alt={config?.name || 'Groomer Aida'}
-              className="w-full h-full object-contain"
-              onError={(e) => {
-                (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
-              }}
-            />
+            {config?.logoUrl && !logoLoadFailed ? (
+              <img
+                src={config.logoUrl}
+                alt={config?.name || 'Salón'}
+                className="w-full h-full object-contain"
+                onError={() => setLogoLoadFailed(true)}
+              />
+            ) : (
+              <div className="w-full h-full rounded-xl bg-[#2e004e] text-[#f9b900] flex items-center justify-center font-black text-2xl sm:text-3xl shadow-inner">
+                {config?.name ? config.name.charAt(0).toUpperCase() : <span className="material-symbols-outlined text-3xl">pets</span>}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 min-w-0">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Pet, SalonConfig, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData, WhatsAppTemplate, SaleRecord } from './types';
+import { Pet, SalonConfig, SalonService, Appointment, RetentionPet, ClientReview, UserAccount, BusinessAccountData, WhatsAppTemplate, SaleRecord } from './types';
+import { HOTLINK_IMAGES } from './mockData';
 import {
   deriveRetentionPets,
   loadLanguage,
@@ -241,32 +242,72 @@ export default function App() {
           .then((profile) => {
             if (profile && profile.config) {
               setSalonConfig((prev) => {
-                const prevHasPhotos = (prev.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
-                const profileHasPhotos = (profile.config.services || []).some((s) => s.imageUrl || (s.galleryUrls && s.galleryUrls.length > 0));
+                // Helper to detect generic placeholder default services
+                const isDefaultPlaceholder = (s: SalonService) =>
+                  (s.name === 'Corte Completo + Baño' && s.price === 30) ||
+                  (s.name === 'Deslanado Profundo' && s.price === 25) ||
+                  (s.name === 'Baño + corte' && s.price === 25000);
 
-                let mergedServices = (profile.config.services && profile.config.services.length > 0)
-                  ? profile.config.services
-                  : (prev.services || []);
+                const prevSvcs = prev.services || [];
+                const profileSvcs = profile.config.services || [];
+                const profileOnlyHasDefaults =
+                  profileSvcs.length > 0 &&
+                  profileSvcs.some(isDefaultPlaceholder) &&
+                  !prevSvcs.some(isDefaultPlaceholder);
 
-                if (prevHasPhotos && !profileHasPhotos) {
-                  const prevSvcMap = new Map((prev.services || []).map((s) => [s.name.trim().toLowerCase(), s]));
-                  mergedServices = mergedServices.map((resSvc) => {
-                    const match = prevSvcMap.get(resSvc.name.trim().toLowerCase());
-                    if (match && (match.imageUrl || match.galleryUrls)) {
+                let mergedServices: SalonService[] = [];
+                if (prevSvcs.length > 0 && profileOnlyHasDefaults) {
+                  mergedServices = prevSvcs;
+                } else if (prevSvcs.length >= profileSvcs.length && prevSvcs.length > 0) {
+                  const profMap = new Map(profileSvcs.map((s) => [s.id, s]));
+                  mergedServices = prevSvcs.map((pSvc) => {
+                    const rSvc = profMap.get(pSvc.id);
+                    if (rSvc) {
                       return {
-                        ...resSvc,
-                        imageUrl: match.imageUrl || resSvc.imageUrl,
-                        galleryUrls: match.galleryUrls || resSvc.galleryUrls
+                        ...rSvc,
+                        imageUrl: pSvc.imageUrl || rSvc.imageUrl,
+                        galleryUrls:
+                          Array.isArray(pSvc.galleryUrls) && pSvc.galleryUrls.length > 0
+                            ? pSvc.galleryUrls
+                            : rSvc.galleryUrls
                       };
                     }
-                    return resSvc;
+                    return pSvc;
                   });
+                } else if (profileSvcs.length > 0) {
+                  const prevIdMap = new Map(prevSvcs.map((s) => [s.id, s]));
+                  const prevNameMap = new Map(prevSvcs.map((s) => [s.name.trim().toLowerCase(), s]));
+
+                  mergedServices = profileSvcs.map((rSvc) => {
+                    const match = prevIdMap.get(rSvc.id) || prevNameMap.get(rSvc.name.trim().toLowerCase());
+                    if (match) {
+                      return {
+                        ...rSvc,
+                        imageUrl: match.imageUrl || rSvc.imageUrl,
+                        galleryUrls:
+                          Array.isArray(match.galleryUrls) && match.galleryUrls.length > 0
+                            ? match.galleryUrls
+                            : rSvc.galleryUrls
+                      };
+                    }
+                    return rSvc;
+                  });
+                } else {
+                  mergedServices = prevSvcs;
                 }
+
+                const resolvedLogo =
+                  profile.config.logoUrl &&
+                  profile.config.logoUrl !== HOTLINK_IMAGES.logo &&
+                  profile.config.logoUrl !== 'https://lh3.googleusercontent.com/aida-public/AB6AXuCgNdH5Hthy5Yi-fglcEX4qyy4-SEvVu9xcHv_WWfZ35c1EUd2VD0DrJuG9wAleNXW-bzR2vh9V6ET_9gV6vu71YIH_hwdXOlNwRfXAQXgczXcJRVANXrqeuHKQ6kIkUDcUVxkayIIwkFSpKTw3x6CPOgteHP_fPA2WtPu2oCARFuOhxuBRVEstwPARhMQCimBPElnj6HqxDzP1F4o_YHz7YSdnDgJk6MmbEmeSZykQaKqRT0Pv5BvxHQ'
+                    ? profile.config.logoUrl
+                    : (prev.logoUrl || profile.config.logoUrl || '');
 
                 return {
                   ...prev,
                   ...profile.config,
                   name: prev.name && prev.name !== 'Groomer Aida' ? prev.name : profile.config.name,
+                  logoUrl: resolvedLogo,
                   country: prev.country && prev.country !== 'Argentina' ? prev.country : profile.config.country,
                   currency: prev.currency || profile.config.currency,
                   bookingSlug: profile.config.bookingSlug || prev.bookingSlug,

@@ -802,24 +802,47 @@ export function deriveRetentionPets(
   return results;
 }
 
-// Compress image via HTML Canvas before storing
-export async function compressImage(file: File, maxWidth = 800, quality = 0.82): Promise<string> {
+// Compress and optionally crop image via HTML Canvas before storing
+export async function compressImage(
+  file: File,
+  maxWidth = 480,
+  quality = 0.75,
+  targetRatio?: number // e.g., 4 / 5 = 0.8
+): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       const img = new Image();
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
+        let srcX = 0;
+        let srcY = 0;
+        let srcWidth = img.width;
+        let srcHeight = img.height;
 
-        if (width > maxWidth) {
-          height = Math.round((height * maxWidth) / width);
-          width = maxWidth;
+        if (targetRatio && targetRatio > 0) {
+          const currentRatio = img.width / img.height;
+          if (currentRatio > targetRatio) {
+            // Image is wider than 4:5: crop left and right
+            srcWidth = Math.round(img.height * targetRatio);
+            srcX = Math.round((img.width - srcWidth) / 2);
+          } else if (currentRatio < targetRatio) {
+            // Image is taller than 4:5: crop top and bottom
+            srcHeight = Math.round(img.width / targetRatio);
+            srcY = Math.round((img.height - srcHeight) / 2);
+          }
         }
 
-        canvas.width = width;
-        canvas.height = height;
+        let destWidth = srcWidth;
+        let destHeight = srcHeight;
+
+        if (destWidth > maxWidth) {
+          destHeight = Math.round((destHeight * maxWidth) / destWidth);
+          destWidth = maxWidth;
+        }
+
+        const canvas = document.createElement('canvas');
+        canvas.width = destWidth;
+        canvas.height = destHeight;
 
         const ctx = canvas.getContext('2d');
         if (!ctx) {
@@ -827,7 +850,11 @@ export async function compressImage(file: File, maxWidth = 800, quality = 0.82):
           return;
         }
 
-        ctx.drawImage(img, 0, 0, width, height);
+        // Enable smooth image downscaling
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        ctx.drawImage(img, srcX, srcY, srcWidth, srcHeight, 0, 0, destWidth, destHeight);
         resolve(canvas.toDataURL('image/jpeg', quality));
       };
       img.onerror = () => resolve(e.target?.result as string);
