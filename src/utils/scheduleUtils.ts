@@ -133,12 +133,81 @@ export function timeTo12H(raw?: string): string {
 }
 
 /**
+ * Parses common Spanish, ISO, or slash-separated date strings into a local calendar key YYYY-MM-DD.
+ */
+function toCalendarDateKey(raw?: string): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+
+  const clean = trimmed
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+
+  if (clean === 'hoy') {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  }
+
+  // ISO YYYY-MM-DD (optionally with time)
+  const isoMatch = clean.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[t\s].*)?$/i);
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2].padStart(2, '0')}-${isoMatch[3].padStart(2, '0')}`;
+  }
+
+  // Slash format DD/MM/YYYY or YYYY/MM/DD
+  const slashMatch = clean.match(/^(\d{1,4})\/(\d{1,2})\/(\d{1,4})$/);
+  if (slashMatch) {
+    if (slashMatch[1].length === 4) {
+      return `${slashMatch[1]}-${slashMatch[2].padStart(2, '0')}-${slashMatch[3].padStart(2, '0')}`;
+    }
+    const year = slashMatch[3].length === 2 ? `20${slashMatch[3]}` : slashMatch[3];
+    return `${year}-${slashMatch[2].padStart(2, '0')}-${slashMatch[1].padStart(2, '0')}`;
+  }
+
+  const months: Record<string, string> = {
+    enero: '01', ene: '01',
+    febrero: '02', feb: '02',
+    marzo: '03', mar: '03',
+    abril: '04', abr: '04',
+    mayo: '05', may: '05',
+    junio: '06', jun: '06',
+    julio: '07', jul: '07',
+    agosto: '08', ago: '08',
+    septiembre: '09', setiembre: '09', sept: '09', sep: '09', set: '09',
+    octubre: '10', oct: '10',
+    noviembre: '11', nov: '11',
+    diciembre: '12', dic: '12'
+  };
+
+  const textMatch = clean.match(/(\d{1,2})\s+(?:de\s+)?([a-z]+)\.?(?:\s+(?:de\s+)?(\d{4}))?/i);
+  if (textMatch) {
+    const day = textMatch[1].padStart(2, '0');
+    const monthKey = textMatch[2];
+    const month = months[monthKey];
+    const year = textMatch[3] || String(new Date().getFullYear());
+    if (month) {
+      return `${year}-${month}-${day}`;
+    }
+  }
+
+  return null;
+}
+
+/**
  * Checks whether two date strings match loosely or strictly.
- * Handles variations like "15 de Octubre 2024", "15 de octubre de 2024", "2024-10-15".
+ * Handles variations like "15 de Octubre 2024", "15 de octubre de 2024", "2024-10-15", "16 nov 2026".
  */
 export function isDateMatching(dateA?: string, dateB?: string): boolean {
   if (!dateA || !dateB) return false;
   if (dateA.trim() === dateB.trim()) return true;
+
+  const keyA = toCalendarDateKey(dateA);
+  const keyB = toCalendarDateKey(dateB);
+  if (keyA && keyB) {
+    return keyA === keyB;
+  }
 
   const normalize = (str: string) =>
     str

@@ -2,6 +2,11 @@ import { Pet, SalonConfig, Appointment, RetentionPet, SaleRecord } from '../type
 import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage } from './translations';
 import { DEFAULT_WHATSAPP_TEMPLATES } from './phoneUtils';
+import {
+  hasGenuineCompletedVisit,
+  normalizeAppointmentStatus,
+  doesAppointmentMatchPet
+} from './syncHelpers';
 
 const STORAGE_KEY_CONFIG = 'agendacan_salon_config_v2';
 const STORAGE_KEY_PETS = 'agendacan_pets_v2';
@@ -559,17 +564,32 @@ export function calculatePetReturnStats(
     visitCount++;
   };
 
-  // 1. Check pet.visitHistory
+  const matchingApts = Array.isArray(appointments)
+    ? appointments.filter((a) => doesAppointmentMatchPet(a, pet))
+    : [];
+
+  // 1. Check pet.visitHistory (skip legacy phantom unpaid v_* entry for uncompleted bookings)
   if (Array.isArray(pet.visitHistory)) {
     pet.visitHistory.forEach((v) => {
-      if (v) {
+      if (!v) return;
+      const isPhantomUnpaid =
+        v.paid === false &&
+        typeof v.id === 'string' &&
+        v.id.startsWith('v_') &&
+        !v.photos?.afterUrl &&
+        !v.deliveryDate &&
+        !v.careRecommendations &&
+        v.nextRecommendedWeeks === undefined &&
+        matchingApts.length > 0 &&
+        matchingApts.every((a) => normalizeAppointmentStatus(a.status, a.statusLabel) !== 'completado');
+      if (!isPhantomUnpaid) {
         registerVisit(v.id, v.date);
       }
     });
   }
 
-  // 2. Check pet.lastVisit (if not already counted in visitHistory)
-  if (pet.lastVisit) {
+  // 2. Check pet.lastVisit (if genuine completed visit and not already counted in visitHistory)
+  if (pet.lastVisit && hasGenuineCompletedVisit(pet, appointments)) {
     registerVisit(pet.lastVisit.id, pet.lastVisit.date);
   }
 
@@ -639,6 +659,11 @@ export function deriveRetentionPets(
   const todayZero = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
 
   pets.forEach((pet) => {
+    // 0. Strict Lifecycle Guard (Etapa 6): Only pets with a genuinely completed service belong in "Por volver"
+    if (!hasGenuineCompletedVisit(pet, appointments)) {
+      return;
+    }
+
     // 1. Determine interval weeks (custom or standard)
     let intervalWeeks = 6;
     if (pet.returnIntervalType === 'custom' && pet.customReturnWeeks) {
@@ -647,11 +672,30 @@ export function deriveRetentionPets(
       intervalWeeks = Number(pet.recommendedIntervalWeeks) || 6;
     }
 
-    // 2. Determine reference date and last visit
-    const hasCompletedVisit = Boolean(
-      pet.lastVisit?.date || (pet.visitHistory && pet.visitHistory.length > 0)
-    );
-    const lastVisit = pet.lastVisit || (pet.visitHistory && pet.visitHistory.length > 0 ? pet.visitHistory[0] : null);
+    // 2. Determine reference date and last visit (using completed visit or completed appointment)
+    const completedApt = Array.isArray(appointments)
+      ? appointments.find(
+          (a) =>
+            doesAppointmentMatchPet(a, pet) &&
+            normalizeAppointmentStatus(a.status, a.statusLabel) === 'completado'
+        )
+      : undefined;
+
+    const hasCompletedVisit = true;
+    const lastVisit =
+      pet.lastVisit ||
+      (pet.visitHistory && pet.visitHistory.length > 0 ? pet.visitHistory[0] : null) ||
+      (completedApt
+        ? {
+            id: completedApt.id,
+            date: completedApt.date || formatDateSpanish(new Date()),
+            serviceName: completedApt.serviceName,
+            price: completedApt.price,
+            currency: completedApt.currency,
+            paid: true,
+            photos: { beforeUrl: completedApt.beforePhotoUrl }
+          }
+        : null);
 
     let refDate: Date | null = null;
     if (lastVisit?.date) {

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { Pet, Appointment } from '../types';
 import { groupAndSortPetsByDate } from '../utils/petSorting';
 import { AppLanguage } from '../utils/translations';
+import { isClientDirectoryPet } from '../utils/syncHelpers';
 
 interface PetListViewProps {
   pets: Pet[];
@@ -22,10 +23,15 @@ export const PetListView: React.FC<PetListViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
 
+  // Etapa 6: Only show genuine client records (manually added, in-service, or completed visits)
+  const activeDirectoryPets = useMemo(() => {
+    return pets.filter((p) => isClientDirectoryPet(p, appointments));
+  }, [pets, appointments]);
+
   // Automatically group and sort pets by their most recent agenda date & time
   const dateGroups = useMemo(() => {
-    return groupAndSortPetsByDate(pets, appointments, currentLanguage);
-  }, [pets, appointments, currentLanguage]);
+    return groupAndSortPetsByDate(activeDirectoryPets, appointments, currentLanguage);
+  }, [activeDirectoryPets, appointments, currentLanguage]);
 
   // Filter groups according to search query, keeping matches under their corresponding date separator
   const filteredGroups = useMemo(() => {
@@ -57,7 +63,7 @@ export const PetListView: React.FC<PetListViewProps> = ({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-xl font-bold text-[#1a1a26]">Directorio de Mascotas</h2>
-          <p className="text-xs text-[#4c4451]">{pets.length} fichas activas registradas</p>
+          <p className="text-xs text-[#4c4451]">{activeDirectoryPets.length} fichas activas registradas</p>
         </div>
         <button
           type="button"
@@ -190,8 +196,16 @@ export const PetListView: React.FC<PetListViewProps> = ({
         {totalFilteredCount === 0 && (
           <div className="text-center py-10 bg-white rounded-2xl border border-dashed border-[#cfc2d2] p-6">
             <span className="material-symbols-outlined text-4xl text-[#7e7482]">pets</span>
-            <h4 className="text-sm font-bold text-[#1a1a26] mt-2">No se encontraron mascotas</h4>
-            <p className="text-xs text-[#7e7482] mt-1">Prueba con otro término de búsqueda.</p>
+            <h4 className="text-sm font-bold text-[#1a1a26] mt-2">
+              {activeDirectoryPets.length === 0 && !searchTerm
+                ? 'No hay clientes registrados todavía'
+                : 'No se encontraron mascotas'}
+            </h4>
+            <p className="text-xs text-[#7e7482] mt-1 max-w-md mx-auto">
+              {activeDirectoryPets.length === 0 && !searchTerm
+                ? 'Las fichas se crean automáticamente cuando comienzas o finalizas un servicio, o al agregar una mascota manualmente.'
+                : 'Prueba con otro término de búsqueda.'}
+            </p>
           </div>
         )}
       </div>

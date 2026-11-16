@@ -28,7 +28,8 @@ import {
   fetchLatestAppointmentsAndPets,
   createInternalAppointment,
   subscribeToBusinessSales,
-  recordSaleInFirestore
+  recordSaleInFirestore,
+  syncPetToBackend
 } from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
@@ -47,7 +48,16 @@ import { NewAppointmentView } from './components/NewAppointmentView';
 import { sortPetsByAgendaDate } from './utils/petSorting';
 
 import { decodePublicProfileToken, extractSlugOnly } from './utils/slugUtils';
-import { normalizeAndMergeReviews, parseTimestampMs } from './utils/syncHelpers';
+import {
+  normalizeAndMergeReviews,
+  parseTimestampMs,
+  mergeAppointments,
+  normalizeAppointmentStatus,
+  isAppointmentActiveServiceOrCompleted,
+  materializePetFromAppointment,
+  doesAppointmentMatchPet
+} from './utils/syncHelpers';
+import { isDateMatching } from './utils/scheduleUtils';
 
 function getPublicReviewIdentifierFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
@@ -214,7 +224,8 @@ export default function App() {
       recommendedIntervalWeeks: existing.recommendedIntervalWeeks || incoming.recommendedIntervalWeeks || 4,
       returnIntervalType: existing.returnIntervalType || incoming.returnIntervalType,
       customReturnWeeks: existing.customReturnWeeks || incoming.customReturnWeeks,
-      nextRecommendedVisitDate: existing.nextRecommendedVisitDate || incoming.nextRecommendedVisitDate
+      nextRecommendedVisitDate: existing.nextRecommendedVisitDate || incoming.nextRecommendedVisitDate,
+      isManualEntry: existing.isManualEntry || incoming.isManualEntry
     };
   };
 
@@ -231,8 +242,9 @@ export default function App() {
         const sortedPets = sortPetsByAgendaDate(res.activeData.pets, res.activeData.appointments);
         setSalonConfig(res.activeData.config);
         setPets(sortedPets);
-        setAppointments(res.activeData.appointments);
+        setAppointments(mergeAppointments(res.activeData.appointments));
         setBookedRetentions(res.activeData.bookedRetentions || []);
+        setSales(res.activeData.sales || []);
         if (sortedPets.length > 0) {
           setSelectedPetId(sortedPets[0].id);
         }
@@ -348,66 +360,7 @@ export default function App() {
 
               if (profile.appointments && profile.appointments.length > 0) {
                 setAppointments((prev) => {
-                  const map = new Map<string, Appointment>();
-                  for (const a of prev) if (a?.id) map.set(a.id, a);
-
-                  for (const incoming of profile.appointments) {
-                    if (!incoming?.id) continue;
-                    const existing = map.get(incoming.id);
-                    if (!existing) {
-                      map.set(incoming.id, incoming);
-                    } else {
-                      // Confirmed status must ALWAYS take precedence and never revert to pending
-                      const isConfirmed =
-                        existing.status === 'confirmada' ||
-                        (existing.status as any) === 'confirmed' ||
-                        incoming.status === 'confirmada' ||
-                        (incoming.status as any) === 'confirmed';
-                      const isCompleted =
-                        existing.status === 'completado' ||
-                        (existing.status as any) === 'completed' ||
-                        incoming.status === 'completado' ||
-                        (incoming.status as any) === 'completed';
-                      const isInSalon =
-                        existing.status === 'en_salon' ||
-                        existing.status === 'en_corte' ||
-                        incoming.status === 'en_salon' ||
-                        incoming.status === 'en_corte';
-                      const isCancelled =
-                        existing.status === 'cancelada' ||
-                        incoming.status === 'cancelada';
-
-                      const resolvedStatus = isConfirmed
-                        ? 'confirmada'
-                        : isCompleted
-                        ? 'completado'
-                        : isInSalon
-                        ? 'en_salon'
-                        : isCancelled
-                        ? 'cancelada'
-                        : (incoming.status || existing.status || 'pendiente');
-
-                      const resolvedLabel = resolvedStatus === 'confirmada'
-                        ? 'CONFIRMADA'
-                        : resolvedStatus === 'completado'
-                        ? 'COMPLETADO'
-                        : resolvedStatus === 'en_salon'
-                        ? 'EN SALÓN'
-                        : resolvedStatus === 'cancelada'
-                        ? 'CANCELADA'
-                        : (incoming.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
-
-                      map.set(incoming.id, {
-                        ...incoming,
-                        ...existing,
-                        status: resolvedStatus,
-                        statusLabel: resolvedLabel
-                      });
-                    }
-                  }
-
-                  const merged = Array.from(map.values());
-                  merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+                  const merged = mergeAppointments(prev, profile.appointments);
                   persistActiveAppointments(merged);
                   return merged;
                 });
@@ -420,14 +373,23 @@ export default function App() {
                   for (const incoming of profile.pets!) {
                     if (!incoming?.id) continue;
                     const existing = map.get(incoming.id);
-                    if (existing) {
-                      map.set(incoming.id, mergePetRecords(existing, incoming));
-                    } else {
-                      map.set(incoming.id, incoming);
-                    }
+                    map.set(incoming.id, existing ? mergePetRecords(existing, incoming) : incoming);
                   }
                   const merged = Array.from(map.values());
                   persistActivePets(merged);
+                  return merged;
+                });
+              }
+
+              if (profile.sales && profile.sales.length > 0) {
+                setSales((prev) => {
+                  const map = new Map<string, SaleRecord>();
+                  for (const s of prev) if (s?.id) map.set(s.id, s);
+                  for (const s of profile.sales!) if (s?.id) map.set(s.id, s);
+                  const merged = Array.from(map.values()).sort((a, b) =>
+                    (b.createdAt || '').localeCompare(a.createdAt || '')
+                  );
+                  persistActiveSales(merged);
                   return merged;
                 });
               }
@@ -454,7 +416,9 @@ export default function App() {
       setAppointments((prev) => {
         const prevIds = new Set(prev.map((a) => a.id));
         const brandNew = incomingApts.filter(
-          (a) => !prevIds.has(a.id) && (a.status === 'pendiente' || a.statusLabel === 'POR CONFIRMAR')
+          (a) =>
+            !prevIds.has(a.id) &&
+            normalizeAppointmentStatus(a.status, a.statusLabel) === 'pendiente'
         );
 
         if (brandNew.length > 0) {
@@ -470,75 +434,7 @@ export default function App() {
           setTimeout(() => setNewBookingNotification(null), 8000);
         }
 
-        const map = new Map<string, Appointment>();
-        for (const a of prev) if (a?.id) map.set(a.id, a);
-
-        for (const incoming of incomingApts) {
-          if (!incoming?.id) continue;
-          const existing = map.get(incoming.id);
-          if (!existing) {
-            map.set(incoming.id, incoming);
-          } else {
-            // Never overwrite a progressed appointment status backwards
-            const isCompleted =
-              existing.status === 'completado' ||
-              (existing.status as any) === 'completed' ||
-              incoming.status === 'completado' ||
-              (incoming.status as any) === 'completed';
-            const isPorRetirar =
-              existing.status === 'por_retirar' ||
-              existing.statusLabel === 'LISTO PARA RETIRAR' ||
-              incoming.status === 'por_retirar' ||
-              incoming.statusLabel === 'LISTO PARA RETIRAR';
-            const isInSalon =
-              existing.status === 'en_salon' ||
-              existing.status === 'en_corte' ||
-              incoming.status === 'en_salon' ||
-              incoming.status === 'en_corte';
-            const isConfirmed =
-              existing.status === 'confirmada' ||
-              (existing.status as any) === 'confirmed' ||
-              incoming.status === 'confirmada' ||
-              (incoming.status as any) === 'confirmed';
-            const isCancelled =
-              existing.status === 'cancelada' ||
-              incoming.status === 'cancelada';
-
-            const resolvedStatus = isCompleted
-              ? 'completado'
-              : isPorRetirar
-              ? 'por_retirar'
-              : isInSalon
-              ? 'en_salon'
-              : isConfirmed
-              ? 'confirmada'
-              : isCancelled
-              ? 'cancelada'
-              : (incoming.status || existing.status || 'pendiente');
-
-            const resolvedLabel = resolvedStatus === 'completado'
-              ? 'COMPLETADO'
-              : resolvedStatus === 'por_retirar'
-              ? 'LISTO PARA RETIRAR'
-              : resolvedStatus === 'en_salon'
-              ? 'EN SALÓN'
-              : resolvedStatus === 'confirmada'
-              ? 'CONFIRMADA'
-              : resolvedStatus === 'cancelada'
-              ? 'CANCELADA'
-              : (incoming.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
-
-            map.set(incoming.id, {
-              ...incoming,
-              ...existing,
-              status: resolvedStatus,
-              statusLabel: resolvedLabel
-            });
-          }
-        }
-
-        const merged = Array.from(map.values());
-        merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+        const merged = mergeAppointments(prev, incomingApts);
         persistActiveAppointments(merged);
         return merged;
       });
@@ -596,18 +492,18 @@ export default function App() {
       });
     });
 
-    // 3. Periodic server polling (every 8 seconds + window focus) to ensure zero desync across all environments
+    // 3. Periodic server + Firestore polling (every 8 seconds + window focus) for zero desync across devices
     const pollServerSync = async () => {
       try {
         const latest = await fetchLatestAppointmentsAndPets(currentBizId);
         if (latest) {
           if (latest.appointments && latest.appointments.length > 0) {
             setAppointments((prev) => {
-              const prevMap = new Map<string, Appointment>();
-              for (const a of prev) if (a?.id) prevMap.set(a.id, a);
-
+              const prevIds = new Set(prev.map((a) => a.id));
               const brandNew = latest.appointments.filter(
-                (a) => !prevMap.has(a.id) && (a.status === 'pendiente' || a.statusLabel === 'POR CONFIRMAR')
+                (a) =>
+                  !prevIds.has(a.id) &&
+                  normalizeAppointmentStatus(a.status, a.statusLabel) === 'pendiente'
               );
 
               if (brandNew.length > 0) {
@@ -623,73 +519,7 @@ export default function App() {
                 setTimeout(() => setNewBookingNotification(null), 8000);
               }
 
-              for (const a of latest.appointments) {
-                if (a?.id) {
-                  const existing = prevMap.get(a.id);
-                  if (!existing) {
-                    prevMap.set(a.id, a);
-                  } else {
-                    // Progressed status must ALWAYS take precedence and never revert
-                    const isCompleted =
-                      existing.status === 'completado' ||
-                      (existing.status as any) === 'completed' ||
-                      a.status === 'completado' ||
-                      (a.status as any) === 'completed';
-                    const isPorRetirar =
-                      existing.status === 'por_retirar' ||
-                      existing.statusLabel === 'LISTO PARA RETIRAR' ||
-                      a.status === 'por_retirar' ||
-                      a.statusLabel === 'LISTO PARA RETIRAR';
-                    const isInSalon =
-                      existing.status === 'en_salon' ||
-                      existing.status === 'en_corte' ||
-                      a.status === 'en_salon' ||
-                      a.status === 'en_corte';
-                    const isConfirmed =
-                      existing.status === 'confirmada' ||
-                      (existing.status as any) === 'confirmed' ||
-                      a.status === 'confirmada' ||
-                      (a.status as any) === 'confirmed';
-                    const isCancelled =
-                      existing.status === 'cancelada' ||
-                      a.status === 'cancelada';
-
-                    const resolvedStatus = isCompleted
-                      ? 'completado'
-                      : isPorRetirar
-                      ? 'por_retirar'
-                      : isInSalon
-                      ? 'en_salon'
-                      : isConfirmed
-                      ? 'confirmada'
-                      : isCancelled
-                      ? 'cancelada'
-                      : (a.status || existing.status || 'pendiente');
-
-                    const resolvedLabel = resolvedStatus === 'completado'
-                      ? 'COMPLETADO'
-                      : resolvedStatus === 'por_retirar'
-                      ? 'LISTO PARA RETIRAR'
-                      : resolvedStatus === 'en_salon'
-                      ? 'EN SALÓN'
-                      : resolvedStatus === 'confirmada'
-                      ? 'CONFIRMADA'
-                      : resolvedStatus === 'cancelada'
-                      ? 'CANCELADA'
-                      : (a.statusLabel || existing.statusLabel || 'POR CONFIRMAR');
-
-                    prevMap.set(a.id, {
-                      ...a,
-                      ...existing,
-                      status: resolvedStatus,
-                      statusLabel: resolvedLabel
-                    });
-                  }
-                }
-              }
-
-              const merged = Array.from(prevMap.values());
-              merged.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
+              const merged = mergeAppointments(prev, latest.appointments);
               persistActiveAppointments(merged);
               return merged;
             });
@@ -702,14 +532,23 @@ export default function App() {
               for (const incoming of latest.pets) {
                 if (!incoming?.id) continue;
                 const existing = map.get(incoming.id);
-                if (existing) {
-                  map.set(incoming.id, mergePetRecords(existing, incoming));
-                } else {
-                  map.set(incoming.id, incoming);
-                }
+                map.set(incoming.id, existing ? mergePetRecords(existing, incoming) : incoming);
               }
               const merged = Array.from(map.values());
               persistActivePets(merged);
+              return merged;
+            });
+          }
+
+          if (latest.sales && latest.sales.length > 0) {
+            setSales((prev) => {
+              const map = new Map<string, SaleRecord>();
+              for (const s of prev) if (s?.id) map.set(s.id, s);
+              for (const s of latest.sales!) if (s?.id) map.set(s.id, s);
+              const merged = Array.from(map.values()).sort((a, b) =>
+                (b.createdAt || '').localeCompare(a.createdAt || '')
+              );
+              persistActiveSales(merged);
               return merged;
             });
           }
@@ -720,7 +559,7 @@ export default function App() {
     };
 
     pollServerSync();
-    const pollInterval = setInterval(pollServerSync, 30000);
+    const pollInterval = setInterval(pollServerSync, 8000);
 
     const onFocus = () => pollServerSync();
     window.addEventListener('focus', onFocus);
@@ -887,14 +726,17 @@ export default function App() {
     const normalizedConfig: SalonConfig = {
       ...newData.config,
       id: targetBizId,
+      email: newData.config?.email || newAccount.email,
       reviews: normalizeAndMergeReviews(targetBizId, newData.config?.reviews)
     };
 
+    const initialApts = mergeAppointments(newData.appointments || []);
     setActiveAccount(newAccount);
     setSalonConfig(normalizedConfig);
-    setPets(newData.pets);
-    setAppointments(newData.appointments);
+    setPets(sortPetsByAgendaDate(newData.pets || [], initialApts));
+    setAppointments(initialApts);
     setBookedRetentions(newData.bookedRetentions || []);
+    setSales(newData.sales || []);
     if (newData.pets.length > 0) {
       setSelectedPetId(newData.pets[0].id);
     }
@@ -905,7 +747,7 @@ export default function App() {
       return prev.map((a) => (a.id === newAccount.id ? newAccount : a));
     });
 
-    // Reconcile remote cloud/server location and reviews after login/switch
+    // Reconcile remote cloud/server location, reviews, appointments, pets, and sales after login/switch
     fetchBusinessProfile(targetBizId)
       .then((profile) => {
         if (!profile || !profile.config || profile.businessId !== targetBizId) return;
@@ -920,6 +762,7 @@ export default function App() {
             ...prev,
             ...profile.config,
             id: targetBizId,
+            email: profile.config.email || prev.email || newAccount.email,
             name: localStrictlyNewer ? (prev.name || profile.config.name) : (profile.config.name || prev.name),
             logoUrl: profile.config.logoUrl || prev.logoUrl,
             country: localStrictlyNewer
@@ -938,6 +781,42 @@ export default function App() {
               : (profile.updatedAt || profile.config.updatedAt || prev.updatedAt)
           };
         });
+
+        if (profile.appointments && profile.appointments.length > 0) {
+          setAppointments((prev) => {
+            const merged = mergeAppointments(prev, profile.appointments);
+            persistActiveAppointments(merged);
+            return merged;
+          });
+        }
+
+        if (profile.pets && profile.pets.length > 0) {
+          setPets((prev) => {
+            const map = new Map<string, Pet>();
+            for (const p of prev) if (p?.id) map.set(p.id, p);
+            for (const incoming of profile.pets!) {
+              if (!incoming?.id) continue;
+              const existing = map.get(incoming.id);
+              map.set(incoming.id, existing ? mergePetRecords(existing, incoming) : incoming);
+            }
+            const merged = Array.from(map.values());
+            persistActivePets(merged);
+            return merged;
+          });
+        }
+
+        if (profile.sales && profile.sales.length > 0) {
+          setSales((prev) => {
+            const map = new Map<string, SaleRecord>();
+            for (const s of prev) if (s?.id) map.set(s.id, s);
+            for (const s of profile.sales!) if (s?.id) map.set(s.id, s);
+            const merged = Array.from(map.values()).sort((a, b) =>
+              (b.createdAt || '').localeCompare(a.createdAt || '')
+            );
+            persistActiveSales(merged);
+            return merged;
+          });
+        }
       })
       .catch(() => {});
   };
@@ -1031,6 +910,7 @@ export default function App() {
   };
 
   const handleAddNewPet = () => {
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
     const newId = `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
     const newPet: Pet = {
       id: newId,
@@ -1040,6 +920,7 @@ export default function App() {
       gender: 'Macho',
       weightKg: 10,
       isVip: false,
+      isManualEntry: true,
       photoUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
       tutor: {
         name: 'Tutor Responsable',
@@ -1054,7 +935,12 @@ export default function App() {
       recommendedIntervalWeeks: 6
     };
 
-    setPets((prev) => [newPet, ...prev]);
+    setPets((prev) => {
+      const next = [newPet, ...prev];
+      persistActivePets(next);
+      return next;
+    });
+    syncPetToBackend(currentBizId, newPet).catch(() => {});
     setSelectedPetId(newId);
     setCurrentTab('ficha');
   };
@@ -1072,13 +958,14 @@ export default function App() {
     });
   };
 
-  // Cross-Module Automation: When an appointment is created, automatically add/update Pet & Tutor & PERSIST
+  // Cross-Module Automation: Persist appointment & petSnapshot; defer Pet ficha creation until service starts or completes (Etapa 6)
   const handleAddNewAppointment = async (
     newApt: Appointment,
     newPetData?: Partial<Pet>
   ): Promise<boolean> => {
     try {
       const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+      const nowIso = new Date().toISOString();
 
       // 1. Duplicate Prevention: Check for existing appointment by ID or semantic match (same pet, tutor, date, time, service)
       const existingApt = appointments.find(
@@ -1086,155 +973,138 @@ export default function App() {
           a.id === newApt.id ||
           (a.petName?.trim().toLowerCase() === newApt.petName?.trim().toLowerCase() &&
             a.tutorName?.trim().toLowerCase() === newApt.tutorName?.trim().toLowerCase() &&
-            a.date === newApt.date &&
+            isDateMatching(a.date, newApt.date) &&
             a.time === newApt.time &&
             a.serviceName === newApt.serviceName)
       );
 
-      const resolvedApt: Appointment = existingApt
-        ? { ...existingApt, ...newApt, id: existingApt.id }
-        : newApt;
-
-      const updatedAppointments = existingApt
-        ? appointments.map((a) => (a.id === existingApt.id ? resolvedApt : a))
-        : [resolvedApt, ...appointments.filter((a) => a.id !== resolvedApt.id)];
-
-      setAppointments(updatedAppointments);
-
-      // 2. Calculate updated pets
-      const existing = pets.find(
+      const existingPet = pets.find(
         (p) =>
-          p.id === resolvedApt.petId ||
-          (p.name.toLowerCase() === resolvedApt.petName.toLowerCase() &&
-            p.tutor.name.toLowerCase() === resolvedApt.tutorName.toLowerCase())
+          p.id === newApt.petId ||
+          (p.name.toLowerCase() === newApt.petName.toLowerCase() &&
+            p.tutor.name.toLowerCase() === newApt.tutorName.toLowerCase())
       );
 
-      const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || existing?.photoUrl;
-      const parsedWeight = Number(newPetData?.weightKg) || existing?.weightKg || 10;
-      const parsedSize = (newPetData as any)?.size || newApt.size || existing?.size || 'mediano';
+      const incomingPhoto = newApt.beforePhotoUrl || newPetData?.photoUrl || existingPet?.photoUrl;
+      const parsedWeight = Number(newPetData?.weightKg) || existingPet?.weightKg || 10;
+      const parsedSize = (newPetData as any)?.size || newApt.size || existingPet?.size || 'mediano';
+      const resolvedPetId =
+        existingPet?.id || newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      const isAptCompleted =
-        newApt.status === 'completado' || (newApt.status as any) === 'completed';
+      const petSnapshotPayload: Partial<Pet> = {
+        id: resolvedPetId,
+        name: newApt.petName,
+        breed: newApt.breed || newPetData?.breed || 'Mestizo',
+        size: parsedSize,
+        weightKg: parsedWeight,
+        gender: newPetData?.gender || existingPet?.gender || 'Macho',
+        age: newPetData?.age || existingPet?.age || '1 año',
+        photoUrl: incomingPhoto,
+        habitualMood: (newPetData?.habitualMood as any) || existingPet?.habitualMood || 'tranquilo',
+        healthAllergies: newPetData?.healthAllergies,
+        handlingObservations: newPetData?.handlingObservations,
+        tutor: {
+          name: newApt.tutorName || '',
+          phone: newApt.tutorPhone || '',
+          rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
+        }
+      };
 
-      let updatedPets: Pet[] = [];
+      const resolvedApt: Appointment = existingApt
+        ? {
+            ...existingApt,
+            ...newApt,
+            id: existingApt.id,
+            businessId: currentBizId,
+            petId: resolvedPetId,
+            size: parsedSize,
+            petSnapshot: petSnapshotPayload,
+            updatedAt: nowIso
+          }
+        : {
+            ...newApt,
+            businessId: currentBizId,
+            petId: resolvedPetId,
+            size: parsedSize,
+            petSnapshot: petSnapshotPayload,
+            createdAt: newApt.createdAt || nowIso,
+            updatedAt: nowIso
+          };
 
-      if (existing) {
+      const updatedAppointments = mergeAppointments([resolvedApt], appointments);
+      setAppointments(updatedAppointments);
+
+      const canonStatus = normalizeAppointmentStatus(resolvedApt.status, resolvedApt.statusLabel);
+      const isAptCompleted = canonStatus === 'completado';
+      const shouldMaterializePet = isAppointmentActiveServiceOrCompleted(
+        resolvedApt.status,
+        resolvedApt.statusLabel
+      );
+
+      let updatedPets: Pet[] = pets;
+
+      if (existingPet) {
         updatedPets = pets.map((p) => {
-          if (p.id === existing.id) {
-            return {
-              ...p,
-              breed: newApt.breed || newPetData?.breed || p.breed,
-              size: parsedSize,
-              age: newPetData?.age || p.age || '1 año',
-              gender: newPetData?.gender || p.gender || 'Macho',
-              weightKg: parsedWeight,
-              photoUrl: incomingPhoto || p.photoUrl,
-              habitualMood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
-              healthAllergies:
-                newPetData?.healthAllergies !== undefined
-                  ? newPetData.healthAllergies
-                  : p.healthAllergies,
-              handlingObservations:
-                newPetData?.handlingObservations !== undefined
-                  ? newPetData.handlingObservations
-                  : p.handlingObservations,
-              tutor: {
-                ...p.tutor,
-                name: newApt.tutorName || p.tutor.name,
-                phone: newApt.tutorPhone || p.tutor.phone,
-                rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
-              },
-              // Only update lastVisit and visitHistory if the appointment was actually marked completed
-              lastVisit: isAptCompleted
-                ? {
+          if (p.id !== existingPet.id) return p;
+          return {
+            ...p,
+            breed: resolvedApt.breed || newPetData?.breed || p.breed,
+            size: parsedSize,
+            age: newPetData?.age || p.age || '1 año',
+            gender: newPetData?.gender || p.gender || 'Macho',
+            weightKg: parsedWeight,
+            photoUrl: incomingPhoto || p.photoUrl,
+            habitualMood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
+            healthAllergies:
+              newPetData?.healthAllergies !== undefined
+                ? newPetData.healthAllergies
+                : p.healthAllergies,
+            handlingObservations:
+              newPetData?.handlingObservations !== undefined
+                ? newPetData.handlingObservations
+                : p.handlingObservations,
+            tutor: {
+              ...p.tutor,
+              name: resolvedApt.tutorName || p.tutor.name,
+              phone: resolvedApt.tutorPhone || p.tutor.phone,
+              rawPhone: (resolvedApt.tutorPhone || '').replace(/\D/g, '')
+            },
+            lastVisit: isAptCompleted
+              ? {
+                  id: `v-${Date.now()}`,
+                  date: resolvedApt.date || 'Hoy',
+                  serviceName: resolvedApt.serviceName,
+                  price: resolvedApt.price,
+                  currency: resolvedApt.currency,
+                  mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
+                  paid: resolvedApt.paymentStatus === 'cobrado',
+                  photos: {
+                    beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
+                  }
+                }
+              : p.lastVisit,
+            visitHistory: isAptCompleted
+              ? [
+                  {
                     id: `v-${Date.now()}`,
-                    date: newApt.date || 'Hoy',
-                    serviceName: newApt.serviceName,
-                    price: newApt.price,
-                    currency: newApt.currency,
+                    date: resolvedApt.date || 'Hoy',
+                    serviceName: resolvedApt.serviceName,
+                    price: resolvedApt.price,
+                    currency: resolvedApt.currency,
                     mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
-                    paid: newApt.paymentStatus === 'cobrado',
+                    paid: resolvedApt.paymentStatus === 'cobrado',
                     photos: {
                       beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
                     }
-                  }
-                : p.lastVisit,
-              visitHistory: isAptCompleted
-                ? [
-                    {
-                      id: `v-${Date.now()}`,
-                      date: newApt.date || 'Hoy',
-                      serviceName: newApt.serviceName,
-                      price: newApt.price,
-                      currency: newApt.currency,
-                      mood: (newPetData?.habitualMood as any) || p.habitualMood || 'tranquilo',
-                      paid: newApt.paymentStatus === 'cobrado',
-                      photos: {
-                        beforeUrl: incomingPhoto || p.lastVisit?.photos?.beforeUrl
-                      }
-                    },
-                    ...(p.visitHistory || [])
-                  ]
-                : (p.visitHistory || []),
-              recommendedIntervalWeeks: p.recommendedIntervalWeeks || 4
-            };
-          }
-          return p;
+                  },
+                  ...(p.visitHistory || [])
+                ]
+              : p.visitHistory || [],
+            recommendedIntervalWeeks: p.recommendedIntervalWeeks || 4
+          };
         });
-      } else {
-        const createdPet: Pet = {
-          id: newApt.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
-          name: newApt.petName,
-          breed: newApt.breed || newPetData?.breed || 'Mestizo',
-          size: parsedSize,
-          age: newPetData?.age || '1 año',
-          gender: newPetData?.gender || 'Macho',
-          weightKg: parsedWeight,
-          isVip: false,
-          photoUrl:
-            incomingPhoto ||
-            'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
-          tutor: {
-            name: newApt.tutorName,
-            phone: newApt.tutorPhone || `${salonConfig.phonePrefix} 11 0000-0000`,
-            rawPhone: (newApt.tutorPhone || '').replace(/\D/g, '')
-          },
-          habitualMood: (newPetData?.habitualMood as any) || 'tranquilo',
-          healthAllergies: newPetData?.healthAllergies || '',
-          handlingObservations: newPetData?.handlingObservations || '',
-          // An initial scheduled appointment does NOT count as a completed visit
-          lastVisit: isAptCompleted
-            ? {
-                id: `v-${Date.now()}`,
-                date: newApt.date || 'Hoy',
-                serviceName: newApt.serviceName,
-                price: newApt.price,
-                currency: newApt.currency,
-                mood: (newPetData?.habitualMood as any) || 'tranquilo',
-                paid: newApt.paymentStatus === 'cobrado',
-                photos: {
-                  beforeUrl: incomingPhoto
-                }
-              }
-            : undefined,
-          visitHistory: isAptCompleted
-            ? [
-                {
-                  id: `v-${Date.now()}`,
-                  date: newApt.date || 'Hoy',
-                  serviceName: newApt.serviceName,
-                  price: newApt.price,
-                  currency: newApt.currency,
-                  mood: (newPetData?.habitualMood as any) || 'tranquilo',
-                  paid: newApt.paymentStatus === 'cobrado',
-                  photos: {
-                    beforeUrl: incomingPhoto
-                  }
-                }
-              ]
-            : [],
-          recommendedIntervalWeeks: 4
-        };
+      } else if (shouldMaterializePet) {
+        const createdPet = materializePetFromAppointment(resolvedApt, undefined, petSnapshotPayload);
         updatedPets = [createdPet, ...pets];
       }
 
@@ -1248,24 +1118,7 @@ export default function App() {
       });
 
       // 4. Save to Cloud Firestore & Server API
-      await createInternalAppointment(currentBizId, resolvedApt, {
-        id: resolvedApt.petId,
-        name: resolvedApt.petName,
-        breed: resolvedApt.breed,
-        size: parsedSize,
-        weightKg: parsedWeight,
-        gender: newPetData?.gender,
-        age: newPetData?.age,
-        photoUrl: incomingPhoto,
-        habitualMood: newPetData?.habitualMood,
-        healthAllergies: newPetData?.healthAllergies,
-        handlingObservations: newPetData?.handlingObservations,
-        tutor: {
-          name: resolvedApt.tutorName || '',
-          phone: resolvedApt.tutorPhone || '',
-          rawPhone: (resolvedApt.tutorPhone || '').replace(/\D/g, '')
-        }
-      });
+      await createInternalAppointment(currentBizId, resolvedApt, petSnapshotPayload);
 
       return true;
     } catch (err) {
@@ -1281,22 +1134,21 @@ export default function App() {
     extraPatch?: Partial<Appointment>
   ): Promise<boolean> => {
     const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
-
     const targetApt = appointments.find((a) => a.id === appointmentId);
+    const canonStatus = normalizeAppointmentStatus(status, statusLabel);
+
     let createdSale: SaleRecord | null = null;
     let salePatch: Partial<Appointment> = {};
 
     // MEJORA 3: Fuente de ingresos al pulsar «Comenzar servicio» o «Comenzar corte»
-    const isStartingService = (status === 'en_salon' || status === 'en_corte');
+    const isStartingService = canonStatus === 'en_salon';
     if (isStartingService && targetApt) {
-      // Garantizar idempotencia: verificar que no haya sido registrada previamente
       const alreadyHasSale =
         Boolean(targetApt.saleRecordId) ||
         (targetApt.salesRecordedAmount !== undefined && Number(targetApt.salesRecordedAmount) > 0) ||
         sales.some((s) => s.appointmentId === appointmentId);
 
       if (!alreadyHasSale) {
-        // Parse price safely
         let rawPrice = Number(targetApt.price);
         if (isNaN(rawPrice) || rawPrice <= 0) {
           const cleaned = String(targetApt.price || '').replace(/[^0-9.,]/g, '').replace(',', '.');
@@ -1352,10 +1204,34 @@ export default function App() {
       }
     }
 
-    const mergedPatch = { ...(extraPatch || {}), ...salePatch };
+    // Etapa 6: Materialize/update Pet ficha when entering En Salón or Completing service
+    let materializedPetToSync: Pet | null = null;
+    let petIdPatch: Partial<Appointment> = {};
+    if (targetApt && isAppointmentActiveServiceOrCompleted(canonStatus, statusLabel)) {
+      const existingPet = pets.find((p) => doesAppointmentMatchPet(targetApt, p));
+      const resolvedPet = materializePetFromAppointment(targetApt, existingPet);
+      materializedPetToSync = resolvedPet;
+      if (targetApt.petId !== resolvedPet.id) {
+        petIdPatch = { petId: resolvedPet.id };
+      }
+
+      setPets((prev) => {
+        const hasMatch = prev.some((p) => p.id === resolvedPet.id);
+        const nextList = hasMatch
+          ? prev.map((p) => (p.id === resolvedPet.id ? mergePetRecords(p, resolvedPet) : p))
+          : [resolvedPet, ...prev];
+        const sorted = sortPetsByAgendaDate(nextList, appointments);
+        persistActivePets(sorted);
+        return sorted;
+      });
+    }
+
+    const mergedPatch = { ...(extraPatch || {}), ...salePatch, ...petIdPatch };
 
     const updatedList = appointments.map((a) =>
-      a.id === appointmentId ? { ...a, status: status as any, statusLabel, ...mergedPatch } : a
+      a.id === appointmentId
+        ? { ...a, status: canonStatus as any, statusLabel, ...mergedPatch }
+        : a
     );
     setAppointments(updatedList);
 
@@ -1368,7 +1244,6 @@ export default function App() {
         return next;
       });
 
-      // Persistir en Firestore y en Server API
       recordSaleInFirestore(currentBizId, createdSale).catch(() => {});
       fetch(`/api/businesses/${encodeURIComponent(currentBizId)}/sales`, {
         method: 'POST',
@@ -1382,7 +1257,10 @@ export default function App() {
 
     // 3. Guarantee persistence in Backend Server API & Cloud Firestore
     try {
-      await updateAppointmentStatusOnServer(currentBizId, appointmentId, status, statusLabel, mergedPatch);
+      await Promise.all([
+        updateAppointmentStatusOnServer(currentBizId, appointmentId, canonStatus, statusLabel, mergedPatch),
+        materializedPetToSync ? syncPetToBackend(currentBizId, materializedPetToSync) : Promise.resolve(true)
+      ]);
     } catch (err) {
       console.warn('Error syncing appointment status update:', err);
     }
@@ -1424,17 +1302,10 @@ export default function App() {
   }, [retentionPets]);
 
   const inSalonAppointmentsCount = useMemo(() => {
-    return appointments.filter(
-      (a) =>
-        a.status === 'en_salon' ||
-        a.status === 'en_corte' ||
-        a.status === 'por_retirar' ||
-        a.statusLabel === 'EN SALÓN' ||
-        a.statusLabel === 'EN CORTE' ||
-        a.statusLabel === 'POR RETIRAR' ||
-        a.statusLabel === 'LISTO PARA RETIRAR' ||
-        (a.subStatus && a.subStatus.toLowerCase().includes('retirar'))
-    ).length;
+    return appointments.filter((a) => {
+      const canon = normalizeAppointmentStatus(a.status, a.statusLabel);
+      return canon === 'en_salon' || canon === 'por_retirar';
+    }).length;
   }, [appointments]);
 
   // 1. PUBLIC REVIEWS FLOW (Independent public rating form for customers - Requirement #1 & #2)
@@ -1636,7 +1507,14 @@ export default function App() {
               onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
               onSelectPetForProfile={handleSelectPetForProfile}
               onNavigateToAgenda={() => setCurrentTab('agenda')}
-              onCompleteAndRegisterVisit={(apt, pet) => {
+              onCompleteAndRegisterVisit={(_apt, pet) => {
+                setPets((prev) => {
+                  const exists = prev.some((p) => p.id === pet.id);
+                  if (exists) return prev;
+                  const next = sortPetsByAgendaDate([pet, ...prev], appointments);
+                  persistActivePets(next);
+                  return next;
+                });
                 setSelectedPetId(pet.id);
                 setCurrentTab('ficha');
               }}
@@ -1649,8 +1527,12 @@ export default function App() {
               config={salonConfig}
               sales={sales}
               onUpdateConfig={(updated) => {
-                setSalonConfig(updated);
-                syncBusinessToServer(updated.id || 'biz_main', updated, pets, appointments, bookedRetentions, sales);
+                const enriched: SalonConfig = {
+                  ...updated,
+                  email: updated.email || activeAccount?.email || salonConfig.email
+                };
+                setSalonConfig(enriched);
+                syncBusinessToServer(enriched.id || 'biz_main', enriched, pets, appointments, bookedRetentions, sales);
               }}
               onPreviewClientFlow={() => {
                 setPreviewBookingId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');

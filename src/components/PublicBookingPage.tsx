@@ -622,37 +622,14 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     const formattedTutorPhone = normalizedDigits ? `+${normalizedDigits}` : whatsappPhone.trim();
 
     const parsedWeight = Number(weightKg) || (selectedDogSize === 'pequeno' ? 6 : selectedDogSize === 'mediano' ? 14 : selectedDogSize === 'grande' ? 24 : 35);
-
-    const newApt: Appointment = {
-      id: `apt_pub_${Date.now()}`,
-      petId: `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
-      petName: petName.trim(),
-      breed: breed.trim() || 'Mestizo',
-      tutorName: tutorName.trim(),
-      tutorPhone: formattedTutorPhone,
-      serviceName: activeService.name,
-      time: `${selectedTime} hs`,
-      date: selectedDate,
-      status: 'pendiente',
-      statusLabel: 'PENDIENTE DE CONFIRMACIÓN',
-      groomer: config?.staffMembers?.[0]?.name || 'Peluquero asignado',
-      price: totalPrice,
-      currency,
-      paymentStatus: 'por_cobrar',
-      paymentStatusLabel: 'Por cobrar',
-      subStatus: 'Reserva online (Por confirmar)',
-      subStatusType: 'warning',
-      hasMedication: selectedMedicationIds.length > 0,
-      beforePhotoUrl: petPhoto || undefined,
-      notes: [
-        healthNotes ? `Salud: ${healthNotes}` : '',
-        handlingNotes ? `Manejo: ${handlingNotes}` : ''
-      ].filter(Boolean).join(' | ')
-    };
+    const nowIso = new Date().toISOString();
+    const generatedPetId = `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const petData: Partial<Pet> = {
+      id: generatedPetId,
       name: petName.trim(),
       breed: breed.trim() || 'Mestizo',
+      size: selectedDogSize,
       age: age.trim() || '1 año',
       gender,
       weightKg: parsedWeight,
@@ -667,15 +644,56 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       handlingObservations: handlingNotes.trim()
     };
 
+    const newApt: Appointment = {
+      id: `apt_pub_${Date.now()}`,
+      businessId: businessData?.businessId,
+      petId: generatedPetId,
+      petName: petName.trim(),
+      breed: breed.trim() || 'Mestizo',
+      size: selectedDogSize,
+      tutorName: tutorName.trim(),
+      tutorPhone: formattedTutorPhone,
+      serviceName: activeService.name,
+      time: `${selectedTime} hs`,
+      date: selectedDate,
+      status: 'pendiente',
+      statusLabel: 'POR CONFIRMAR',
+      groomer: config?.staffMembers?.[0]?.name || 'Peluquero asignado',
+      price: totalPrice,
+      currency,
+      paymentStatus: 'por_cobrar',
+      paymentStatusLabel: 'Por cobrar',
+      subStatus: 'Reserva online (Por confirmar)',
+      subStatusType: 'warning',
+      hasMedication: selectedMedicationIds.length > 0,
+      beforePhotoUrl: petPhoto || undefined,
+      createdFromPublic: true,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      petSnapshot: petData,
+      notes: [
+        healthNotes ? `Salud: ${healthNotes}` : '',
+        handlingNotes ? `Manejo: ${handlingNotes}` : ''
+      ].filter(Boolean).join(' | ')
+    };
+
     try {
-      await createPublicAppointment(businessData?.businessId || businessIdOrSlug, newApt, petData);
+      const saved = await createPublicAppointment(businessData?.businessId || businessIdOrSlug, newApt, petData);
+      if (!saved && !isPreviewMode) {
+        setFormError('No pudimos guardar tu reserva en este momento. Por favor verifica tu conexión e intenta nuevamente.');
+        return;
+      }
       if (onAppointmentCreated) {
         onAppointmentCreated(newApt, petData);
       }
       setCreatedAppointment(newApt);
     } catch (err) {
       console.error('Error saving appointment:', err);
-      setCreatedAppointment(newApt);
+      if (isPreviewMode) {
+        setCreatedAppointment(newApt);
+      } else {
+        setFormError('Ocurrió un problema de conexión al registrar tu cita. Por favor intenta nuevamente.');
+      }
     } finally {
       setIsSubmitting(false);
     }

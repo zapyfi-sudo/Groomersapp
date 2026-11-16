@@ -6,8 +6,14 @@ import { ConfirmWhatsAppModal } from './ConfirmWhatsAppModal';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { formatDateSpanish } from '../utils/storage';
-import { buildWhatsAppConfirmationUrl, openWhatsAppUrl } from '../utils/phoneUtils';
 import { formatPrice } from '../utils/priceUtils';
+import { isDateMatching } from '../utils/scheduleUtils';
+import {
+  normalizeAppointmentStatus,
+  getCanonicalStatusLabel,
+  mergeAppointments,
+  doesAppointmentMatchPet
+} from '../utils/syncHelpers';
 
 interface AgendaViewProps {
   appointments: Appointment[];
@@ -57,11 +63,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
 
   const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
 
+  const dedupedAppointments = useMemo(() => {
+    return mergeAppointments(appointments);
+  }, [appointments]);
+
   // Generate week days dynamically from real system date with offset support
   const weekDays = useMemo(() => {
     const list = [];
     const curr = new Date(today);
-    // Apply week offset
     curr.setDate(curr.getDate() + weekOffset * 7);
     const dayOfWeek = curr.getDay(); // 0 is Sunday
     const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -75,14 +84,14 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       d.setDate(monday.getDate() + i);
       const isToday = d.toDateString() === today.toDateString();
       const formatted = formatDateSpanish(d);
-      const dayApts = appointments.filter((a) => a.date === formatted);
+      const dayApts = dedupedAppointments.filter(
+        (a) =>
+          isDateMatching(a.date, formatted) &&
+          normalizeAppointmentStatus(a.status, a.statusLabel) !== 'cancelada'
+      );
       const countForDay = dayApts.length;
       const pendingCount = dayApts.filter(
-        (a) =>
-          a.status === 'pendiente' ||
-          a.status === 'pendiente_confirmacion' ||
-          (a.status as any) === 'pending' ||
-          a.statusLabel === 'POR CONFIRMAR'
+        (a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'pendiente'
       ).length;
 
       list.push({
@@ -95,62 +104,55 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
       });
     }
     return list;
-  }, [today, appointments, weekOffset]);
+  }, [today, dedupedAppointments, weekOffset]);
 
   // Today's specific appointments (excluding cancelled)
   const todayAppointments = useMemo(() => {
-    return appointments.filter((a) => a.date === todayFormatted && a.status !== 'cancelada');
-  }, [appointments, todayFormatted]);
+    return dedupedAppointments.filter(
+      (a) =>
+        isDateMatching(a.date, todayFormatted) &&
+        normalizeAppointmentStatus(a.status, a.statusLabel) !== 'cancelada'
+    );
+  }, [dedupedAppointments, todayFormatted]);
 
   const totalAppointmentsToday = todayAppointments.length;
   const inSalonCount = todayAppointments.filter(
-    (a) =>
-      a.status === 'en_salon' ||
-      a.status === 'en_corte' ||
-      a.statusLabel === 'EN SALÓN' ||
-      a.statusLabel === 'EN CORTE'
+    (a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'en_salon'
   ).length;
   const pickupCount = todayAppointments.filter(
-    (a) =>
-      a.status === 'por_retirar' ||
-      a.statusLabel === 'POR RETIRAR' ||
-      a.statusLabel === 'LISTO PARA RETIRAR' ||
-      (a.subStatus && a.subStatus.toLowerCase().includes('retirar'))
+    (a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'por_retirar'
   ).length;
 
   // Selected date's appointments
   const selectedDayAppointments = useMemo(() => {
-    return appointments.filter((a) => a.date === selectedDateFormatted);
-  }, [appointments, selectedDateFormatted]);
+    return dedupedAppointments.filter((a) => isDateMatching(a.date, selectedDateFormatted));
+  }, [dedupedAppointments, selectedDateFormatted]);
 
-  // All pending confirmation appointments across any date (Requirement #10 & #13)
+  // All pending confirmation appointments across any date
   const allPendingAppointments = useMemo(() => {
-    return appointments.filter(
-      (a) =>
-        a.status === 'pendiente' ||
-        a.status === 'pendiente_confirmacion' ||
-        (a.status as any) === 'pending' ||
-        a.statusLabel === 'POR CONFIRMAR'
+    return dedupedAppointments.filter(
+      (a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'pendiente'
     );
-  }, [appointments]);
+  }, [dedupedAppointments]);
 
   const pendingConfirmationCount = allPendingAppointments.length;
 
-  // Filtered appointments list: When "Por Confirmar" is selected, ALWAYS show all pending reservations across any date!
+  // Filtered appointments list: When "Por Confirmar" is selected, ALWAYS show all pending reservations across any date
   const filteredAppointments = useMemo(() => {
     if (filterStatus === 'por_confirmar') {
       return allPendingAppointments;
     }
 
     return selectedDayAppointments.filter((apt) => {
+      const canon = normalizeAppointmentStatus(apt.status, apt.statusLabel);
       if (filterStatus === 'en_salon') {
-        return apt.status === 'en_salon' || apt.status === 'en_corte';
+        return canon === 'en_salon' || canon === 'por_retirar';
       }
       if (filterStatus === 'confirmada') {
-        return apt.status === 'confirmada' || (apt.status as any) === 'confirmed';
+        return canon === 'confirmada';
       }
       if (filterStatus === 'completado') {
-        return apt.status === 'completado' || (apt.status as any) === 'completed';
+        return canon === 'completado';
       }
       return true;
     });
@@ -191,7 +193,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
         for (let i = 0; i < 7; i++) {
           const d = new Date(monday);
           d.setDate(monday.getDate() + i);
-          if (formatDateSpanish(d) === dateStr) {
+          if (isDateMatching(formatDateSpanish(d), dateStr)) {
             return offset;
           }
         }
@@ -272,10 +274,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
   };
 
   const handlePetCardClick = (apt: Appointment) => {
-    const matchedPet =
-      pets.find((p) => p.name.toLowerCase() === apt.petName.toLowerCase() || p.id === apt.petId) || pets[0];
+    const matchedPet = pets.find((p) => doesAppointmentMatchPet(apt, p));
     if (matchedPet) {
       onSelectPet(matchedPet);
+    } else {
+      setToastMessage(`La ficha de ${apt.petName} se creará automáticamente al comenzar su atención en el salón.`);
+      setTimeout(() => setToastMessage(null), 3500);
     }
   };
 
@@ -566,7 +570,10 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                En Salón ({selectedDayAppointments.filter((a) => a.status === 'en_salon' || a.status === 'en_corte').length})
+                En Salón ({selectedDayAppointments.filter((a) => {
+                  const canon = normalizeAppointmentStatus(a.status, a.statusLabel);
+                  return canon === 'en_salon' || canon === 'por_retirar';
+                }).length})
               </button>
               <button
                 type="button"
@@ -577,7 +584,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Confirmadas ({selectedDayAppointments.filter((a) => a.status === 'confirmada' || (a.status as any) === 'confirmed').length})
+                Confirmadas ({selectedDayAppointments.filter((a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'confirmada').length})
               </button>
               <button
                 type="button"
@@ -588,7 +595,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff]'
                 }`}
               >
-                Completadas ({selectedDayAppointments.filter((a) => a.status === 'completado' || (a.status as any) === 'completed').length})
+                Completadas ({selectedDayAppointments.filter((a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'completado').length})
               </button>
             </div>
           </div>
@@ -640,10 +647,9 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           ) : (
             <div className="space-y-3">
               {filteredAppointments.map((apt) => {
-                const isPending =
-                  apt.status === 'pendiente' ||
-                  apt.status === 'pendiente_confirmacion' ||
-                  apt.statusLabel === 'POR CONFIRMAR';
+                const canon = normalizeAppointmentStatus(apt.status, apt.statusLabel);
+                const isPending = canon === 'pendiente';
+                const hasFicha = pets.some((p) => doesAppointmentMatchPet(apt, p));
 
                 return (
                   <div
@@ -669,7 +675,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                           <h4 className="font-extrabold text-sm text-[#1a1a26] truncate">{apt.petName}</h4>
                           <span className="text-[11px] text-[#7e7482]">({apt.breed})</span>
                           {/* Date badge if viewing all pending appointments or not today */}
-                          {(filterStatus === 'por_confirmar' || apt.date !== todayFormatted) && (
+                          {(filterStatus === 'por_confirmar' || !isDateMatching(apt.date, todayFormatted)) && (
                             <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-[#2e004e] text-[#f9b900] text-[10px] font-black">
                               <span className="material-symbols-outlined text-xs">calendar_month</span>
                               <span>{apt.date}</span>
@@ -702,22 +708,22 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                     <div className="flex flex-col md:items-end justify-between gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-gray-100">
                       <span
                         className={`self-start md:self-end px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
-                          apt.status === 'completado'
+                          canon === 'completado'
                             ? 'bg-emerald-100 text-emerald-800'
-                            : apt.status === 'por_retirar' || apt.statusLabel === 'LISTO PARA RETIRAR'
+                            : canon === 'por_retirar'
                             ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                            : apt.status === 'en_salon' || apt.status === 'en_corte'
+                            : canon === 'en_salon'
                             ? 'bg-[#f9b900] text-[#261900]'
                             : isPending
                             ? 'bg-amber-100 text-amber-900 border border-amber-300'
                             : 'bg-[#efecfd] text-[#2e004e]'
                         }`}
                       >
-                        {apt.status === 'por_retirar' ? 'LISTO PARA RETIRAR' : apt.statusLabel || (isPending ? 'POR CONFIRMAR' : apt.status)}
+                        {getCanonicalStatusLabel(canon)}
                       </span>
 
                       {/* Paso 1: Comenzar servicio para citas confirmadas */}
-                      {(apt.status === 'confirmada' || (apt.status as any) === 'confirmed') && onUpdateAppointmentStatus && (
+                      {canon === 'confirmada' && onUpdateAppointmentStatus && (
                         <div className="flex items-center gap-1.5 mt-1">
                           <button
                             type="button"
@@ -737,7 +743,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                       )}
 
                       {/* Botón rápido si ya está en salón */}
-                      {(apt.status === 'en_salon' || apt.status === 'en_corte') && onNavigateToInSalon && (
+                      {(canon === 'en_salon' || canon === 'por_retirar') && onNavigateToInSalon && (
                         <div className="flex items-center gap-1.5 mt-1">
                           <button
                             type="button"
@@ -754,7 +760,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                         </div>
                       )}
 
-                      {/* Quick Confirm Actions for Public Appointments (Requirement #13) */}
+                      {/* Quick Confirm Actions for Public Appointments */}
                       {isPending && onUpdateAppointmentStatus && (
                         <div className="flex flex-wrap items-center gap-1.5 mt-1">
                           {/* Confirm & Open WhatsApp */}
@@ -800,10 +806,12 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
                         </div>
                       )}
 
-                      <span className="text-[11px] text-[#7e7482] font-semibold flex items-center gap-1 group-hover:text-[#4b0878] self-end mt-1">
-                        <span>Ver ficha de mascota</span>
-                        <span className="material-symbols-outlined text-sm">arrow_forward</span>
-                      </span>
+                      {hasFicha && (
+                        <span className="text-[11px] text-[#7e7482] font-semibold flex items-center gap-1 group-hover:text-[#4b0878] self-end mt-1">
+                          <span>Ver ficha de mascota</span>
+                          <span className="material-symbols-outlined text-sm">arrow_forward</span>
+                        </span>
+                      )}
                     </div>
                   </div>
                 );
@@ -828,7 +836,7 @@ export const AgendaView: React.FC<AgendaViewProps> = ({
           salonAddress={salonConfig.address}
           salonPhone={salonConfig.phone}
           simultaneousCapacity={effectiveCapacity}
-          existingAppointments={appointments}
+          existingAppointments={dedupedAppointments}
           existingPets={pets}
           isOnlineClientPortal={false}
           salonConfig={salonConfig}

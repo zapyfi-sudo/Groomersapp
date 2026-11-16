@@ -273,13 +273,71 @@ app.post('/api/businesses', (req, res) => {
     updatedAt: resolvedUpdatedAt
   };
 
+  const existingApts: any[] = Array.isArray(existing.appointments) ? existing.appointments : [];
+  const incomingApts: any[] = Array.isArray(appointments) ? appointments : [];
+  const statusRank = (st?: string, lbl?: string): number => {
+    const s = String(st || '').toLowerCase();
+    const l = String(lbl || '').toUpperCase();
+    if (s === 'completado' || s === 'completed' || l === 'COMPLETADO') return 6;
+    if (s === 'por_retirar' || l === 'LISTO PARA RETIRAR' || l === 'POR RETIRAR') return 5;
+    if (s === 'en_salon' || s === 'en_corte' || l === 'EN SALÓN' || l === 'EN SALON') return 4;
+    if (s === 'confirmada' || s === 'confirmed' || l === 'CONFIRMADA') return 3;
+    if (s === 'cancelada' || s === 'cancelled' || l === 'CANCELADA') return 2;
+    return 1;
+  };
+  const aptMap = new Map<string, any>();
+  for (const a of existingApts) if (a?.id) aptMap.set(a.id, a);
+  for (const a of incomingApts) {
+    if (!a?.id) continue;
+    const prev = aptMap.get(a.id);
+    if (!prev) {
+      aptMap.set(a.id, a);
+    } else {
+      const winner = statusRank(a.status, a.statusLabel) >= statusRank(prev.status, prev.statusLabel) ? a : prev;
+      const loser = winner === a ? prev : a;
+      aptMap.set(a.id, { ...loser, ...winner });
+    }
+  }
+  const mergedApts = Array.from(aptMap.values());
+
+  const existingPets: any[] = Array.isArray(existing.pets) ? existing.pets : [];
+  const incomingPets: any[] = Array.isArray(pets) ? pets : [];
+  const petMap = new Map<string, any>();
+  for (const p of existingPets) if (p?.id) petMap.set(p.id, p);
+  for (const p of incomingPets) {
+    if (!p?.id) continue;
+    const prev = petMap.get(p.id);
+    if (!prev) {
+      petMap.set(p.id, p);
+    } else {
+      petMap.set(p.id, {
+        ...prev,
+        ...p,
+        visitHistory: (p.visitHistory && p.visitHistory.length > 0) ? p.visitHistory : (prev.visitHistory || []),
+        lastVisit: p.lastVisit || prev.lastVisit
+      });
+    }
+  }
+  const mergedPets = Array.from(petMap.values());
+
+  const existingSales: any[] = Array.isArray(existing.sales) ? existing.sales : [];
+  const incomingSales: any[] = Array.isArray(sales) ? sales : [];
+  const salesMap = new Map<string, any>();
+  for (const s of existingSales) if (s?.id) salesMap.set(s.id, s);
+  for (const s of incomingSales) if (s?.id) salesMap.set(s.id, s);
+  const mergedSales = Array.from(salesMap.values());
+
+  const existingRet: string[] = Array.isArray(existing.bookedRetentions) ? existing.bookedRetentions : [];
+  const incomingRet: string[] = Array.isArray(bookedRetentions) ? bookedRetentions : [];
+  const mergedRetentions = Array.from(new Set([...existingRet, ...incomingRet]));
+
   db[id] = {
     businessId: id,
     config: cleanConfig,
-    pets: pets || existing.pets || [],
-    appointments: appointments || existing.appointments || [],
-    bookedRetentions: bookedRetentions || existing.bookedRetentions || [],
-    sales: sales || existing.sales || [],
+    pets: mergedPets,
+    appointments: mergedApts,
+    bookedRetentions: mergedRetentions,
+    sales: mergedSales,
     updatedAt: resolvedUpdatedAt
   };
 
@@ -292,6 +350,7 @@ bookingSlug: ${cleanSlug}
 location: ${cleanConfig.country} / ${cleanConfig.city} / ${cleanConfig.address}
 reviews count: ${mergedReviews.length}
 services count: ${(cleanConfig.services || []).length}
+appointments count: ${mergedApts.length}
 successfully persisted to db`);
 
   res.json({ success: true, businessId: id, slug: cleanSlug, config: cleanConfig, updatedAt: resolvedUpdatedAt });
@@ -370,93 +429,116 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
     db[cleanId] = business;
   }
 
+  const enrichedAppointment = {
+    ...appointment,
+    businessId: business.businessId,
+    petSnapshot: petData || appointment.petSnapshot,
+    createdAt: appointment.createdAt || new Date().toISOString()
+  };
+
   const apts = business.appointments || [];
-  const existingAptIdx = apts.findIndex((a: any) => a.id === appointment.id);
+  const existingAptIdx = apts.findIndex((a: any) => a.id === enrichedAppointment.id);
   if (existingAptIdx >= 0) {
-    apts[existingAptIdx] = { ...apts[existingAptIdx], ...appointment };
+    apts[existingAptIdx] = { ...apts[existingAptIdx], ...enrichedAppointment };
   } else {
     // Robust duplicate prevention: check for same pet, tutor, date, time and service
     const duplicateIdx = apts.findIndex((a: any) =>
-      a.petName?.trim().toLowerCase() === appointment.petName?.trim().toLowerCase() &&
-      a.tutorName?.trim().toLowerCase() === appointment.tutorName?.trim().toLowerCase() &&
-      a.date === appointment.date &&
-      a.time === appointment.time &&
-      a.serviceName === appointment.serviceName
+      a.petName?.trim().toLowerCase() === enrichedAppointment.petName?.trim().toLowerCase() &&
+      a.tutorName?.trim().toLowerCase() === enrichedAppointment.tutorName?.trim().toLowerCase() &&
+      a.date === enrichedAppointment.date &&
+      a.time === enrichedAppointment.time &&
+      a.serviceName === enrichedAppointment.serviceName
     );
     if (duplicateIdx >= 0) {
-      console.log(`[SERVER DUPLICATE PREVENTED] Appointment for ${appointment.petName} on ${appointment.date} at ${appointment.time} already exists.`);
-      apts[duplicateIdx] = { ...apts[duplicateIdx], ...appointment };
+      console.log(`[SERVER DUPLICATE PREVENTED] Appointment for ${enrichedAppointment.petName} on ${enrichedAppointment.date} at ${enrichedAppointment.time} already exists.`);
+      apts[duplicateIdx] = { ...apts[duplicateIdx], ...enrichedAppointment };
     } else {
-      apts.unshift(appointment);
+      apts.unshift(enrichedAppointment);
     }
   }
   business.appointments = apts;
 
-  if (petData && petData.name) {
+  // Etapa 6: Only create/update a Pet record in business.pets when service is started or completed.
+  // Pending / confirmed / cancelled bookings keep their petSnapshot inside the appointment without polluting Clientes/Por volver.
+  const aptStatusLower = String(enrichedAppointment.status || '').toLowerCase();
+  const isStartedOrCompleted =
+    aptStatusLower === 'en_salon' ||
+    aptStatusLower === 'en_corte' ||
+    aptStatusLower === 'por_retirar' ||
+    aptStatusLower === 'completado' ||
+    aptStatusLower === 'completed';
+
+  if (isStartedOrCompleted && (petData?.name || enrichedAppointment.petName)) {
     const pets = business.pets || [];
+    const petNameTarget = (petData?.name || enrichedAppointment.petName || '').trim().toLowerCase();
     const existingPetIdx = pets.findIndex(
       (p: any) =>
-        p.id === appointment.petId ||
-        p.name?.toLowerCase() === petData.name?.toLowerCase()
+        p.id === enrichedAppointment.petId ||
+        (petNameTarget && p.name?.trim().toLowerCase() === petNameTarget)
     );
 
-    const incomingPhoto = appointment.beforePhotoUrl || petData.photoUrl || undefined;
+    const incomingPhoto = enrichedAppointment.beforePhotoUrl || petData?.photoUrl || undefined;
+    const isActuallyCompleted = aptStatusLower === 'completado' || aptStatusLower === 'completed';
 
-    const visitEntry = {
-      id: `v_${Date.now()}`,
-      date: appointment.date || 'Hoy',
-      serviceName: appointment.serviceName,
-      price: appointment.price,
-      currency: appointment.currency,
-      mood: petData.habitualMood || 'tranquilo',
-      paid: appointment.paymentStatus === 'cobrado',
-      photos: {
-        beforeUrl: incomingPhoto
-      }
-    };
+    const completedVisitEntry = isActuallyCompleted
+      ? {
+          id: `v_${Date.now()}`,
+          date: enrichedAppointment.date || 'Hoy',
+          serviceName: enrichedAppointment.serviceName,
+          price: enrichedAppointment.price,
+          currency: enrichedAppointment.currency,
+          mood: petData?.habitualMood || 'tranquilo',
+          paid: true,
+          photos: {
+            beforeUrl: incomingPhoto
+          }
+        }
+      : undefined;
 
     if (existingPetIdx >= 0) {
       const p = pets[existingPetIdx];
-      p.size = petData.size || appointment.size || p.size || 'mediano';
-      p.breed = petData.breed || appointment.breed || p.breed || 'Mestizo';
-      p.age = petData.age || p.age || '1 año';
-      p.gender = petData.gender || p.gender || 'Macho';
-      p.weightKg = Number(petData.weightKg) || p.weightKg || 10;
+      p.size = petData?.size || enrichedAppointment.size || p.size || 'mediano';
+      p.breed = petData?.breed || enrichedAppointment.breed || p.breed || 'Mestizo';
+      p.age = petData?.age || p.age || '1 año';
+      p.gender = petData?.gender || p.gender || 'Macho';
+      p.weightKg = Number(petData?.weightKg) || p.weightKg || 10;
       if (incomingPhoto) {
         p.photoUrl = incomingPhoto;
       }
       p.tutor = {
-        name: appointment.tutorName || p.tutor?.name || 'Cliente',
-        phone: appointment.tutorPhone || p.tutor?.phone || '',
-        rawPhone: appointment.tutorPhone || p.tutor?.rawPhone || ''
+        name: enrichedAppointment.tutorName || p.tutor?.name || 'Cliente',
+        phone: enrichedAppointment.tutorPhone || p.tutor?.phone || '',
+        rawPhone: enrichedAppointment.tutorPhone || p.tutor?.rawPhone || ''
       };
-      p.habitualMood = petData.habitualMood || p.habitualMood || 'tranquilo';
-      p.healthAllergies = petData.healthAllergies !== undefined ? petData.healthAllergies : p.healthAllergies || '';
-      p.handlingObservations = petData.handlingObservations !== undefined ? petData.handlingObservations : p.handlingObservations || '';
-      p.lastVisit = visitEntry;
-      p.visitHistory = [visitEntry, ...(p.visitHistory || [])];
+      p.habitualMood = petData?.habitualMood || p.habitualMood || 'tranquilo';
+      p.healthAllergies = petData?.healthAllergies !== undefined ? petData.healthAllergies : p.healthAllergies || '';
+      p.handlingObservations = petData?.handlingObservations !== undefined ? petData.handlingObservations : p.handlingObservations || '';
+      if (completedVisitEntry) {
+        p.lastVisit = completedVisitEntry;
+        p.visitHistory = [completedVisitEntry, ...(p.visitHistory || [])];
+      }
       pets[existingPetIdx] = p;
     } else {
       pets.push({
-        id: appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
-        name: petData.name,
-        breed: petData.breed || appointment.breed || 'Mestizo',
-        size: petData.size || appointment.size || 'mediano',
-        gender: petData.gender || 'Macho',
-        weightKg: Number(petData.weightKg) || 10,
-        age: petData.age || '1 año',
+        id: enrichedAppointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`,
+        name: petData?.name || enrichedAppointment.petName,
+        breed: petData?.breed || enrichedAppointment.breed || 'Mestizo',
+        size: petData?.size || enrichedAppointment.size || 'mediano',
+        gender: petData?.gender || 'Macho',
+        weightKg: Number(petData?.weightKg) || 10,
+        age: petData?.age || '1 año',
         isVip: false,
         photoUrl: incomingPhoto || 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
         tutor: {
-          name: appointment.tutorName || 'Cliente',
-          phone: appointment.tutorPhone || '',
-          rawPhone: appointment.tutorPhone || ''
+          name: enrichedAppointment.tutorName || 'Cliente',
+          phone: enrichedAppointment.tutorPhone || '',
+          rawPhone: enrichedAppointment.tutorPhone || ''
         },
-        habitualMood: petData.habitualMood || 'tranquilo',
-        healthAllergies: petData.healthAllergies || '',
-        handlingObservations: petData.handlingObservations || '',
-        lastVisit: visitEntry,
-        visitHistory: [visitEntry],
+        habitualMood: petData?.habitualMood || 'tranquilo',
+        healthAllergies: petData?.healthAllergies || '',
+        handlingObservations: petData?.handlingObservations || '',
+        lastVisit: completedVisitEntry,
+        visitHistory: completedVisitEntry ? [completedVisitEntry] : [],
         recommendedIntervalWeeks: 4
       });
     }
@@ -467,7 +549,34 @@ app.post('/api/businesses/:idOrSlug/appointments', (req, res) => {
   db[business.businessId] = business;
   writeDb(db);
 
-  res.status(201).json({ success: true, appointment });
+  res.status(201).json({ success: true, appointment: enrichedAppointment });
+});
+
+app.post('/api/businesses/:idOrSlug/pets', (req, res) => {
+  const { idOrSlug } = req.params;
+  const { pet } = req.body;
+  if (!pet || !pet.id) {
+    res.status(400).json({ error: 'Pet object with id is required' });
+    return;
+  }
+  const db = readDb();
+  const business = findBusiness(idOrSlug, db);
+  if (!business) {
+    res.status(404).json({ error: 'Business not found' });
+    return;
+  }
+  const pets = business.pets || [];
+  const idx = pets.findIndex((p: any) => p.id === pet.id);
+  if (idx >= 0) {
+    pets[idx] = { ...pets[idx], ...pet };
+  } else {
+    pets.unshift(pet);
+  }
+  business.pets = pets;
+  business.updatedAt = new Date().toISOString();
+  db[business.businessId] = business;
+  writeDb(db);
+  res.json({ success: true, pet });
 });
 
 // Reviews API

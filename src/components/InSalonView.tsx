@@ -2,6 +2,11 @@ import React, { useState } from 'react';
 import { Appointment, Pet, SalonConfig } from '../types';
 import { AppLanguage, TRANSLATIONS } from '../utils/translations';
 import { formatPrice } from '../utils/priceUtils';
+import {
+  normalizeAppointmentStatus,
+  doesAppointmentMatchPet,
+  materializePetFromAppointment
+} from '../utils/syncHelpers';
 
 interface InSalonViewProps {
   appointments: Appointment[];
@@ -30,28 +35,16 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
 
   // Active appointments in salon (in service OR ready for pickup)
   const inSalonAppointments = appointments.filter((a) => {
-    return (
-      a.status === 'en_salon' ||
-      a.status === 'en_corte' ||
-      a.status === 'por_retirar' ||
-      a.statusLabel === 'EN SALÓN' ||
-      a.statusLabel === 'EN CORTE' ||
-      a.statusLabel === 'POR RETIRAR' ||
-      a.statusLabel === 'LISTO PARA RETIRAR' ||
-      (a.subStatus && a.subStatus.toLowerCase().includes('retirar'))
-    );
+    const canon = normalizeAppointmentStatus(a.status, a.statusLabel);
+    return canon === 'en_salon' || canon === 'por_retirar';
   });
 
   const inServiceAppointments = inSalonAppointments.filter(
-    (a) => a.status === 'en_salon' || a.status === 'en_corte' || a.statusLabel === 'EN SALÓN' || a.statusLabel === 'EN CORTE'
+    (a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'en_salon'
   );
 
   const readyForPickupAppointments = inSalonAppointments.filter(
-    (a) =>
-      a.status === 'por_retirar' ||
-      a.statusLabel === 'POR RETIRAR' ||
-      a.statusLabel === 'LISTO PARA RETIRAR' ||
-      (a.subStatus && a.subStatus.toLowerCase().includes('retirar'))
+    (a) => normalizeAppointmentStatus(a.status, a.statusLabel) === 'por_retirar'
   );
 
   const displayedAppointments = inSalonAppointments.filter((a) => {
@@ -70,12 +63,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
   };
 
   const findMatchedPet = (apt: Appointment): Pet | undefined => {
-    const cleanId = (apt.petId || '').replace('#', '').trim().toLowerCase();
-    return pets.find((p) => {
-      const pCleanId = (p.id || '').replace('#', '').trim().toLowerCase();
-      if (cleanId && pCleanId === cleanId) return true;
-      return p.name.trim().toLowerCase() === apt.petName.trim().toLowerCase();
-    });
+    return pets.find((p) => doesAppointmentMatchPet(apt, p));
   };
 
   // Mark pet as finished and ready for pickup
@@ -98,14 +86,14 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
 
   // Deliver pet and complete service (transitioning into Clientes / Visita registration)
   const handleDeliverPet = async (apt: Appointment) => {
-    const pet = findMatchedPet(apt);
+    const resolvedPet = findMatchedPet(apt) || materializePetFromAppointment(apt);
     await onUpdateAppointmentStatus(apt.id, 'completado', 'COMPLETADO');
     showToast(`¡Servicio de ${apt.petName} completado y entregado con éxito!`);
 
-    if (onCompleteAndRegisterVisit && pet) {
-      onCompleteAndRegisterVisit(apt, pet);
-    } else if (pet) {
-      onSelectPetForProfile(pet.id);
+    if (onCompleteAndRegisterVisit) {
+      onCompleteAndRegisterVisit(apt, resolvedPet);
+    } else {
+      onSelectPetForProfile(resolvedPet.id);
     }
   };
 

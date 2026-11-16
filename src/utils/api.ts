@@ -3,7 +3,6 @@ import { decodePublicProfileToken, extractSlugOnly } from './slugUtils';
 import {
   getBusinessFromFirestore,
   saveBusinessToFirestore,
-  addAppointmentToFirestore,
   addAppointmentToFirestoreWithTimeout,
   updateAppointmentInFirestore,
   subscribeToBusinessAppointments,
@@ -13,11 +12,14 @@ import {
   updateReviewRequestStateInFirestore,
   subscribeToBusinessSales,
   recordSaleInFirestore,
-  fetchSalesFromFirestore
+  fetchSalesFromFirestore,
+  upsertPetInFirestore,
+  fetchAppointmentsAndPetsFromFirestore
 } from './firebase';
 import {
   normalizeAndMergeReviews,
-  reconcileBusinessSources
+  reconcileBusinessSources,
+  mergeAppointments
 } from './syncHelpers';
 
 export {
@@ -144,6 +146,51 @@ async function fetchFirestoreProfile(rawTarget: string, cleanTarget: string): Pr
   return null;
 }
 
+const resolvedBizIdCache = new Map<string, string>();
+
+function rememberResolvedBusinessId(idOrSlug: string | undefined, canonicalId: string): void {
+  if (!idOrSlug || !canonicalId) return;
+  const raw = idOrSlug.trim();
+  const clean = extractSlugOnly(raw) || raw;
+  resolvedBizIdCache.set(raw, canonicalId);
+  resolvedBizIdCache.set(clean, canonicalId);
+}
+
+async function resolveCanonicalBusinessId(businessIdOrSlug: string): Promise<string> {
+  const raw = (businessIdOrSlug || '').trim();
+  if (!raw) return 'biz_main';
+  if (raw.startsWith('biz_') || raw === 'default') return raw;
+
+  const clean = extractSlugOnly(raw) || raw;
+  const memHit = resolvedBizIdCache.get(raw) || resolvedBizIdCache.get(clean);
+  if (memHit) return memHit;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const cachedRaw =
+        localStorage.getItem(`agendacan_public_biz_${clean}`) ||
+        localStorage.getItem(`agendacan_public_biz_${raw}`);
+      if (cachedRaw) {
+        const parsed = JSON.parse(cachedRaw);
+        if (parsed?.businessId) {
+          rememberResolvedBusinessId(raw, parsed.businessId);
+          return parsed.businessId;
+        }
+      }
+    } catch {}
+  }
+
+  try {
+    const profile = await fetchBusinessProfile(raw);
+    if (profile?.businessId) {
+      rememberResolvedBusinessId(raw, profile.businessId);
+      return profile.businessId;
+    }
+  } catch {}
+
+  return raw;
+}
+
 /**
  * Universal resolution of a business profile for public booking:
  * 1. Query Server API AND Cloud Firestore concurrently, reconciling by updatedAt and merging all valid reviews
@@ -181,6 +228,10 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
   }
 
   if (resolvedResult && resolvedResult.businessId && resolvedResult.config) {
+    rememberResolvedBusinessId(rawTarget, resolvedResult.businessId);
+    if (resolvedResult.config.bookingSlug) {
+      rememberResolvedBusinessId(resolvedResult.config.bookingSlug, resolvedResult.businessId);
+    }
     if (typeof window !== 'undefined') {
       try {
         const serialized = JSON.stringify(resolvedResult);
@@ -321,16 +372,38 @@ export async function syncBusinessToServer(
   }
 
   const runSync = async (): Promise<boolean> => {
-    // Immediately synchronize local public cache for zero-delay synchronization across modules
+    // Immediately synchronize local public cache without wiping existing appointments/pets/sales if omitted
     if (typeof window !== 'undefined') {
       try {
+        let existingCached: Partial<PublicBusinessResult> | null = null;
+        try {
+          const prevRaw =
+            localStorage.getItem(`agendacan_public_biz_${targetId}`) ||
+            (cleanSlug ? localStorage.getItem(`agendacan_public_biz_${cleanSlug}`) : null);
+          if (prevRaw) {
+            const parsedPrev = JSON.parse(prevRaw);
+            if (parsedPrev && parsedPrev.businessId === targetId) {
+              existingCached = parsedPrev;
+            }
+          }
+        } catch {}
+
         const publicData: PublicBusinessResult = {
           businessId: targetId,
           config: configToSync,
           services: configToSync.services || [],
-          appointments: appointments || [],
-          pets: pets || [],
-          sales: sales || [],
+          appointments:
+            appointments && appointments.length > 0
+              ? appointments
+              : existingCached?.appointments || appointments || [],
+          pets:
+            pets && pets.length > 0
+              ? pets
+              : existingCached?.pets || pets || [],
+          sales:
+            sales && sales.length > 0
+              ? sales
+              : existingCached?.sales || sales || [],
           updatedAt: syncTimestamp
         };
         const serialized = JSON.stringify(publicData);
@@ -393,124 +466,142 @@ export async function syncBusinessToServer(
 }
 
 /**
- * Submits a new public appointment directly to Firestore and the server API.
+ * Submits a new public appointment directly to Cloud Firestore and the Server API
+ * using the canonical businessId so phone & computer read from the exact same record.
  */
 export async function createPublicAppointment(
   businessIdOrSlug: string,
   appointment: Appointment,
   petData?: Partial<Pet>
 ): Promise<boolean> {
+  const canonicalBizId = await resolveCanonicalBusinessId(businessIdOrSlug);
+  const now = new Date().toISOString();
+
   const appointmentToSave: Appointment = {
     ...appointment,
+    businessId: canonicalBizId,
     status: 'pendiente',
-    statusLabel: 'POR CONFIRMAR'
+    statusLabel: 'POR CONFIRMAR',
+    createdFromPublic: true,
+    petSnapshot: petData || appointment.petSnapshot,
+    createdAt: appointment.createdAt || now,
+    updatedAt: now
   };
 
-  const targetBizId = businessIdOrSlug || 'biz_main';
-
-  // 1. Immediately update local storage cache for zero-delay instant feedback
+  // 1. Immediately update local storage cache for zero-delay feedback
   if (typeof window !== 'undefined') {
     try {
-      const key = `agendacan_public_apts_${targetBizId}`;
-      const existingRaw = localStorage.getItem(key);
-      const existing: Appointment[] = existingRaw ? JSON.parse(existingRaw) : [];
-      existing.unshift(appointmentToSave);
-      localStorage.setItem(key, JSON.stringify(existing.slice(0, 50)));
+      const keys = Array.from(
+        new Set([`agendacan_public_apts_${canonicalBizId}`, `agendacan_public_apts_${businessIdOrSlug}`])
+      );
+      for (const key of keys) {
+        const existingRaw = localStorage.getItem(key);
+        const existing: Appointment[] = existingRaw ? JSON.parse(existingRaw) : [];
+        const deduped = [appointmentToSave, ...existing.filter((a) => a.id !== appointmentToSave.id)];
+        localStorage.setItem(key, JSON.stringify(deduped.slice(0, 50)));
+      }
     } catch {}
   }
 
-  // 2. Fast server API save task
-  const serverTask = fetch(`/api/businesses/${encodeURIComponent(targetBizId)}/appointments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      appointment: appointmentToSave,
-      petData
-    })
-  })
-    .then((res) => res.ok)
-    .catch((err) => {
-      console.warn('Could not post appointment to server API:', err);
+  // 2. Server API save task with bounded timeout
+  const serverTask = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    try {
+      const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(canonicalBizId)}/appointments`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          appointment: appointmentToSave,
+          petData
+        })
+      });
+      clearTimeout(timeoutId);
+      const contentType = res.headers.get('content-type') || '';
+      return res.ok && contentType.includes('application/json');
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn('Could not post public appointment to server API:', err);
       return false;
-    });
+    }
+  })();
 
-  // 3. Firestore save task in parallel
-  const firestoreTask = addAppointmentToFirestoreWithTimeout(targetBizId, appointmentToSave, petData, 3500)
+  // 3. Firestore save task in parallel (always writes to businesses/{canonicalBizId}/appointments)
+  const firestoreTask = addAppointmentToFirestoreWithTimeout(canonicalBizId, appointmentToSave, petData, 4500)
     .catch((err) => {
       console.warn('[FIRESTORE APPOINTMENT ERROR]', err);
       return false;
     });
 
-  // 4. Fast confirmation race: As soon as either Server or Firestore confirms (or max 2.5s guard), confirm to user!
-  const confirmed = await Promise.race([
-    serverTask,
-    firestoreTask,
-    new Promise<boolean>((resolve) => setTimeout(() => resolve(true), 2500))
-  ]);
-
-  return confirmed || true;
+  // 4. Wait for both bounded persistence tasks so a fast Server 404 never short-circuits Firestore
+  const [serverOk, firestoreOk] = await Promise.all([serverTask, firestoreTask]);
+  return serverOk || firestoreOk;
 }
 
 /**
  * Submits an internal appointment created from Agenda to Cloud Firestore and Server API.
- * Preserves the exact status ('confirmada') and ensures persistence across reloads and multi-devices.
- * Guarantees that the UI is not held hostage by slow secondary network tasks.
+ * Preserves exact status & petSnapshot and guarantees persistence across devices.
  */
 export async function createInternalAppointment(
   businessIdOrSlug: string,
   appointment: Appointment,
   petData?: Partial<Pet>
 ): Promise<boolean> {
-  const targetBizId = businessIdOrSlug || 'biz_main';
+  const canonicalBizId = await resolveCanonicalBusinessId(businessIdOrSlug);
+  const now = new Date().toISOString();
+  const appointmentToSave: Appointment = {
+    ...appointment,
+    businessId: canonicalBizId,
+    petSnapshot: petData || appointment.petSnapshot,
+    createdAt: appointment.createdAt || now,
+    updatedAt: now
+  };
 
   // 1. Immediately update local storage mirror for fast offline recovery
   if (typeof window !== 'undefined') {
     try {
-      const key = `agendacan_public_apts_${targetBizId}`;
+      const key = `agendacan_public_apts_${canonicalBizId}`;
       const existingRaw = localStorage.getItem(key);
       const existing: Appointment[] = existingRaw ? JSON.parse(existingRaw) : [];
-      const updated = [appointment, ...existing.filter((a) => a.id !== appointment.id)];
+      const updated = [appointmentToSave, ...existing.filter((a) => a.id !== appointmentToSave.id)];
       localStorage.setItem(key, JSON.stringify(updated.slice(0, 50)));
     } catch {}
   }
 
-  // 2. Primary Authoritative Save: Server API with a 4.5s safety timeout
-  let serverSuccess = false;
-  try {
+  // 2. Server API save with safety timeout
+  const serverTask = (async () => {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 4500);
-    const baseUrl = typeof window !== 'undefined' ? '' : 'http://localhost:3000';
-
-    const res = await fetch(`${baseUrl}/api/businesses/${encodeURIComponent(targetBizId)}/appointments`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        appointment,
-        petData
-      }),
-      signal: controller.signal
-    });
-    clearTimeout(timeoutId);
-    serverSuccess = res.ok;
-  } catch (err) {
-    console.warn('[SERVER APPOINTMENT POST ERROR/TIMEOUT]', err);
-    serverSuccess = false;
-  }
-
-  // 3. Cloud Firestore synchronization:
-  // If Server API succeeded, trigger Firestore replication in background with safety timeout
-  // and resolve IMMEDIATELY so the user is never stuck in "Agendando turno..."!
-  if (serverSuccess) {
-    addAppointmentToFirestoreWithTimeout(targetBizId, appointment, petData, 3500)
-      .catch((err) => {
-        console.warn('[FIRESTORE BACKGROUND SYNC WARN]', err);
+    try {
+      const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(canonicalBizId)}/appointments`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          appointment: appointmentToSave,
+          petData
+        }),
+        signal: controller.signal
       });
-    return true;
-  }
+      clearTimeout(timeoutId);
+      const contentType = res.headers.get('content-type') || '';
+      return res.ok && contentType.includes('application/json');
+    } catch (err) {
+      clearTimeout(timeoutId);
+      console.warn('[SERVER APPOINTMENT POST ERROR/TIMEOUT]', err);
+      return false;
+    }
+  })();
 
-  // 4. Fallback if server is offline/unavailable: await Firestore directly with safety timeout
-  const firestoreSuccess = await addAppointmentToFirestoreWithTimeout(targetBizId, appointment, petData, 4500);
-  return firestoreSuccess;
+  // 3. Cloud Firestore save in parallel so cross-device clients without local Express see it immediately
+  const firestoreTask = addAppointmentToFirestoreWithTimeout(canonicalBizId, appointmentToSave, petData, 4500)
+    .catch((err) => {
+      console.warn('[FIRESTORE BACKGROUND SYNC WARN]', err);
+      return false;
+    });
+
+  const [serverOk, firestoreOk] = await Promise.all([serverTask, firestoreTask]);
+  return serverOk || firestoreOk;
 }
 
 /**
@@ -524,26 +615,31 @@ export async function updateAppointmentStatusOnServer(
   statusLabel: string,
   extraPatch?: Partial<Appointment>
 ): Promise<boolean> {
+  const canonicalBizId = await resolveCanonicalBusinessId(businessIdOrSlug);
+  const now = new Date().toISOString();
   const patch: Partial<Appointment> = {
     status: status as any,
     statusLabel,
+    updatedAt: now,
     ...(extraPatch || {})
   };
 
-  // Run Server API and Cloud Firestore concurrently for speed and non-blocking resilience
+  // Run Server API and Cloud Firestore concurrently for speed and cross-device consistency
   const serverTask = fetch(
-    `/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments/${encodeURIComponent(appointmentId)}`,
+    getApiUrl(`/api/businesses/${encodeURIComponent(canonicalBizId)}/appointments/${encodeURIComponent(appointmentId)}`),
     {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(patch)
     }
-  ).then((res) => res.ok).catch((err) => {
-    console.warn('[SERVER APPOINTMENT STATUS UPDATE ERROR]', err);
-    return false;
-  });
+  )
+    .then((res) => res.ok)
+    .catch((err) => {
+      console.warn('[SERVER APPOINTMENT STATUS UPDATE ERROR]', err);
+      return false;
+    });
 
-  const firestoreTask = updateAppointmentInFirestore(businessIdOrSlug, appointmentId, patch)
+  const firestoreTask = updateAppointmentInFirestore(canonicalBizId, appointmentId, patch)
     .catch((err) => {
       console.warn('[FIRESTORE APPOINTMENT STATUS UPDATE ERROR]', err);
       return false;
@@ -552,7 +648,7 @@ export async function updateAppointmentStatusOnServer(
   // Local storage mirror update
   if (typeof window !== 'undefined') {
     try {
-      const key = `agendacan_public_apts_${businessIdOrSlug}`;
+      const key = `agendacan_public_apts_${canonicalBizId}`;
       const raw = localStorage.getItem(key);
       if (raw) {
         const list: Appointment[] = JSON.parse(raw);
@@ -567,30 +663,109 @@ export async function updateAppointmentStatusOnServer(
 }
 
 /**
- * Fetches the latest appointments and pets from the server or Firestore for background synchronization.
+ * Persists a materialized or manually edited Pet ficha to both Cloud Firestore and Server API.
+ */
+export async function syncPetToBackend(businessIdOrSlug: string, pet: Pet): Promise<boolean> {
+  if (!businessIdOrSlug || !pet || !pet.id) return false;
+  const canonicalBizId = await resolveCanonicalBusinessId(businessIdOrSlug);
+
+  const firestoreTask = upsertPetInFirestore(canonicalBizId, pet).catch(() => false);
+  const serverTask = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3500);
+    try {
+      const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(canonicalBizId)}/pets`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({ pet })
+      });
+      clearTimeout(timeoutId);
+      return res.ok;
+    } catch {
+      clearTimeout(timeoutId);
+      return false;
+    }
+  })();
+
+  const [fsOk, srvOk] = await Promise.all([firestoreTask, serverTask]);
+  return fsOk || srvOk;
+}
+
+/**
+ * Fetches and reconciles the latest appointments, pets, and sales from BOTH
+ * Server API and Cloud Firestore for background/focus synchronization across devices.
  */
 export async function fetchLatestAppointmentsAndPets(
   businessIdOrSlug: string
 ): Promise<{ appointments: Appointment[]; pets: Pet[]; sales?: SaleRecord[] } | null> {
   if (!businessIdOrSlug) return null;
+  const canonicalBizId = await resolveCanonicalBusinessId(businessIdOrSlug);
 
-  try {
-    const res = await fetch(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/appointments`);
-    if (res.ok) {
-      const data = await res.json();
-      if (data && Array.isArray(data.appointments)) {
-        return {
-          appointments: data.appointments,
-          pets: Array.isArray(data.pets) ? data.pets : [],
-          sales: Array.isArray(data.sales) ? data.sales : []
-        };
+  const serverFetch = (async () => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    try {
+      const res = await fetch(
+        getApiUrl(`/api/businesses/${encodeURIComponent(canonicalBizId)}/appointments`),
+        {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+          signal: controller.signal
+        }
+      );
+      clearTimeout(timeoutId);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json();
+        if (data && Array.isArray(data.appointments)) {
+          return {
+            appointments: data.appointments as Appointment[],
+            pets: Array.isArray(data.pets) ? (data.pets as Pet[]) : [],
+            sales: Array.isArray(data.sales) ? (data.sales as SaleRecord[]) : []
+          };
+        }
       }
+    } catch {
+      clearTimeout(timeoutId);
     }
-  } catch (err) {
-    // Fall back to general profile
+    return null;
+  })();
+
+  const firestoreFetch = fetchAppointmentsAndPetsFromFirestore(canonicalBizId).catch(() => null);
+
+  const [serverSettled, firestoreSettled] = await Promise.allSettled([serverFetch, firestoreFetch]);
+  const serverData = serverSettled.status === 'fulfilled' ? serverSettled.value : null;
+  const firestoreData = firestoreSettled.status === 'fulfilled' ? firestoreSettled.value : null;
+
+  if (!serverData && !firestoreData) {
+    return null;
   }
 
-  return null;
+  const mergedAppointments = mergeAppointments(
+    serverData?.appointments || [],
+    firestoreData?.appointments || []
+  );
+
+  const petsMap = new Map<string, Pet>();
+  for (const p of serverData?.pets || []) if (p?.id) petsMap.set(p.id, p);
+  for (const p of firestoreData?.pets || []) {
+    if (!p?.id) continue;
+    const prev = petsMap.get(p.id);
+    petsMap.set(p.id, prev ? { ...prev, ...p } : p);
+  }
+
+  const salesMap = new Map<string, SaleRecord>();
+  for (const s of serverData?.sales || []) if (s?.id) salesMap.set(s.id, s);
+  for (const s of firestoreData?.sales || []) if (s?.id) salesMap.set(s.id, s);
+
+  return {
+    appointments: mergedAppointments,
+    pets: Array.from(petsMap.values()),
+    sales: Array.from(salesMap.values()).sort((a, b) =>
+      (b.createdAt || '').localeCompare(a.createdAt || '')
+    )
+  };
 }
 
 /**

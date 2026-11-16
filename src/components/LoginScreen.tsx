@@ -131,6 +131,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           config: remoteBiz.config,
           appointments: remoteBiz.appointments,
           pets: remoteBiz.pets,
+          sales: remoteBiz.sales,
           user: {
             uid: gUser.uid,
             email: gUser.email,
@@ -196,6 +197,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
             config: remoteBiz.config,
             appointments: remoteBiz.appointments,
             pets: remoteBiz.pets,
+            sales: remoteBiz.sales,
             user: {
               uid: fbUser.uid,
               email: cleanEmail,

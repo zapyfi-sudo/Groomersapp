@@ -66,6 +66,7 @@ export interface Pet {
   serviceResponsible?: string;
   deliveryDate?: string;
   deliveryTime?: string;
+  isManualEntry?: boolean;
 }
 
 export interface UserAccount {
@@ -194,6 +195,7 @@ export interface StaffMember {
 export interface SalonConfig {
   id?: string;
   userId?: string;
+  email?: string;
   name: string;
   logoUrl: string;
   country?: string;
@@ -274,6 +276,9 @@ export interface Appointment {
   serviceStartedAt?: string; // ISO date when "Comenzar servicio" was clicked
   salesRecordedAmount?: number; // Exact price recorded upon service initiation
   saleRecordId?: string; // ID of the associated sale record
+  petSnapshot?: Partial<Pet>; // Preserves full pet details from public/agenda booking until ficha creation
+  createdFromPublic?: boolean;
+  updatedAt?: string;
 }
 
 export interface RetentionPet {

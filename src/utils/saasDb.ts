@@ -3,7 +3,7 @@ import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressI
 import { generateStableBusinessId, slugify, extractSlugOnly } from './slugUtils';
 import { saveBusinessToFirestore } from './firebase';
 import { syncBusinessToServer } from './api';
-import { normalizeAndMergeReviews } from './syncHelpers';
+import { normalizeAndMergeReviews, mergeAppointments } from './syncHelpers';
 
 const DB_NAME = 'agendacan_saas_db';
 const DB_VERSION = 3;
@@ -418,6 +418,7 @@ export async function createNewBusinessAccount(params: {
     ...DEFAULT_SALON_CONFIG,
     id: newBizId,
     userId: newUserId,
+    email: params.email.trim().toLowerCase(),
     name: params.businessName || 'Mi Peluquería Canina',
     country: params.country || 'Ecuador',
     city: '',
@@ -510,10 +511,15 @@ export async function createNewBusinessAccount(params: {
 
   updateSyncMirror(newAccount, newData, allAccounts);
 
-  // Background cloud and server sync
+  // Cloud and server sync with bounded wait so slug & business doc exist immediately after registration
   try {
-    saveBusinessToFirestore(newBizId, newConfig).catch(() => {});
-    syncBusinessToServer(newBizId, newConfig).catch(() => {});
+    await Promise.race([
+      Promise.allSettled([
+        saveBusinessToFirestore(newBizId, newConfig),
+        syncBusinessToServer(newBizId, newConfig)
+      ]),
+      new Promise<void>((resolve) => setTimeout(resolve, 2500))
+    ]);
   } catch {}
 
   return { account: newAccount, data: newData };
@@ -527,6 +533,7 @@ export async function restoreRemoteAccount(params: {
   config: SalonConfig;
   appointments?: Appointment[];
   pets?: Pet[];
+  sales?: SaleRecord[];
   user: {
     uid: string;
     email: string;
@@ -536,9 +543,10 @@ export async function restoreRemoteAccount(params: {
   };
 }): Promise<{ account: UserAccount; data: BusinessAccountData }> {
   const now = new Date().toISOString();
+  const cleanEmail = params.user.email.toLowerCase();
   const account: UserAccount = {
     id: params.user.uid,
-    email: params.user.email.toLowerCase(),
+    email: cleanEmail,
     name: params.user.displayName || params.config.name || 'Propietario',
     businessId: params.businessId,
     authProvider: params.user.authProvider || 'google',
@@ -551,6 +559,8 @@ export async function restoreRemoteAccount(params: {
   const normalizedConfig: SalonConfig = {
     ...params.config,
     id: params.businessId,
+    userId: params.config.userId || params.user.uid,
+    email: params.config.email || cleanEmail,
     reviews: normalizeAndMergeReviews(params.businessId, params.config.reviews)
   };
 
@@ -559,9 +569,9 @@ export async function restoreRemoteAccount(params: {
     userId: params.user.uid,
     config: normalizedConfig,
     pets: params.pets || [],
-    appointments: params.appointments || [],
+    appointments: mergeAppointments(params.appointments || []),
     bookedRetentions: [],
-    sales: [],
+    sales: params.sales || [],
     updatedAt: normalizedConfig.updatedAt || now
   };
 

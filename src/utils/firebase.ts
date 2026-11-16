@@ -42,7 +42,12 @@ import {
 import firebaseConfigRaw from '../../firebase-applet-config.json';
 import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState, SaleRecord } from '../types';
 import { slugify, cleanSlugInput, extractSlugOnly } from './slugUtils';
-import { normalizeAndMergeReviews } from './syncHelpers';
+import {
+  normalizeAndMergeReviews,
+  mergeAppointments,
+  isAppointmentActiveServiceOrCompleted,
+  materializePetFromAppointment
+} from './syncHelpers';
 
 const firebaseConfig = {
   projectId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) || firebaseConfigRaw.projectId,
@@ -294,16 +299,75 @@ async function getDocsFresh<T = DocumentData>(q: Query<T>): Promise<QuerySnapsho
 async function hydrateOwnerBusinessResult(
   businessId: string,
   data: FirestoreBusinessData
-): Promise<{ businessId: string; config: SalonConfig; appointments?: Appointment[]; pets?: Pet[] }> {
-  let subReviews: ClientReview[] = [];
-  try {
-    const snap = await getDocsFresh(collection(db, 'businesses', businessId, 'reviews'));
-    snap.forEach((rDoc) => {
-      subReviews.push(rDoc.data() as ClientReview);
+): Promise<{
+  businessId: string;
+  config: SalonConfig;
+  appointments?: Appointment[];
+  pets?: Pet[];
+  sales?: SaleRecord[];
+}> {
+  const [subReviewsRes, subAptsRes, subPetsRes, subSalesRes] = await Promise.allSettled([
+    getDocsFresh(collection(db, 'businesses', businessId, 'reviews')),
+    getDocsFresh(collection(db, 'businesses', businessId, 'appointments')),
+    getDocsFresh(collection(db, 'businesses', businessId, 'pets')),
+    getDocsFresh(collection(db, 'businesses', businessId, 'sales'))
+  ]);
+
+  const subReviews: ClientReview[] = [];
+  if (subReviewsRes.status === 'fulfilled') {
+    subReviewsRes.value.forEach((rDoc) => {
+      const rData = rDoc.data() as ClientReview;
+      subReviews.push({ ...rData, id: rData?.id || rDoc.id });
     });
-  } catch {}
+  }
+
+  const subApts: Appointment[] = [];
+  if (subAptsRes.status === 'fulfilled') {
+    subAptsRes.value.forEach((aDoc) => {
+      const aData = aDoc.data() as Appointment;
+      if (aData) subApts.push({ ...aData, id: aData.id || aDoc.id });
+    });
+  }
+
+  const subPets: Pet[] = [];
+  if (subPetsRes.status === 'fulfilled') {
+    subPetsRes.value.forEach((pDoc) => {
+      const pData = pDoc.data() as Pet;
+      if (pData) subPets.push({ ...pData, id: pData.id || pDoc.id });
+    });
+  }
+
+  const subSales: SaleRecord[] = [];
+  if (subSalesRes.status === 'fulfilled') {
+    subSalesRes.value.forEach((sDoc) => {
+      const sData = sDoc.data() as SaleRecord;
+      if (sData) subSales.push({ ...sData, id: sData.id || sDoc.id });
+    });
+  }
 
   const mergedReviews = normalizeAndMergeReviews(businessId, data.config?.reviews, subReviews);
+  const mergedAppointments = mergeAppointments(data.appointments || [], subApts);
+
+  const petsMap = new Map<string, Pet>();
+  for (const p of data.pets || []) {
+    if (p?.id) petsMap.set(p.id, p);
+  }
+  for (const p of subPets) {
+    if (p?.id) petsMap.set(p.id, p);
+  }
+  const mergedPets = Array.from(petsMap.values());
+
+  const salesMap = new Map<string, SaleRecord>();
+  for (const s of ((data as any).sales as SaleRecord[]) || []) {
+    if (s?.id) salesMap.set(s.id, s);
+  }
+  for (const s of subSales) {
+    if (s?.id) salesMap.set(s.id, s);
+  }
+  const mergedSales = Array.from(salesMap.values()).sort((a, b) =>
+    (b.createdAt || '').localeCompare(a.createdAt || '')
+  );
+
   const config: SalonConfig = {
     ...data.config,
     id: businessId,
@@ -314,8 +378,9 @@ async function hydrateOwnerBusinessResult(
   return {
     businessId,
     config,
-    appointments: data.appointments || [],
-    pets: data.pets || []
+    appointments: mergedAppointments,
+    pets: mergedPets,
+    sales: mergedSales
   };
 }
 
@@ -325,8 +390,24 @@ async function hydrateOwnerBusinessResult(
 export async function findBusinessByOwner(
   uid: string,
   email?: string
-): Promise<{ businessId: string; config: SalonConfig; appointments?: Appointment[]; pets?: Pet[] } | null> {
+): Promise<{
+  businessId: string;
+  config: SalonConfig;
+  appointments?: Appointment[];
+  pets?: Pet[];
+  sales?: SaleRecord[];
+} | null> {
   if (!uid && !email) return null;
+
+  const pickBestDoc = (docs: QuerySnapshot<DocumentData>['docs']) => {
+    return docs.slice().sort((a, b) => {
+      const dA = a.data() || {};
+      const dB = b.data() || {};
+      const timeA = String(dA.config?.updatedAt || dA.updatedAt || '');
+      const timeB = String(dB.config?.updatedAt || dB.updatedAt || '');
+      return timeB.localeCompare(timeA);
+    })[0];
+  };
 
   try {
     // 1. Search by config.userId == uid
@@ -334,7 +415,7 @@ export async function findBusinessByOwner(
       const qUid = query(collection(db, 'businesses'), where('config.userId', '==', uid));
       const snapUid = await getDocsFresh(qUid);
       if (!snapUid.empty) {
-        const d = snapUid.docs[0];
+        const d = pickBestDoc(snapUid.docs);
         const data = d.data() as FirestoreBusinessData;
         return await hydrateOwnerBusinessResult(data.businessId || d.id, data);
       }
@@ -353,7 +434,7 @@ export async function findBusinessByOwner(
       const qEmail = query(collection(db, 'businesses'), where('config.email', '==', cleanEmail));
       const snapEmail = await getDocsFresh(qEmail);
       if (!snapEmail.empty) {
-        const d = snapEmail.docs[0];
+        const d = pickBestDoc(snapEmail.docs);
         const data = d.data() as FirestoreBusinessData;
         return await hydrateOwnerBusinessResult(data.businessId || d.id, data);
       }
@@ -833,8 +914,109 @@ export async function getBusinessFromFirestore(
 }
 
 /**
- * Adds an appointment to Firestore for a specific business, creates the Pet record,
- * and updates both the subcollection and the parent document atomically.
+ * Persists or updates a single Pet ficha in Firestore (subcollection + parent doc).
+ * Should be called only when a pet is attended/completed or created manually as a client.
+ */
+export async function upsertPetInFirestore(businessId: string, pet: Pet): Promise<boolean> {
+  if (!businessId || !pet || !pet.id) return false;
+  if (isQuotaExhausted()) return false;
+  try {
+    const petRef = doc(db, 'businesses', businessId, 'pets', pet.id);
+    await setDoc(petRef, cleanFirestoreData(pet), { merge: true });
+
+    try {
+      const bizRef = doc(db, 'businesses', businessId);
+      const bizSnap = await getDoc(bizRef);
+      if (bizSnap.exists()) {
+        const existingPets = (bizSnap.data()?.pets as Pet[]) || [];
+        const updatedPets = [pet, ...existingPets.filter((p) => p.id !== pet.id)];
+        await setDoc(bizRef, cleanFirestoreData({ pets: updatedPets }), { merge: true });
+      }
+    } catch {}
+    return true;
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('resource-exhausted')) {
+      markQuotaExhausted();
+    } else {
+      console.warn('[FIRESTORE UPSERT PET ERROR]', err);
+    }
+    return false;
+  }
+}
+
+/**
+ * Fetches latest appointments, pets, and sales directly from Firestore for a business.
+ */
+export async function fetchAppointmentsAndPetsFromFirestore(
+  businessId: string
+): Promise<{ appointments: Appointment[]; pets: Pet[]; sales: SaleRecord[] } | null> {
+  if (!businessId) return null;
+  try {
+    const bizRef = doc(db, 'businesses', businessId);
+    const [bizSnapRes, subAptsRes, subPetsRes, subSalesRes] = await Promise.allSettled([
+      getDocFresh(bizRef),
+      getDocsFresh(collection(db, 'businesses', businessId, 'appointments')),
+      getDocsFresh(collection(db, 'businesses', businessId, 'pets')),
+      getDocsFresh(collection(db, 'businesses', businessId, 'sales'))
+    ]);
+
+    const rootData =
+      bizSnapRes.status === 'fulfilled' && bizSnapRes.value.exists()
+        ? (bizSnapRes.value.data() as FirestoreBusinessData)
+        : null;
+
+    const subApts: Appointment[] = [];
+    if (subAptsRes.status === 'fulfilled') {
+      subAptsRes.value.forEach((d) => {
+        const a = d.data() as Appointment;
+        if (a) subApts.push({ ...a, id: a.id || d.id });
+      });
+    }
+
+    const subPets: Pet[] = [];
+    if (subPetsRes.status === 'fulfilled') {
+      subPetsRes.value.forEach((d) => {
+        const p = d.data() as Pet;
+        if (p) subPets.push({ ...p, id: p.id || d.id });
+      });
+    }
+
+    const subSales: SaleRecord[] = [];
+    if (subSalesRes.status === 'fulfilled') {
+      subSalesRes.value.forEach((d) => {
+        const s = d.data() as SaleRecord;
+        if (s) subSales.push({ ...s, id: s.id || d.id });
+      });
+    }
+
+    const appointments = mergeAppointments(rootData?.appointments || [], subApts);
+
+    const petsMap = new Map<string, Pet>();
+    for (const p of rootData?.pets || []) if (p?.id) petsMap.set(p.id, p);
+    for (const p of subPets) if (p?.id) petsMap.set(p.id, p);
+
+    const salesMap = new Map<string, SaleRecord>();
+    for (const s of ((rootData as any)?.sales as SaleRecord[]) || []) if (s?.id) salesMap.set(s.id, s);
+    for (const s of subSales) if (s?.id) salesMap.set(s.id, s);
+
+    return {
+      appointments,
+      pets: Array.from(petsMap.values()),
+      sales: Array.from(salesMap.values()).sort((a, b) =>
+        (b.createdAt || '').localeCompare(a.createdAt || '')
+      )
+    };
+  } catch (err) {
+    console.warn('[FIRESTORE POLL APPOINTMENTS ERROR]', err);
+    return null;
+  }
+}
+
+/**
+ * Adds an appointment to Firestore for a specific business.
+ * IMPORTANT (Etapa 6): Does NOT prematurely create a client Pet or fabricated lastVisit for
+ * pending, confirmed, or cancelled bookings. Only materializes a Pet record when the appointment
+ * is actively in service ('en_salon' / 'por_retirar') or 'completado'.
  */
 export async function addAppointmentToFirestore(
   businessId: string,
@@ -845,88 +1027,63 @@ export async function addAppointmentToFirestore(
   try {
     const now = new Date().toISOString();
 
-    // 1. Prepare appointment payload
+    // 1. Prepare appointment payload preserving full pet snapshot for deferred ficha creation
     const aptRef = doc(db, 'businesses', businessId, 'appointments', appointment.id);
-    const appointmentPayload = {
+    const appointmentPayload: Appointment = {
       ...appointment,
       businessId,
-      createdAt: appointment.createdAt || now
+      petSnapshot: petData || appointment.petSnapshot,
+      createdAt: appointment.createdAt || now,
+      updatedAt: now
     };
 
-    // 2. Prepare Pet payload
-    const petId = appointment.petId || `#PET-${Math.floor(1000 + Math.random() * 9000)}`;
-    const incomingPhoto = appointment.beforePhotoUrl || petData?.photoUrl || undefined;
-    const newPet: Pet = {
-      id: petId,
-      name: appointment.petName || petData?.name || 'Mascota',
-      breed: petData?.breed || appointment.breed || 'Mestizo',
-      gender: petData?.gender || 'Macho',
-      weightKg: Number(petData?.weightKg) || 10,
-      age: petData?.age || '1 año',
-      isVip: false,
-      photoUrl:
-        incomingPhoto ||
-        'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=400&auto=format&fit=crop&q=80',
-      tutor: {
-        name: appointment.tutorName || petData?.tutor?.name || 'Cliente Online',
-        phone: appointment.tutorPhone || petData?.tutor?.phone || '',
-        rawPhone: (appointment.tutorPhone || '').replace(/\D/g, '')
-      },
-      habitualMood: (petData?.habitualMood as any) || 'tranquilo',
-      healthAllergies: petData?.healthAllergies || '',
-      handlingObservations: petData?.handlingObservations || '',
-      lastVisit: {
-        id: `v_${Date.now()}`,
-        date: appointment.date || 'Hoy',
-        serviceName: appointment.serviceName,
-        price: appointment.price,
-        currency: appointment.currency,
-        mood: (petData?.habitualMood as any) || 'tranquilo',
-        paid: false,
-        photos: {
-          beforeUrl: incomingPhoto
-        }
-      },
-      visitHistory: [],
-      recommendedIntervalWeeks: 4
-    };
+    const shouldCreatePetFicha = isAppointmentActiveServiceOrCompleted(
+      appointmentPayload.status,
+      appointmentPayload.statusLabel
+    );
 
-    const petRef = doc(db, 'businesses', businessId, 'pets', petId);
+    const writeTasks: Promise<any>[] = [
+      setDoc(aptRef, cleanFirestoreData(appointmentPayload), { merge: true })
+    ];
 
-    // 1 & 2: Save appointment & pet in parallel for fast execution
-    await Promise.all([
-      setDoc(aptRef, cleanFirestoreData(appointmentPayload)),
-      setDoc(petRef, cleanFirestoreData(newPet), { merge: true })
-    ]);
+    let materializedPet: Pet | null = null;
+    if (shouldCreatePetFicha) {
+      materializedPet = materializePetFromAppointment(appointmentPayload, undefined, petData);
+      const petRef = doc(db, 'businesses', businessId, 'pets', materializedPet.id);
+      writeTasks.push(setDoc(petRef, cleanFirestoreData(materializedPet), { merge: true }));
+    }
 
-    // 3. Atomically update parent business document with new appointment and new pet
+    await Promise.all(writeTasks);
+
+    // 2. Atomically update parent business document with new appointment (and pet only if started/completed)
     try {
       const bizRef = doc(db, 'businesses', businessId);
-      const bizSnap = await getDoc(bizRef);
+      const bizSnap = await getDocFresh(bizRef);
       if (bizSnap.exists()) {
         const existingApts = (bizSnap.data()?.appointments as Appointment[]) || [];
-        const updatedApts = [appointmentPayload, ...existingApts.filter((a) => a.id !== appointment.id)];
+        const updatedApts = mergeAppointments(existingApts, [appointmentPayload]);
 
-        const existingPets = (bizSnap.data()?.pets as Pet[]) || [];
-        const updatedPets = [
-          newPet,
-          ...existingPets.filter(
-            (p) => p.name !== newPet.name || p.tutor.phone !== newPet.tutor.phone
-          )
-        ];
+        const patchPayload: Record<string, any> = {
+          appointments: updatedApts,
+          updatedAt: now
+        };
 
-        await setDoc(
-          bizRef,
-          cleanFirestoreData({ appointments: updatedApts, pets: updatedPets }),
-          { merge: true }
-        );
+        if (materializedPet) {
+          const existingPets = (bizSnap.data()?.pets as Pet[]) || [];
+          const updatedPets = [
+            materializedPet,
+            ...existingPets.filter((p) => p.id !== materializedPet!.id)
+          ];
+          patchPayload.pets = updatedPets;
+        }
+
+        await setDoc(bizRef, cleanFirestoreData(patchPayload), { merge: true });
       }
     } catch (parentErr) {
       console.warn('[FIRESTORE PARENT BIZ UPDATE WARN]', parentErr);
-      // Subcollections are already saved, non-fatal
     }
 
-    console.log(`[FIRESTORE BOOKING SAVED] Appointment "${appointment.id}" for "${appointment.petName}" and Pet "${petId}" successfully stored.`);
+    console.log(`[FIRESTORE BOOKING SAVED] Appointment "${appointment.id}" (${appointment.status}) for "${appointment.petName}" stored.`);
     return true;
   } catch (err: any) {
     if (err?.code === 'resource-exhausted' || err?.message?.includes('resource-exhausted')) {
@@ -1043,16 +1200,21 @@ export async function updateAppointmentInFirestore(
   if (!businessId || !appointmentId) return false;
   if (isQuotaExhausted()) return false;
   try {
+    const now = new Date().toISOString();
+    const fullPatch = { ...patch, id: appointmentId, businessId, updatedAt: now };
     const aptRef = doc(db, 'businesses', businessId, 'appointments', appointmentId);
-    await setDoc(aptRef, cleanFirestoreData(patch), { merge: true });
+    await setDoc(aptRef, cleanFirestoreData(fullPatch), { merge: true });
 
-    // Also update parent business doc
+    // Also update or upsert in parent business doc
     const bizRef = doc(db, 'businesses', businessId);
-    const bizSnap = await getDoc(bizRef);
+    const bizSnap = await getDocFresh(bizRef);
     if (bizSnap.exists()) {
       const existingApts: Appointment[] = bizSnap.data()?.appointments || [];
-      const updatedApts = existingApts.map((a) => (a.id === appointmentId ? { ...a, ...patch } : a));
-      await setDoc(bizRef, cleanFirestoreData({ appointments: updatedApts }), { merge: true });
+      const found = existingApts.some((a) => a.id === appointmentId);
+      const updatedApts = found
+        ? existingApts.map((a) => (a.id === appointmentId ? { ...a, ...fullPatch } : a))
+        : [{ ...fullPatch } as Appointment, ...existingApts];
+      await setDoc(bizRef, cleanFirestoreData({ appointments: updatedApts, updatedAt: now }), { merge: true });
     }
     return true;
   } catch (err: any) {
