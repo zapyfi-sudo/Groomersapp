@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood, ClientReview } from '../types';
+import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../types';
 import { fetchBusinessProfile, createPublicAppointment, subscribeToBusinessReviews } from '../utils/api';
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
@@ -8,6 +8,7 @@ import { HOTLINK_IMAGES } from '../mockData';
 import { formatPrice } from '../utils/priceUtils';
 import { parseTimeToMinutes, isDateMatching } from '../utils/scheduleUtils';
 import { extractSlugOnly } from '../utils/slugUtils';
+import { normalizeAndMergeReviews, calculateReviewStats, parseTimestampMs } from '../utils/syncHelpers';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -69,28 +70,65 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     let isMounted = true;
     setLoadError(null);
 
-    // Eagerly initialize if previewing or if the current session matches this salon
+    // Eagerly initialize if previewing, matching public cache, or matching current active session
     if (typeof window !== 'undefined') {
       try {
+        const targetRaw = businessIdOrSlug.trim();
+        const targetClean = extractSlugOnly(businessIdOrSlug) || targetRaw;
         const syncData = getSyncActiveData();
         const activeSlug = syncData?.config?.bookingSlug ? extractSlugOnly(syncData.config.bookingSlug) : '';
-        const targetClean = extractSlugOnly(businessIdOrSlug) || businessIdOrSlug.trim();
-        const isMatch =
-          isPreviewMode ||
-          (syncData &&
-            (syncData.businessId === targetClean ||
-              activeSlug === targetClean ||
-              syncData.config?.name?.toLowerCase().replace(/\s+/g, '-') === targetClean));
+        const syncBizId = syncData?.businessId?.trim() || '';
+        const isSessionMatch =
+          Boolean(syncData?.config) &&
+          (isPreviewMode ||
+            (Boolean(syncBizId) &&
+              (syncBizId === targetClean ||
+                syncBizId === targetRaw ||
+                (Boolean(activeSlug) && activeSlug === targetClean) ||
+                syncData.config?.name?.toLowerCase().replace(/\s+/g, '-') === targetClean)));
 
-        if (isMatch && syncData?.config) {
-          setBusinessData({
-            businessId: syncData.businessId || 'biz_main',
-            config: syncData.config,
+        let eagerData: {
+          businessId: string;
+          config: SalonConfig;
+          services: SalonService[];
+          appointments: Appointment[];
+        } | null = null;
+
+        if (isSessionMatch && syncData?.config) {
+          const resolvedBizId = syncBizId || syncData.config.id || 'biz_main';
+          eagerData = {
+            businessId: resolvedBizId,
+            config: {
+              ...syncData.config,
+              reviews: normalizeAndMergeReviews(resolvedBizId, syncData.config.reviews)
+            },
             services: syncData.config.services || [],
             appointments: syncData.appointments || []
-          });
-          if (syncData.config.services && syncData.config.services.length > 0) {
-            setSelectedServiceId(syncData.config.services[0].id);
+          };
+        } else if (!isPreviewMode) {
+          const cachedRaw =
+            localStorage.getItem(`agendacan_public_biz_${targetClean}`) ||
+            localStorage.getItem(`agendacan_public_biz_${targetRaw}`);
+          if (cachedRaw) {
+            const cached = JSON.parse(cachedRaw);
+            if (cached?.businessId && cached?.config) {
+              eagerData = {
+                businessId: cached.businessId,
+                config: {
+                  ...cached.config,
+                  reviews: normalizeAndMergeReviews(cached.businessId, cached.config.reviews)
+                },
+                services: cached.services || cached.config.services || [],
+                appointments: cached.appointments || []
+              };
+            }
+          }
+        }
+
+        if (eagerData) {
+          setBusinessData(eagerData);
+          if (eagerData.services && eagerData.services.length > 0) {
+            setSelectedServiceId(eagerData.services[0].id);
           }
           setIsLoading(false);
         } else {
@@ -108,17 +146,24 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         if (!isMounted) return;
         if (result && result.config) {
           setBusinessData((prevData) => {
+            const normalizedResultReviews = normalizeAndMergeReviews(
+              result.businessId,
+              result.config.reviews
+            );
+
             // Anti-overwrite protection:
             // Only merge if this is the SAME business. If a different business is requested, use result directly!
             if (prevData && prevData.config) {
-              const isSameBiz =
-                prevData.businessId === result.businessId ||
-                (prevData.config?.bookingSlug &&
-                  result.config?.bookingSlug &&
-                  extractSlugOnly(prevData.config.bookingSlug) === extractSlugOnly(result.config.bookingSlug));
+              const isSameBiz = prevData.businessId === result.businessId;
 
               if (!isSameBiz) {
-                return result;
+                return {
+                  ...result,
+                  config: {
+                    ...result.config,
+                    reviews: normalizedResultReviews
+                  }
+                };
               }
 
               const prevSvcs = prevData.services || [];
@@ -138,12 +183,8 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               let mergedServices: SalonService[] = [];
 
               if (prevSvcs.length > 0 && resultOnlyHasDefaults) {
-                // If prevData already has the owner's custom services and result returned stale generic placeholders,
-                // KEEP prevSvcs so the owner's customized services are NEVER replaced!
                 mergedServices = prevSvcs;
               } else if (prevSvcs.length >= resultSvcs.length && prevSvcs.length > 0) {
-                // prevData has equal or more services: keep all services from prevData,
-                // merging any fresh field from result without losing photos or services!
                 const resMap = new Map(resultSvcs.map((s) => [s.id, s]));
                 mergedServices = prevSvcs.map((pSvc) => {
                   const rSvc = resMap.get(pSvc.id);
@@ -160,7 +201,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                   return pSvc;
                 });
               } else if (resultSvcs.length > 0) {
-                // Result has more services: merge photos from prevData by ID and name
                 const prevIdMap = new Map(prevSvcs.map((s) => [s.id, s]));
                 const prevNameMap = new Map(prevSvcs.map((s) => [s.name.trim().toLowerCase(), s]));
 
@@ -179,7 +219,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                   return rSvc;
                 });
 
-                // Also keep any customized services from prevData that were not in result
                 const resIdSet = new Set(resultSvcs.map((s) => s.id));
                 for (const pSvc of prevSvcs) {
                   if (!resIdSet.has(pSvc.id) && !isDefaultPlaceholder(pSvc)) {
@@ -190,16 +229,39 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 mergedServices = prevSvcs;
               }
 
-              const keepCustomConfig = {
+              const prevUpdatedMs = parseTimestampMs(prevData.config.updatedAt);
+              const resultUpdatedMs = parseTimestampMs(result.updatedAt || result.config.updatedAt);
+              const localStrictlyNewer = prevUpdatedMs > 0 && resultUpdatedMs > 0 && prevUpdatedMs > resultUpdatedMs;
+
+              const mergedReviews = normalizeAndMergeReviews(
+                result.businessId,
+                prevData.config.reviews,
+                normalizedResultReviews
+              );
+
+              const keepCustomConfig: SalonConfig = {
                 ...result.config,
-                name: result.config.name || prevData.config.name,
+                id: result.businessId,
+                name: localStrictlyNewer
+                  ? (prevData.config.name || result.config.name)
+                  : (result.config.name || prevData.config.name),
                 logoUrl: result.config.logoUrl || prevData.config.logoUrl,
-                country: result.config.country || prevData.config.country,
-                city: result.config.city || prevData.config.city,
+                country: localStrictlyNewer
+                  ? (prevData.config.country !== undefined ? prevData.config.country : result.config.country)
+                  : (result.config.country !== undefined ? result.config.country : prevData.config.country),
+                city: localStrictlyNewer
+                  ? (prevData.config.city !== undefined ? prevData.config.city : result.config.city)
+                  : (result.config.city !== undefined ? result.config.city : prevData.config.city),
                 currency: result.config.currency || prevData.config.currency,
-                address: result.config.address || prevData.config.address,
+                address: localStrictlyNewer
+                  ? (prevData.config.address !== undefined ? prevData.config.address : result.config.address)
+                  : (result.config.address !== undefined ? result.config.address : prevData.config.address),
                 phone: result.config.phone || prevData.config.phone,
-                services: mergedServices
+                services: mergedServices,
+                reviews: mergedReviews,
+                updatedAt: localStrictlyNewer
+                  ? prevData.config.updatedAt
+                  : (result.updatedAt || result.config.updatedAt || prevData.config.updatedAt)
               };
 
               return {
@@ -208,7 +270,13 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 services: mergedServices
               };
             }
-            return result;
+            return {
+              ...result,
+              config: {
+                ...result.config,
+                reviews: normalizedResultReviews
+              }
+            };
           });
 
           if (result.services && result.services.length > 0) {
@@ -281,18 +349,24 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     };
   }, [businessIdOrSlug, isPreviewMode]);
 
-  // Real-time synchronization of reviews from Cloud Firestore (Requirement #5)
+  // Real-time synchronization of reviews from Cloud Firestore (merge with existing reviews instead of overwriting)
   useEffect(() => {
     if (!businessData?.businessId) return;
-    const unsub = subscribeToBusinessReviews(businessData.businessId, (incomingReviews) => {
+    const targetBizId = businessData.businessId;
+    const unsub = subscribeToBusinessReviews(targetBizId, (incomingReviews) => {
       if (!incomingReviews) return;
       setBusinessData((prev) => {
-        if (!prev || !prev.config) return prev;
+        if (!prev || !prev.config || prev.businessId !== targetBizId) return prev;
+        const mergedReviews = normalizeAndMergeReviews(
+          prev.businessId,
+          prev.config.reviews,
+          incomingReviews
+        );
         return {
           ...prev,
           config: {
             ...prev.config,
-            reviews: incomingReviews
+            reviews: mergedReviews
           }
         };
       });
@@ -302,17 +376,14 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
   const config = businessData?.config;
 
-  // Real reviews and reputation metrics
-  const reviewsList = useMemo(() => {
-    return (config?.reviews || []).filter(
-      (r) => r && typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 5
-    );
-  }, [config?.reviews]);
+  // Real reviews and reputation metrics (deduplicated, isolated by businessId, exact arithmetic mean)
+  const reviewStats = useMemo(() => {
+    return calculateReviewStats(config?.reviews, businessData?.businessId);
+  }, [config?.reviews, businessData?.businessId]);
 
-  const totalReviews = reviewsList.length;
-  const sumStars = reviewsList.reduce((acc, r) => acc + r.stars, 0);
-  const rawAvg = totalReviews > 0 ? sumStars / totalReviews : 0;
-  const avgRating = totalReviews > 0 ? (rawAvg % 1 === 0 ? rawAvg.toFixed(1) : rawAvg.toFixed(1).replace('.', ',')) : null;
+  const totalReviews = reviewStats.totalReviews;
+  const rawAvg = reviewStats.rawAverage;
+  const avgRating = reviewStats.formattedAverage;
 
   // Real configured services only, filtering out inactive or malformed services
   const services = useMemo(() => {
@@ -734,7 +805,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             ) : null}
 
             {/* Ubicación: [Ciudad], [País] y debajo [Dirección del negocio] */}
-            {([config.city?.trim(), config.country?.trim()].filter(Boolean).length > 0 || config.address) && (
+            {([config.city?.trim(), config.country?.trim()].filter(Boolean).length > 0 || Boolean(config.address?.trim())) && (
               <div className="flex items-start justify-center sm:justify-start gap-1.5 mt-2 text-xs text-[#7e7482]">
                 <span className="material-symbols-outlined text-sm text-[#2e004e] shrink-0 mt-0.5">location_on</span>
                 <div className="flex flex-col text-center sm:text-left">
@@ -743,8 +814,8 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                       {[config.city?.trim(), config.country?.trim()].filter(Boolean).join(', ')}
                     </span>
                   )}
-                  {config.address && (
-                    <span>{config.address}</span>
+                  {config.address?.trim() && (
+                    <span>{config.address.trim()}</span>
                   )}
                 </div>
               </div>

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { SalonService, ServicePricingBySize } from '../types';
 import { compressImage } from '../utils/storage';
+import { uploadImageToStorage } from '../utils/firebase';
 import { formatPrice } from '../utils/priceUtils';
 import { PriceInput } from './PriceInput';
 
@@ -8,12 +9,14 @@ interface ServiceManagerProps {
   services: SalonService[];
   onChangeServices: (updated: SalonService[]) => void;
   currency?: string;
+  businessId?: string;
 }
 
 export const ServiceManager: React.FC<ServiceManagerProps> = ({
   services,
   onChangeServices,
-  currency = 'ARS'
+  currency = 'ARS',
+  businessId
 }) => {
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
@@ -182,6 +185,18 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         // 480x600 px (4:5 aspect ratio = 0.8)
         const compressed = await compressImage(file, 480, 0.72, 4 / 5);
         setImageUrl(compressed);
+
+        // Upload to Firebase Cloud Storage in background
+        const targetBizId = businessId || 'biz_main';
+        const targetSvcId = editingServiceId || `svc_${Date.now()}`;
+        uploadImageToStorage(
+          `businesses/${targetBizId}/services/${targetSvcId}_main_${Date.now()}.jpg`,
+          compressed
+        ).then((publicUrl) => {
+          if (publicUrl && publicUrl.startsWith('http')) {
+            setImageUrl(publicUrl);
+          }
+        }).catch(() => {});
       } catch (err) {
         console.warn('Error uploading service image:', err);
         setFormError('Error al procesar la imagen. Intenta con otra foto.');
@@ -211,6 +226,28 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         filesToProcess.map((file) => compressImage(file, 480, 0.72, 4 / 5))
       );
       setGalleryUrls((prev) => [...prev, ...compressedList].slice(0, 4));
+
+      // Upload to Firebase Cloud Storage in background
+      const targetBizId = businessId || 'biz_main';
+      const targetSvcId = editingServiceId || `svc_${Date.now()}`;
+      Promise.all(
+        compressedList.map((c, i) =>
+          uploadImageToStorage(
+            `businesses/${targetBizId}/services/${targetSvcId}_gallery_${Date.now()}_${i}.jpg`,
+            c
+          )
+        )
+      ).then((uploadedUrls) => {
+        setGalleryUrls((prev) =>
+          prev.map((url) => {
+            const idx = compressedList.indexOf(url);
+            if (idx !== -1 && uploadedUrls[idx]?.startsWith('http')) {
+              return uploadedUrls[idx];
+            }
+            return url;
+          })
+        );
+      }).catch(() => {});
     } catch (err) {
       console.warn('Error uploading additional images:', err);
       setFormError('Error al procesar las imágenes adicionales.');
@@ -237,6 +274,21 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         next[index] = compressed;
         return next;
       });
+
+      const targetBizId = businessId || 'biz_main';
+      const targetSvcId = editingServiceId || `svc_${Date.now()}`;
+      uploadImageToStorage(
+        `businesses/${targetBizId}/services/${targetSvcId}_gallery_${Date.now()}_${index}.jpg`,
+        compressed
+      ).then((publicUrl) => {
+        if (publicUrl && publicUrl.startsWith('http')) {
+          setGalleryUrls((prev) => {
+            const next = [...prev];
+            next[index] = publicUrl;
+            return next;
+          });
+        }
+      }).catch(() => {});
     } catch (err) {
       console.warn('Error replacing additional image:', err);
       setFormError('Error al procesar la imagen.');

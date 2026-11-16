@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import {
   SalonConfig,
   StaffMember,
@@ -21,12 +21,13 @@ import { compressImage } from '../utils/storage';
 import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl, buildPublicReviewUrl } from '../utils/slugUtils';
 import { syncBusinessToServer, updateReviewRequestStateInFirestore, getApiUrl } from '../utils/api';
 import { persistActiveConfig } from '../utils/saasDb';
-import { checkSlugAvailabilityInFirestore } from '../utils/firebase';
+import { checkSlugAvailabilityInFirestore, uploadImageToStorage } from '../utils/firebase';
 import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
 import { formatPrice } from '../utils/priceUtils';
 import { getAppointmentTimestamp } from '../utils/petSorting';
 import { TimeSelectPicker } from './TimeSelectPicker';
 import { timeTo12H, timeTo24H } from '../utils/scheduleUtils';
+import { normalizeAndMergeReviews, calculateReviewStats } from '../utils/syncHelpers';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -69,47 +70,116 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [clientPeriodFilter, setClientPeriodFilter] = useState<'hoy' | 'semana' | 'mes' | 'todos'>('todos');
   const [searchQuery, setSearchQuery] = useState<string>('');
 
-  // Brand data
+  // Brand data (never force hardcoded demo country or address onto unconfigured businesses)
   const [logoUrl, setLogoUrl] = useState<string>(config.logoUrl || '');
   const [businessName, setBusinessName] = useState<string>(config.name || 'Groomer Aida');
-  const [selectedCountry, setSelectedCountry] = useState<string>(config.country || 'Argentina');
+  const [selectedCountry, setSelectedCountry] = useState<string>(config.country || '');
   const [selectedCity, setSelectedCity] = useState<string>(config.city || '');
   const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(currentLanguage);
   const [selectedCurrency, setSelectedCurrency] = useState<string>(config.currency || 'USD');
 
-  useEffect(() => {
-    if (!config) return;
-    if (config.name !== undefined) setBusinessName(config.name);
-    if (config.logoUrl !== undefined) setLogoUrl(config.logoUrl);
-    if (config.country !== undefined) setSelectedCountry(config.country);
-    if (config.city !== undefined) setSelectedCity(config.city);
-    if (config.currency !== undefined) setSelectedCurrency(config.currency);
-    if (config.phonePrefix !== undefined) setPhonePrefix(config.phonePrefix);
-    if (config.phone !== undefined) setPhoneNumber(config.phone);
-    if (config.address !== undefined) setAddress(config.address);
-    if (config.activeDays !== undefined) setActiveDays(config.activeDays);
-    if (config.hasDoubleShift !== undefined) setHasDoubleShift(config.hasDoubleShift);
-    if (config.morningOpen !== undefined) setMorningOpen(config.morningOpen);
-    if (config.morningClose !== undefined) setMorningClose(config.morningClose);
-    if (config.lunchStart !== undefined) setLunchStart(config.lunchStart);
-    if (config.lunchEnd !== undefined) setLunchEnd(config.lunchEnd);
-    if (config.afternoonOpen !== undefined) setAfternoonOpen(config.afternoonOpen);
-    if (config.afternoonClose !== undefined) setAfternoonClose(config.afternoonClose);
-    if (config.staffScheduleConfig !== undefined) setStaffScheduleConfig(config.staffScheduleConfig);
-    if (config.allowSimultaneousStaff !== undefined) setAllowSimultaneousStaff(config.allowSimultaneousStaff);
-    if (config.simultaneousCapacity !== undefined) setSimultaneousCapacity(config.simultaneousCapacity);
-    if (config.staffMembers !== undefined) setStaffList(config.staffMembers);
-    if (config.services !== undefined) setServicesList(config.services);
-    if (config.hasMedicationProductsEnabled !== undefined) setHasMedicationProductsEnabled(config.hasMedicationProductsEnabled);
-    if (config.medicationProducts !== undefined) setMedicationProducts(config.medicationProducts);
-    if (config.appointmentIntervalMinutes !== undefined) setAppointmentIntervalMinutes(config.appointmentIntervalMinutes);
-    if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
-  }, [config]);
-
   // Contact & Location
   const [phonePrefix, setPhonePrefix] = useState<string>(config.phonePrefix || '+54');
   const [phoneNumber, setPhoneNumber] = useState<string>(config.phone || '11 5489 3210');
-  const [address, setAddress] = useState<string>(config.address || 'Av. Corrientes 4520, Almagro, CABA');
+  const [address, setAddress] = useState<string>(config.address || '');
+
+  const syncedSnapshotRef = useRef<{
+    id?: string;
+    updatedAt?: string;
+    country?: string;
+    city?: string;
+    address?: string;
+    name?: string;
+  } | null>(
+    config
+      ? {
+          id: config.id,
+          updatedAt: config.updatedAt,
+          country: config.country,
+          city: config.city,
+          address: config.address,
+          name: config.name
+        }
+      : null
+  );
+
+  useEffect(() => {
+    if (!config) return;
+    const prevSnap = syncedSnapshotRef.current;
+    const isAccountSwitch = !prevSnap || prevSnap.id !== config.id;
+    const isTimestampOrLocationUpdate =
+      isAccountSwitch ||
+      prevSnap.updatedAt !== config.updatedAt ||
+      prevSnap.country !== config.country ||
+      prevSnap.city !== config.city ||
+      prevSnap.address !== config.address ||
+      prevSnap.name !== config.name;
+
+    if (isAccountSwitch) {
+      setBusinessName(config.name || '');
+      setLogoUrl(config.logoUrl || '');
+      setSelectedCountry(config.country || '');
+      setSelectedCity(config.city || '');
+      setAddress(config.address || '');
+      setSelectedCurrency(config.currency || 'USD');
+      setPhonePrefix(config.phonePrefix || '+54');
+      setPhoneNumber(config.phone || '');
+      setActiveDays(config.activeDays || ['L', 'M', 'X', 'J', 'V', 'S']);
+      setHasDoubleShift(config.hasDoubleShift ?? true);
+      setMorningOpen(config.morningOpen || '08:00');
+      setMorningClose(config.morningClose || '12:30');
+      setLunchStart(config.lunchStart || config.morningClose || '12:30');
+      setLunchEnd(config.lunchEnd || config.afternoonOpen || '13:30');
+      setAfternoonOpen(config.afternoonOpen || '14:00');
+      setAfternoonClose(config.afternoonClose || '19:30');
+      if (config.staffScheduleConfig !== undefined) setStaffScheduleConfig(config.staffScheduleConfig);
+      setAllowSimultaneousStaff(config.allowSimultaneousStaff ?? true);
+      setSimultaneousCapacity(config.simultaneousCapacity || 2);
+      setStaffList(config.staffMembers || []);
+      setServicesList(config.services || []);
+      setHasMedicationProductsEnabled(config.hasMedicationProductsEnabled ?? true);
+      setMedicationProducts(config.medicationProducts || []);
+      setAppointmentIntervalMinutes(
+        config.appointmentIntervalMinutes !== undefined ? config.appointmentIntervalMinutes : 30
+      );
+      if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
+    } else if (isTimestampOrLocationUpdate) {
+      if (config.name !== undefined && config.name !== prevSnap?.name) setBusinessName(config.name);
+      if (config.logoUrl !== undefined) setLogoUrl(config.logoUrl);
+      if (config.country !== prevSnap?.country) setSelectedCountry(config.country || '');
+      if (config.city !== prevSnap?.city) setSelectedCity(config.city || '');
+      if (config.address !== prevSnap?.address) setAddress(config.address || '');
+      if (config.currency !== undefined) setSelectedCurrency(config.currency);
+      if (config.phonePrefix !== undefined) setPhonePrefix(config.phonePrefix);
+      if (config.phone !== undefined) setPhoneNumber(config.phone);
+      if (config.activeDays !== undefined) setActiveDays(config.activeDays);
+      if (config.hasDoubleShift !== undefined) setHasDoubleShift(config.hasDoubleShift);
+      if (config.morningOpen !== undefined) setMorningOpen(config.morningOpen);
+      if (config.morningClose !== undefined) setMorningClose(config.morningClose);
+      if (config.lunchStart !== undefined) setLunchStart(config.lunchStart);
+      if (config.lunchEnd !== undefined) setLunchEnd(config.lunchEnd);
+      if (config.afternoonOpen !== undefined) setAfternoonOpen(config.afternoonOpen);
+      if (config.afternoonClose !== undefined) setAfternoonClose(config.afternoonClose);
+      if (config.staffScheduleConfig !== undefined) setStaffScheduleConfig(config.staffScheduleConfig);
+      if (config.allowSimultaneousStaff !== undefined) setAllowSimultaneousStaff(config.allowSimultaneousStaff);
+      if (config.simultaneousCapacity !== undefined) setSimultaneousCapacity(config.simultaneousCapacity);
+      if (config.staffMembers !== undefined) setStaffList(config.staffMembers);
+      if (config.services !== undefined) setServicesList(config.services);
+      if (config.hasMedicationProductsEnabled !== undefined) setHasMedicationProductsEnabled(config.hasMedicationProductsEnabled);
+      if (config.medicationProducts !== undefined) setMedicationProducts(config.medicationProducts);
+      if (config.appointmentIntervalMinutes !== undefined) setAppointmentIntervalMinutes(config.appointmentIntervalMinutes);
+      if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
+    }
+
+    syncedSnapshotRef.current = {
+      id: config.id,
+      updatedAt: config.updatedAt,
+      country: config.country,
+      city: config.city,
+      address: config.address,
+      name: config.name
+    };
+  }, [config]);
 
   // Schedule & Double Shift & Interval
   const [activeDays, setActiveDays] = useState<string[]>(config.activeDays || ['L', 'M', 'X', 'J', 'V', 'S']);
@@ -267,7 +337,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         const safeSlug =
           cleanSlugInput(customSlug) ||
           extractSlugOnly(config.bookingSlug) ||
-          'luna';
+          slugify(businessName || config.name || persistentBizId, persistentBizId);
 
         const updatedConfig: SalonConfig = {
           ...config,
@@ -275,13 +345,34 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
           bookingSlug: safeSlug,
           name: businessName.trim() || config.name,
           logoUrl: compressed,
+          country: selectedCountry,
+          city: selectedCity.trim(),
+          address: address.trim(),
           services: servicesList,
-          medicationProducts: medicationProducts
+          medicationProducts: medicationProducts,
+          updatedAt: new Date().toISOString()
         };
 
         // 1. Persist locally to IndexedDB & sync mirror
         await persistActiveConfig(updatedConfig);
         onUpdateConfig(updatedConfig);
+
+        // Upload to Firebase Cloud Storage in background
+        uploadImageToStorage(
+          `businesses/${persistentBizId}/branding/logo_${Date.now()}.jpg`,
+          compressed
+        ).then((storageUrl) => {
+          if (storageUrl && storageUrl.startsWith('http')) {
+            setLogoUrl(storageUrl);
+            const cloudConfig: SalonConfig = {
+              ...updatedConfig,
+              logoUrl: storageUrl
+            };
+            persistActiveConfig(cloudConfig);
+            onUpdateConfig(cloudConfig);
+            syncBusinessToServer(persistentBizId, cloudConfig, undefined, appointments).catch(() => {});
+          }
+        }).catch(() => {});
 
         // 2. Cache locally for public booking page
         if (typeof window !== 'undefined') {
@@ -503,7 +594,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     setSlugSaveError(null);
     setIsSavingSlug(true);
 
-    const persistentBizId = config.id || 'biz_main';
+    const persistentBizId = activeAccount?.businessId || config.id || 'biz_main';
     const targetSlug = cleanSlugInput(customSlug);
 
     if (!targetSlug) {
@@ -533,10 +624,13 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         id: persistentBizId,
         name: businessName.trim() || config.name,
         logoUrl: logoUrl || config.logoUrl || '',
+        country: selectedCountry,
         city: selectedCity.trim(),
+        address: address.trim(),
         bookingSlug: targetSlug,
         services: servicesList,
-        medicationProducts: medicationProducts
+        medicationProducts: medicationProducts,
+        updatedAt: new Date().toISOString()
       };
 
       // 2. Persist locally first so UI is immediately responsive and active link reflects the new slug
@@ -592,7 +686,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const safeSlug =
       cleanSlugInput(customSlug) ||
       extractSlugOnly(config.bookingSlug) ||
-      'luna';
+      slugify(businessName || config.name || persistentBizId, persistentBizId);
 
     const updatedConfig: SalonConfig = {
       ...config,
@@ -600,9 +694,13 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       bookingSlug: safeSlug,
       name: businessName.trim() || config.name,
       logoUrl: logoUrl || config.logoUrl || '',
+      country: selectedCountry,
+      city: selectedCity.trim(),
+      address: address.trim(),
       currency: selectedCurrency,
       services: updatedServices,
-      medicationProducts: medicationProducts
+      medicationProducts: medicationProducts,
+      updatedAt: new Date().toISOString()
     };
 
     // 1. Immediately persist locally (IndexedDB + local sync mirror)
@@ -674,7 +772,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const safeSlug =
       cleanSlugInput(customSlug) ||
       extractSlugOnly(config.bookingSlug) ||
-      'luna';
+      slugify(businessName || config.name || persistentBizId, persistentBizId);
 
     // Normalizar servicios con businessId e IDs únicos garantizados
     const normalizedServices: SalonService[] = servicesList.map((svc, idx) => ({
@@ -700,6 +798,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       active: med.active !== false
     }));
 
+    const nowIso = new Date().toISOString();
     const updatedConfig: SalonConfig = {
       ...config,
       id: persistentBizId,
@@ -733,7 +832,9 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       afternoonOpen: timeTo24H(afternoonOpen),
       afternoonClose: timeTo24H(afternoonClose),
       appointmentIntervalMinutes,
-      activeDays
+      activeDays,
+      reviews: normalizeAndMergeReviews(persistentBizId, config.reviews),
+      updatedAt: nowIso
     };
 
     try {
@@ -1274,6 +1375,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           onChange={(e) => handleCountryChange(e.target.value)}
                           className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
                         >
+                          <option value="">Selecciona un país</option>
                           {COUNTRIES.map((c) => (
                             <option key={c.code} value={c.name}>
                               {c.name}
@@ -1822,6 +1924,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 services={servicesList}
                 onChangeServices={handleServicesChange}
                 currency={selectedCurrency}
+                businessId={config.id || activeAccount?.businessId || 'biz_main'}
               />
 
               {/* SECCIÓN MEDICAMENTOS: Integrada directamente */}
@@ -1856,22 +1959,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
           {/* SUB-SECCIÓN 2: CALIFICACIONES (SISTEMA COMPLETO Y PERSISTENTE) */}
           {selectedSection === 'calificaciones' && (() => {
-            const reviewsList = (config.reviews || []).filter(
-              (r) => r && typeof r.stars === 'number' && r.stars >= 1 && r.stars <= 5
-            );
-            const totalReviews = reviewsList.length;
-
-            const sumStars = reviewsList.reduce((acc, r) => acc + r.stars, 0);
-            const rawAvg = totalReviews > 0 ? sumStars / totalReviews : 0;
-            const avgRating = totalReviews > 0 ? (rawAvg % 1 === 0 ? rawAvg.toFixed(1) : rawAvg.toFixed(1).replace('.', ',')) : '0,0';
-
-            const starCounts = {
-              5: reviewsList.filter((r) => r.stars === 5).length,
-              4: reviewsList.filter((r) => r.stars === 4).length,
-              3: reviewsList.filter((r) => r.stars === 3).length,
-              2: reviewsList.filter((r) => r.stars === 2).length,
-              1: reviewsList.filter((r) => r.stars === 1).length
-            };
+            const reviewStats = calculateReviewStats(config.reviews, activeAccount?.businessId || config.id);
+            const reviewsList = reviewStats.reviews;
+            const totalReviews = reviewStats.totalReviews;
+            const rawAvg = reviewStats.rawAverage;
+            const avgRating = reviewStats.formattedAverage || '0,0';
+            const starCounts = reviewStats.starCounts;
 
             // Eligible completed clients for review requests
             const requestStateMap = config.reviewRequests || {};

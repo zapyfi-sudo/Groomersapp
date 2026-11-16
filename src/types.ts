@@ -233,6 +233,7 @@ export interface SalonConfig {
   medicationProducts?: MedicationProduct[];
   medicationFee: number;
   whatsappTemplates?: WhatsAppTemplate[];
+  updatedAt?: string;
 }
 
 export interface WhatsAppTemplate {

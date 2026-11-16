@@ -23,12 +23,26 @@ import {
   where,
   getDocs,
   getDocFromServer,
+  getDocsFromServer,
   onSnapshot,
-  writeBatch
+  writeBatch,
+  DocumentReference,
+  DocumentSnapshot,
+  Query,
+  QuerySnapshot,
+  DocumentData
 } from 'firebase/firestore';
+import {
+  getStorage,
+  FirebaseStorage,
+  ref as storageRef,
+  uploadString,
+  getDownloadURL
+} from 'firebase/storage';
 import firebaseConfigRaw from '../../firebase-applet-config.json';
 import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState, SaleRecord } from '../types';
 import { slugify, cleanSlugInput, extractSlugOnly } from './slugUtils';
+import { normalizeAndMergeReviews } from './syncHelpers';
 
 const firebaseConfig = {
   projectId: (typeof import.meta !== 'undefined' && import.meta.env?.VITE_FIREBASE_PROJECT_ID) || firebaseConfigRaw.projectId,
@@ -52,6 +66,42 @@ export const auth: Auth = getAuth(app);
 export const db: Firestore = firebaseConfig.firestoreDatabaseId
   ? getFirestore(app, firebaseConfig.firestoreDatabaseId)
   : getFirestore(app);
+
+// Initialize Firebase Cloud Storage
+export const storage: FirebaseStorage = firebaseConfig.storageBucket
+  ? getStorage(app, `gs://${firebaseConfig.storageBucket}`)
+  : getStorage(app);
+
+/**
+ * Uploads a base64 DataURL or binary image to Firebase Cloud Storage
+ * and returns the permanent public download URL.
+ * Falls back safely to the compressed dataUrl if offline or storage warning.
+ */
+export async function uploadImageToStorage(
+  storagePath: string,
+  dataUrlOrBase64: string
+): Promise<string> {
+  if (!dataUrlOrBase64) return '';
+  // If it's already a remote URL (http/https), return it directly
+  if (dataUrlOrBase64.startsWith('http://') || dataUrlOrBase64.startsWith('https://')) {
+    return dataUrlOrBase64;
+  }
+  // Must be a base64 DataURL
+  if (!dataUrlOrBase64.startsWith('data:')) {
+    return dataUrlOrBase64;
+  }
+
+  try {
+    const fileRef = storageRef(storage, storagePath);
+    await uploadString(fileRef, dataUrlOrBase64, 'data_url');
+    const downloadUrl = await getDownloadURL(fileRef);
+    console.log(`[STORAGE UPLOAD SUCCESS] Saved ${storagePath} -> ${downloadUrl.substring(0, 60)}...`);
+    return downloadUrl;
+  } catch (err) {
+    console.warn(`[STORAGE UPLOAD WARN] Failed to upload ${storagePath} to Firebase Storage, keeping local compressed version:`, err);
+    return dataUrlOrBase64;
+  }
+}
 
 /**
  * Real Google Authentication using Firebase Auth signInWithPopup
@@ -225,6 +275,50 @@ export interface FirestoreBusinessData {
   updatedAt: string;
 }
 
+async function getDocFresh<T = DocumentData>(ref: DocumentReference<T>): Promise<DocumentSnapshot<T>> {
+  try {
+    return await getDocFromServer(ref);
+  } catch {
+    return await getDoc(ref);
+  }
+}
+
+async function getDocsFresh<T = DocumentData>(q: Query<T>): Promise<QuerySnapshot<T>> {
+  try {
+    return await getDocsFromServer(q);
+  } catch {
+    return await getDocs(q);
+  }
+}
+
+async function hydrateOwnerBusinessResult(
+  businessId: string,
+  data: FirestoreBusinessData
+): Promise<{ businessId: string; config: SalonConfig; appointments?: Appointment[]; pets?: Pet[] }> {
+  let subReviews: ClientReview[] = [];
+  try {
+    const snap = await getDocsFresh(collection(db, 'businesses', businessId, 'reviews'));
+    snap.forEach((rDoc) => {
+      subReviews.push(rDoc.data() as ClientReview);
+    });
+  } catch {}
+
+  const mergedReviews = normalizeAndMergeReviews(businessId, data.config?.reviews, subReviews);
+  const config: SalonConfig = {
+    ...data.config,
+    id: businessId,
+    reviews: mergedReviews,
+    updatedAt: data.config?.updatedAt || data.updatedAt
+  };
+
+  return {
+    businessId,
+    config,
+    appointments: data.appointments || [],
+    pets: data.pets || []
+  };
+}
+
 /**
  * Searches Firestore for an existing business owned by the user (by Firebase UID or Email).
  */
@@ -238,28 +332,18 @@ export async function findBusinessByOwner(
     // 1. Search by config.userId == uid
     if (uid) {
       const qUid = query(collection(db, 'businesses'), where('config.userId', '==', uid));
-      const snapUid = await getDocs(qUid);
+      const snapUid = await getDocsFresh(qUid);
       if (!snapUid.empty) {
         const d = snapUid.docs[0];
         const data = d.data() as FirestoreBusinessData;
-        return {
-          businessId: data.businessId || d.id,
-          config: data.config,
-          appointments: data.appointments || [],
-          pets: data.pets || []
-        };
+        return await hydrateOwnerBusinessResult(data.businessId || d.id, data);
       }
 
       // Check direct document with ID uid
-      const directDoc = await getDoc(doc(db, 'businesses', uid));
+      const directDoc = await getDocFresh(doc(db, 'businesses', uid));
       if (directDoc.exists()) {
         const data = directDoc.data() as FirestoreBusinessData;
-        return {
-          businessId: data.businessId || directDoc.id,
-          config: data.config,
-          appointments: data.appointments || [],
-          pets: data.pets || []
-        };
+        return await hydrateOwnerBusinessResult(data.businessId || directDoc.id, data);
       }
     }
 
@@ -267,16 +351,11 @@ export async function findBusinessByOwner(
     if (email) {
       const cleanEmail = email.trim().toLowerCase();
       const qEmail = query(collection(db, 'businesses'), where('config.email', '==', cleanEmail));
-      const snapEmail = await getDocs(qEmail);
+      const snapEmail = await getDocsFresh(qEmail);
       if (!snapEmail.empty) {
         const d = snapEmail.docs[0];
         const data = d.data() as FirestoreBusinessData;
-        return {
-          businessId: data.businessId || d.id,
-          config: data.config,
-          appointments: data.appointments || [],
-          pets: data.pets || []
-        };
+        return await hydrateOwnerBusinessResult(data.businessId || d.id, data);
       }
     }
 
@@ -335,6 +414,22 @@ export async function checkSlugAvailabilityInFirestore(
   }
 }
 
+// Circuit breaker for Firestore quota exhaustion to prevent repeated failing requests and backoff delay
+let quotaExhaustedUntil = 0;
+
+export function isQuotaExhausted(): boolean {
+  return Date.now() < quotaExhaustedUntil;
+}
+
+export function markQuotaExhausted(cooldownMs = 60000 * 5): void {
+  quotaExhaustedUntil = Date.now() + cooldownMs;
+  console.warn(
+    `[FIRESTORE QUOTA GUARD] Quota metric limit reached. Pausing remote Firestore writes for ${Math.round(
+      cooldownMs / 1000
+    )}s to protect backend and allow local IndexedDB and server mirror to serve uninterrupted.`
+  );
+}
+
 /**
  * Persists business configuration, services, medications, and slug mapping to Firestore.
  * Merges existing public appointments so client bookings are NEVER overwritten.
@@ -345,6 +440,9 @@ export async function saveBusinessToFirestore(
   appointments?: Appointment[],
   pets?: Pet[]
 ): Promise<boolean> {
+  if (isQuotaExhausted()) {
+    return false;
+  }
   const cleanId = businessId || config.id || 'biz_main';
   const cleanSlug =
     extractSlugOnly(config.bookingSlug) ||
@@ -389,9 +487,14 @@ export async function saveBusinessToFirestore(
     id: cleanId,
     bookingSlug: cleanSlug,
     name: (config.name || 'Groomer Aida').trim(),
+    country: config.country !== undefined ? String(config.country).trim() : '',
+    city: config.city !== undefined ? String(config.city).trim() : '',
+    address: config.address !== undefined ? String(config.address).trim() : '',
     services: sanitizedServices,
     medicationProducts: sanitizedMedications,
-    whatsappTemplates: sanitizedTemplates
+    whatsappTemplates: sanitizedTemplates,
+    reviews: normalizeAndMergeReviews(cleanId, config.reviews),
+    updatedAt: config.updatedAt || now
   };
 
   const businessData: FirestoreBusinessData = {
@@ -402,7 +505,7 @@ export async function saveBusinessToFirestore(
     config: cleanConfig,
     services: sanitizedServices,
     medicationProducts: sanitizedMedications,
-    updatedAt: now
+    updatedAt: cleanConfig.updatedAt || now
   };
 
   const executeSave = async (): Promise<boolean> => {
@@ -465,8 +568,16 @@ export async function saveBusinessToFirestore(
 
       console.log(`[FIRESTORE SUCCESS] Business "${cleanConfig.name}" (${cleanId}) saved with ${sanitizedServices.length} services and slug "${cleanSlug}".`);
       return true;
-    } catch (err) {
-      console.error('[FIRESTORE SAVE ERROR]', err);
+    } catch (err: any) {
+      if (
+        err?.code === 'resource-exhausted' ||
+        err?.message?.includes('Quota limit exceeded') ||
+        err?.message?.includes('resource-exhausted')
+      ) {
+        markQuotaExhausted();
+      } else {
+        console.error('[FIRESTORE SAVE ERROR]', err);
+      }
       return false;
     }
   };
@@ -509,6 +620,7 @@ export async function getBusinessFromFirestore(
   services: SalonService[];
   appointments: Appointment[];
   pets: Pet[];
+  updatedAt?: string;
 } | null> {
   if (!slugOrId) return null;
 
@@ -521,7 +633,7 @@ export async function getBusinessFromFirestore(
 
       // Strategy 0: Direct business ID lookup in businesses collection
       const directRawBizRef = doc(db, 'businesses', raw);
-      const directRawBizSnap = await getDoc(directRawBizRef);
+      const directRawBizSnap = await getDocFresh(directRawBizRef);
       if (directRawBizSnap.exists()) {
         targetBizId = raw;
       }
@@ -529,11 +641,11 @@ export async function getBusinessFromFirestore(
       // Strategy 1: Check direct slug mapping (O(1))
       if (!targetBizId) {
         const slugDocRef = doc(db, 'slugs', clean);
-        const slugSnap = await getDoc(slugDocRef);
+        const slugSnap = await getDocFresh(slugDocRef);
         if (slugSnap.exists()) {
           targetBizId = slugSnap.data()?.businessId || '';
         } else if (clean !== raw) {
-          const rawSlugSnap = await getDoc(doc(db, 'slugs', raw));
+          const rawSlugSnap = await getDocFresh(doc(db, 'slugs', raw));
           if (rawSlugSnap.exists()) {
             targetBizId = rawSlugSnap.data()?.businessId || '';
           }
@@ -543,7 +655,7 @@ export async function getBusinessFromFirestore(
       // Strategy 2: If not found, check businesses collection with clean
       if (!targetBizId && clean !== raw) {
         const directCleanBizRef = doc(db, 'businesses', clean);
-        const directCleanBizSnap = await getDoc(directCleanBizRef);
+        const directCleanBizSnap = await getDocFresh(directCleanBizRef);
         if (directCleanBizSnap.exists()) {
           targetBizId = clean;
         }
@@ -552,7 +664,7 @@ export async function getBusinessFromFirestore(
       // Strategy 3: Query by bookingSlug field
       if (!targetBizId) {
         const qSlug = query(collection(db, 'businesses'), where('bookingSlug', '==', clean));
-        const snapSlug = await getDocs(qSlug);
+        const snapSlug = await getDocsFresh(qSlug);
         if (!snapSlug.empty) {
           const sorted = snapSlug.docs.slice().sort((a, b) => {
             const timeA = a.data()?.updatedAt || '';
@@ -561,7 +673,7 @@ export async function getBusinessFromFirestore(
           });
           targetBizId = sorted[0].id;
         } else if (clean !== raw) {
-          const snapRawSlug = await getDocs(query(collection(db, 'businesses'), where('bookingSlug', '==', raw)));
+          const snapRawSlug = await getDocsFresh(query(collection(db, 'businesses'), where('bookingSlug', '==', raw)));
           if (!snapRawSlug.empty) {
             const sortedRaw = snapRawSlug.docs.slice().sort((a, b) => {
               const timeA = a.data()?.updatedAt || '';
@@ -575,7 +687,7 @@ export async function getBusinessFromFirestore(
 
       // Strategy 4: Query by businessId field
       if (!targetBizId) {
-        const snapBizId = await getDocs(query(collection(db, 'businesses'), where('businessId', '==', raw)));
+        const snapBizId = await getDocsFresh(query(collection(db, 'businesses'), where('businessId', '==', raw)));
         if (!snapBizId.empty) {
           targetBizId = snapBizId.docs[0].id;
         }
@@ -585,145 +697,134 @@ export async function getBusinessFromFirestore(
         return null;
       }
 
-      // Retrieve full business document
+      // Retrieve full business document AND all subcollections in parallel for fast, complete hydration
       const bizRef = doc(db, 'businesses', targetBizId);
-      const bizSnap = await getDoc(bizRef);
+      const [bizSnap, subServicesRes, subAptsRes, subPetsRes, subReviewsRes] = await Promise.allSettled([
+        getDocFresh(bizRef),
+        getDocsFresh(collection(db, 'businesses', targetBizId, 'services')),
+        getDocsFresh(collection(db, 'businesses', targetBizId, 'appointments')),
+        getDocsFresh(collection(db, 'businesses', targetBizId, 'pets')),
+        getDocsFresh(collection(db, 'businesses', targetBizId, 'reviews'))
+      ]);
 
-      if (!bizSnap.exists()) {
+      if (bizSnap.status !== 'fulfilled' || !bizSnap.value.exists()) {
         return null;
       }
 
-    const b = bizSnap.data() as FirestoreBusinessData;
-    let rawServices: SalonService[] = [];
+      const b = bizSnap.value.data() as FirestoreBusinessData;
+      let rawServices: SalonService[] = [];
 
-    // 1. First, read from modular subcollection (individual documents with independent limits)
-    try {
-      const subServicesSnap = await getDocs(collection(db, 'businesses', targetBizId, 'services'));
-      if (!subServicesSnap.empty) {
+      // 1. Read from modular subcollection
+      if (subServicesRes.status === 'fulfilled' && !subServicesRes.value.empty) {
         const subList: SalonService[] = [];
-        subServicesSnap.forEach((d) => {
+        subServicesRes.value.forEach((d) => {
           subList.push(d.data() as SalonService);
         });
         if (subList.length > 0) {
           rawServices = subList;
         }
       }
-    } catch (subErr) {
-      console.warn('[FIRESTORE SUBCOLLECTION READ NOTICE]', subErr);
-    }
 
-    // 2. Combine with root document services to guarantee no services or photos are missed
-    const rootServices = Array.isArray(b.config?.services) && b.config.services.length > 0
-      ? b.config.services
-      : (Array.isArray(b.services) ? b.services : []);
+      // 2. Combine with root document services to guarantee no services or photos are missed
+      const rootServices = Array.isArray(b.config?.services) && b.config.services.length > 0
+        ? b.config.services
+        : (Array.isArray(b.services) ? b.services : []);
 
-    if (rawServices.length === 0) {
-      rawServices = rootServices;
-    } else if (rootServices.length > 0) {
-      const subMap = new Map(rawServices.map((s) => [s.id, s]));
-      for (const rSvc of rootServices) {
-        if (!subMap.has(rSvc.id)) {
-          rawServices.push(rSvc);
-        } else {
-          const existing = subMap.get(rSvc.id)!;
-          if (!existing.imageUrl && rSvc.imageUrl) existing.imageUrl = rSvc.imageUrl;
-          if ((!existing.galleryUrls || existing.galleryUrls.length === 0) && rSvc.galleryUrls) {
-            existing.galleryUrls = rSvc.galleryUrls;
+      if (rawServices.length === 0) {
+        rawServices = rootServices;
+      } else if (rootServices.length > 0) {
+        const subMap = new Map(rawServices.map((s) => [s.id, s]));
+        for (const rSvc of rootServices) {
+          if (!subMap.has(rSvc.id)) {
+            rawServices.push(rSvc);
+          } else {
+            const existing = subMap.get(rSvc.id)!;
+            if (!existing.imageUrl && rSvc.imageUrl) existing.imageUrl = rSvc.imageUrl;
+            if ((!existing.galleryUrls || existing.galleryUrls.length === 0) && rSvc.galleryUrls) {
+              existing.galleryUrls = rSvc.galleryUrls;
+            }
           }
         }
       }
-    }
 
-    // Filter active services and eliminate duplicates by ID, ensuring images and galleries are clean
-    const svcMap = new Map<string, SalonService>();
-    for (const svc of rawServices) {
-      if (svc && svc.id && svc.active !== false) {
-        svcMap.set(svc.id, {
-          ...svc,
-          imageUrl: svc.imageUrl?.trim() || undefined,
-          galleryUrls: Array.isArray(svc.galleryUrls) ? svc.galleryUrls.filter(Boolean).slice(0, 4) : undefined
-        });
+      const svcMap = new Map<string, SalonService>();
+      for (const svc of rawServices) {
+        if (svc && svc.id && svc.active !== false) {
+          svcMap.set(svc.id, {
+            ...svc,
+            imageUrl: svc.imageUrl?.trim() || undefined,
+            galleryUrls: Array.isArray(svc.galleryUrls) ? svc.galleryUrls.filter(Boolean).slice(0, 4) : undefined
+          });
+        }
       }
-    }
-    const services: SalonService[] = Array.from(svcMap.values());
+      const services: SalonService[] = Array.from(svcMap.values());
 
-    // Read appointments from subcollection to guarantee all public bookings are present
-    let appointments = b.appointments || [];
-    try {
-      const subAptsSnap = await getDocs(collection(db, 'businesses', targetBizId, 'appointments'));
-      if (!subAptsSnap.empty) {
+      // Merge appointments from subcollection + root doc
+      let appointments = b.appointments || [];
+      if (subAptsRes.status === 'fulfilled' && !subAptsRes.value.empty) {
         const aptsMap = new Map<string, Appointment>();
         for (const a of appointments) {
           if (a?.id) aptsMap.set(a.id, a);
         }
-        subAptsSnap.forEach((d) => {
+        subAptsRes.value.forEach((d) => {
           const apt = d.data() as Appointment;
           if (apt?.id) aptsMap.set(apt.id, apt);
         });
         appointments = Array.from(aptsMap.values());
         appointments.sort((x, y) => (y.createdAt || y.id || '').localeCompare(x.createdAt || x.id || ''));
       }
-    } catch {}
 
-    // Read pets from subcollection
-    let pets = b.pets || [];
-    try {
-      const subPetsSnap = await getDocs(collection(db, 'businesses', targetBizId, 'pets'));
-      if (!subPetsSnap.empty) {
+      // Merge pets from subcollection + root doc
+      let pets = b.pets || [];
+      if (subPetsRes.status === 'fulfilled' && !subPetsRes.value.empty) {
         const petsMap = new Map<string, Pet>();
         for (const p of pets) {
           if (p?.id) petsMap.set(p.id, p);
         }
-        subPetsSnap.forEach((d) => {
+        subPetsRes.value.forEach((d) => {
           const p = d.data() as Pet;
           if (p?.id) petsMap.set(p.id, p);
         });
         pets = Array.from(petsMap.values());
       }
-    } catch {}
 
-    // Read reviews from subcollection
-    let reviews: ClientReview[] = b.config?.reviews || [];
-    try {
-      const subReviewsSnap = await getDocs(collection(db, 'businesses', targetBizId, 'reviews'));
-      if (!subReviewsSnap.empty) {
-        const revMap = new Map<string, ClientReview>();
-        for (const r of reviews) {
-          if (r?.id) revMap.set(r.id, r);
-        }
-        subReviewsSnap.forEach((d) => {
-          const r = d.data() as ClientReview;
-          if (r?.id) revMap.set(r.id, r);
+      // Merge ALL reviews from subcollection + parent config.reviews with strict businessId isolation & dedup
+      const subReviews: ClientReview[] = [];
+      if (subReviewsRes.status === 'fulfilled' && !subReviewsRes.value.empty) {
+        subReviewsRes.value.forEach((d) => {
+          subReviews.push({ ...(d.data() as ClientReview), id: (d.data() as ClientReview)?.id || d.id });
         });
-        reviews = Array.from(revMap.values());
-        reviews.sort((x, y) => (y.createdAt || y.date || '').localeCompare(x.createdAt || x.date || ''));
       }
-    } catch {}
+      const resolvedBizId = b.businessId || targetBizId;
+      const reviews = normalizeAndMergeReviews(resolvedBizId, b.config?.reviews, subReviews);
 
-    const resolvedCurrency = b.config?.currency || b.currency || 'USD';
-    const config: SalonConfig = {
-      ...b.config,
-      id: b.businessId,
-      currency: resolvedCurrency,
-      services,
-      reviews
-    };
+      const resolvedCurrency = b.config?.currency || b.currency || 'USD';
+      const resolvedUpdatedAt = b.config?.updatedAt || b.updatedAt;
+      const config: SalonConfig = {
+        ...b.config,
+        id: resolvedBizId,
+        currency: resolvedCurrency,
+        services,
+        reviews,
+        updatedAt: resolvedUpdatedAt
+      };
 
-    return {
-      businessId: b.businessId,
-      config,
-      services,
-      appointments,
-      pets
-    };
-  } catch (err) {
-    console.warn('[FIRESTORE RESOLUTION WARN]', err);
-    return null;
-  }
-};
+      return {
+        businessId: resolvedBizId,
+        config,
+        services,
+        appointments,
+        pets,
+        updatedAt: resolvedUpdatedAt
+      };
+    } catch (err) {
+      console.warn('[FIRESTORE RESOLUTION WARN]', err);
+      return null;
+    }
+  };
 
   try {
-    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500));
+    const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 6000));
     return await Promise.race([performLookup(), timeoutPromise]);
   } catch (err) {
     console.warn('[FIRESTORE LOOKUP ERROR]', err);
@@ -740,6 +841,7 @@ export async function addAppointmentToFirestore(
   appointment: Appointment,
   petData?: Partial<Pet>
 ): Promise<boolean> {
+  if (isQuotaExhausted()) return false;
   try {
     const now = new Date().toISOString();
 
@@ -826,8 +928,12 @@ export async function addAppointmentToFirestore(
 
     console.log(`[FIRESTORE BOOKING SAVED] Appointment "${appointment.id}" for "${appointment.petName}" and Pet "${petId}" successfully stored.`);
     return true;
-  } catch (err) {
-    console.error('[FIRESTORE APPOINTMENT SAVE ERROR]', err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('resource-exhausted')) {
+      markQuotaExhausted();
+    } else {
+      console.error('[FIRESTORE APPOINTMENT SAVE ERROR]', err);
+    }
     return false;
   }
 }
@@ -935,6 +1041,7 @@ export async function updateAppointmentInFirestore(
   patch: Partial<Appointment>
 ): Promise<boolean> {
   if (!businessId || !appointmentId) return false;
+  if (isQuotaExhausted()) return false;
   try {
     const aptRef = doc(db, 'businesses', businessId, 'appointments', appointmentId);
     await setDoc(aptRef, cleanFirestoreData(patch), { merge: true });
@@ -948,8 +1055,12 @@ export async function updateAppointmentInFirestore(
       await setDoc(bizRef, cleanFirestoreData({ appointments: updatedApts }), { merge: true });
     }
     return true;
-  } catch (err) {
-    console.warn('[FIRESTORE APPOINTMENT UPDATE ERROR]', err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('resource-exhausted')) {
+      markQuotaExhausted();
+    } else {
+      console.warn('[FIRESTORE APPOINTMENT UPDATE ERROR]', err);
+    }
     return false;
   }
 }
@@ -963,12 +1074,21 @@ export async function addReviewToFirestore(
   review: ClientReview
 ): Promise<boolean> {
   if (!businessId || !review) return false;
+  if (isQuotaExhausted()) return false;
   try {
     const now = new Date().toISOString();
+    const parsedStars = Number(review.stars);
+    if (!Number.isFinite(parsedStars) || parsedStars < 1 || parsedStars > 5) {
+      return false;
+    }
+
     const cleanReview: ClientReview = {
       ...review,
       id: review.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
       businessId,
+      stars: parsedStars,
+      clientName: String(review.clientName || '').trim(),
+      comment: review.comment ? String(review.comment).trim() : '',
       createdAt: review.createdAt || now,
       verified: review.verified !== false
     };
@@ -977,20 +1097,22 @@ export async function addReviewToFirestore(
     const revRef = doc(db, 'businesses', businessId, 'reviews', cleanReview.id);
     await setDoc(revRef, cleanFirestoreData(cleanReview));
 
-    // 2. Also append/merge in parent business config.reviews
+    // 2. Also append/merge in parent business config.reviews without losing any existing review
     const bizRef = doc(db, 'businesses', businessId);
-    const bizSnap = await getDoc(bizRef);
+    const bizSnap = await getDocFresh(bizRef);
     if (bizSnap.exists()) {
       const bizData = bizSnap.data();
       const currentConfig = bizData?.config || {};
       const existingReviews: ClientReview[] = currentConfig.reviews || [];
-      const updatedReviews = [cleanReview, ...existingReviews.filter((r) => r.id !== cleanReview.id)];
+      const updatedReviews = normalizeAndMergeReviews(businessId, existingReviews, [cleanReview]);
       await setDoc(
         bizRef,
         cleanFirestoreData({
+          updatedAt: now,
           config: {
             ...currentConfig,
-            reviews: updatedReviews
+            reviews: updatedReviews,
+            updatedAt: now
           }
         }),
         { merge: true }
@@ -999,8 +1121,16 @@ export async function addReviewToFirestore(
 
     console.log(`[FIRESTORE REVIEW SUCCESS] Review saved for business ${businessId} from ${cleanReview.clientName}`);
     return true;
-  } catch (err) {
-    console.error('[FIRESTORE REVIEW ERROR]', err);
+  } catch (err: any) {
+    if (
+      err?.code === 'resource-exhausted' ||
+      err?.message?.includes('Quota limit exceeded') ||
+      err?.message?.includes('resource-exhausted')
+    ) {
+      markQuotaExhausted();
+    } else {
+      console.error('[FIRESTORE REVIEW ERROR]', err);
+    }
     return false;
   }
 }
@@ -1019,12 +1149,12 @@ export function subscribeToBusinessReviews(
     return onSnapshot(
       q,
       (snapshot) => {
-        const list: ClientReview[] = [];
+        const rawList: ClientReview[] = [];
         snapshot.forEach((d) => {
-          list.push(d.data() as ClientReview);
+          const data = d.data() as ClientReview;
+          rawList.push({ ...data, id: data?.id || d.id, businessId });
         });
-        list.sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
-        onUpdate(list);
+        onUpdate(normalizeAndMergeReviews(businessId, rawList));
       },
       (err) => {
         console.warn('[FIRESTORE REVIEWS LISTENER ERROR]', err);
@@ -1045,6 +1175,7 @@ export async function updateReviewRequestStateInFirestore(
   state: ReviewRequestState
 ): Promise<boolean> {
   if (!businessId || !requestId) return false;
+  if (isQuotaExhausted()) return false;
   try {
     const bizRef = doc(db, 'businesses', businessId);
     const bizSnap = await getDoc(bizRef);
@@ -1068,8 +1199,12 @@ export async function updateReviewRequestStateInFirestore(
       );
     }
     return true;
-  } catch (err) {
-    console.warn('[FIRESTORE REVIEW REQUEST STATE ERROR]', err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('resource-exhausted')) {
+      markQuotaExhausted();
+    } else {
+      console.warn('[FIRESTORE REVIEW REQUEST STATE ERROR]', err);
+    }
     return false;
   }
 }
@@ -1083,6 +1218,7 @@ export async function recordSaleInFirestore(
   sale: SaleRecord
 ): Promise<boolean> {
   if (!businessId || !sale || !sale.id) return false;
+  if (isQuotaExhausted()) return false;
   try {
     const saleRef = doc(db, 'businesses', businessId, 'sales', sale.id);
     await setDoc(saleRef, cleanFirestoreData(sale), { merge: true });
@@ -1097,8 +1233,12 @@ export async function recordSaleInFirestore(
       await setDoc(bizRef, cleanFirestoreData({ sales: updated }), { merge: true });
     }
     return true;
-  } catch (err) {
-    console.warn('[FIRESTORE RECORD SALE ERROR]', err);
+  } catch (err: any) {
+    if (err?.code === 'resource-exhausted' || err?.message?.includes('resource-exhausted')) {
+      markQuotaExhausted();
+    } else {
+      console.warn('[FIRESTORE RECORD SALE ERROR]', err);
+    }
     return false;
   }
 }

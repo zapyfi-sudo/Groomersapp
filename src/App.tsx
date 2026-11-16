@@ -47,6 +47,7 @@ import { NewAppointmentView } from './components/NewAppointmentView';
 import { sortPetsByAgendaDate } from './utils/petSorting';
 
 import { decodePublicProfileToken, extractSlugOnly } from './utils/slugUtils';
+import { normalizeAndMergeReviews, parseTimestampMs } from './utils/syncHelpers';
 
 function getPublicReviewIdentifierFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
@@ -189,6 +190,7 @@ export default function App() {
 
   // Guard ref to prevent initial mount from overwriting IndexedDB with stale fallback state
   const isDbInitialized = useRef<boolean>(false);
+  const processedSalesRef = useRef<Set<string>>(new Set());
 
   // Helper to merge pet records preserving rich existing groomer details
   const mergePetRecords = (existing: Pet, incoming: Pet): Pet => {
@@ -303,15 +305,44 @@ export default function App() {
                     ? profile.config.logoUrl
                     : (prev.logoUrl || profile.config.logoUrl || '');
 
+                const prevUpdatedMs = parseTimestampMs(prev.updatedAt);
+                const remoteUpdatedMs = parseTimestampMs(profile.updatedAt || profile.config.updatedAt);
+                const isSameBiz = !prev.id || prev.id === profile.businessId;
+                const localStrictlyNewer =
+                  isSameBiz && prevUpdatedMs > 0 && remoteUpdatedMs > 0 && prevUpdatedMs > remoteUpdatedMs;
+
+                const mergedReviews = normalizeAndMergeReviews(
+                  profile.businessId,
+                  prev.reviews,
+                  profile.config.reviews
+                );
+
                 return {
                   ...prev,
                   ...profile.config,
-                  name: prev.name && prev.name !== 'Groomer Aida' ? prev.name : profile.config.name,
+                  id: profile.businessId,
+                  name: localStrictlyNewer
+                    ? (prev.name || profile.config.name)
+                    : (profile.config.name && profile.config.name !== 'Groomer Aida'
+                        ? profile.config.name
+                        : (prev.name && prev.name !== 'Groomer Aida' ? prev.name : profile.config.name)),
                   logoUrl: resolvedLogo,
-                  country: prev.country && prev.country !== 'Argentina' ? prev.country : profile.config.country,
+                  country: localStrictlyNewer
+                    ? (prev.country !== undefined ? prev.country : profile.config.country)
+                    : (profile.config.country !== undefined ? profile.config.country : prev.country),
+                  city: localStrictlyNewer
+                    ? (prev.city !== undefined ? prev.city : profile.config.city)
+                    : (profile.config.city !== undefined ? profile.config.city : prev.city),
+                  address: localStrictlyNewer
+                    ? (prev.address !== undefined ? prev.address : profile.config.address)
+                    : (profile.config.address !== undefined ? profile.config.address : prev.address),
                   currency: prev.currency || profile.config.currency,
                   bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
-                  services: mergedServices
+                  services: mergedServices,
+                  reviews: mergedReviews,
+                  updatedAt: localStrictlyNewer
+                    ? prev.updatedAt
+                    : (profile.updatedAt || profile.config.updatedAt || prev.updatedAt)
                 };
               });
 
@@ -540,15 +571,14 @@ export default function App() {
       if (!incomingReviews) return;
 
       setSalonConfig((prev) => {
-        const revMap = new Map<string, ClientReview>();
-        for (const r of (prev.reviews || [])) if (r?.id) revMap.set(r.id, r);
-        for (const r of incomingReviews) if (r?.id) revMap.set(r.id, r);
-        const merged = Array.from(revMap.values());
-        merged.sort((a, b) => (b.createdAt || b.date || '').localeCompare(a.createdAt || a.date || ''));
-        return {
+        if ((prev.id || 'biz_main') !== currentBizId) return prev;
+        const merged = normalizeAndMergeReviews(currentBizId, prev.reviews, incomingReviews);
+        const updated: SalonConfig = {
           ...prev,
           reviews: merged
         };
+        persistActiveConfig(updated);
+        return updated;
       });
     });
 
@@ -690,7 +720,7 @@ export default function App() {
     };
 
     pollServerSync();
-    const pollInterval = setInterval(pollServerSync, 8000);
+    const pollInterval = setInterval(pollServerSync, 30000);
 
     const onFocus = () => pollServerSync();
     window.addEventListener('focus', onFocus);
@@ -729,6 +759,7 @@ export default function App() {
       if (!isStarted) continue;
 
       const key = apt.id;
+      if (processedSalesRef.current.has(key)) continue;
       if (!existingSalesMap.has(key)) {
         let priceVal = Number(apt.salesRecordedAmount);
         if (!priceVal || isNaN(priceVal) || priceVal <= 0) {
@@ -768,6 +799,7 @@ export default function App() {
             status: (apt.status as any) || 'en_salon'
           };
           existingSalesMap.set(key, autoSale);
+          processedSalesRef.current.add(key);
           hasAdded = true;
           recordSaleInFirestore(currentBizId, autoSale).catch(() => {});
           fetch(`/api/businesses/${encodeURIComponent(currentBizId)}/sales`, {
@@ -851,8 +883,15 @@ export default function App() {
 
   // Account switching / login handler
   const handleAccountChanged = (newData: BusinessAccountData, newAccount: UserAccount) => {
+    const targetBizId = newAccount.businessId || newData.config?.id || 'biz_main';
+    const normalizedConfig: SalonConfig = {
+      ...newData.config,
+      id: targetBizId,
+      reviews: normalizeAndMergeReviews(targetBizId, newData.config?.reviews)
+    };
+
     setActiveAccount(newAccount);
-    setSalonConfig(newData.config);
+    setSalonConfig(normalizedConfig);
     setPets(newData.pets);
     setAppointments(newData.appointments);
     setBookedRetentions(newData.bookedRetentions || []);
@@ -865,6 +904,42 @@ export default function App() {
       if (!exists) return [...prev, newAccount];
       return prev.map((a) => (a.id === newAccount.id ? newAccount : a));
     });
+
+    // Reconcile remote cloud/server location and reviews after login/switch
+    fetchBusinessProfile(targetBizId)
+      .then((profile) => {
+        if (!profile || !profile.config || profile.businessId !== targetBizId) return;
+        setSalonConfig((prev) => {
+          if ((prev.id || 'biz_main') !== targetBizId) return prev;
+          const prevUpdatedMs = parseTimestampMs(prev.updatedAt);
+          const remoteUpdatedMs = parseTimestampMs(profile.updatedAt || profile.config.updatedAt);
+          const localStrictlyNewer = prevUpdatedMs > 0 && remoteUpdatedMs > 0 && prevUpdatedMs > remoteUpdatedMs;
+          const mergedReviews = normalizeAndMergeReviews(targetBizId, prev.reviews, profile.config.reviews);
+
+          return {
+            ...prev,
+            ...profile.config,
+            id: targetBizId,
+            name: localStrictlyNewer ? (prev.name || profile.config.name) : (profile.config.name || prev.name),
+            logoUrl: profile.config.logoUrl || prev.logoUrl,
+            country: localStrictlyNewer
+              ? (prev.country !== undefined ? prev.country : profile.config.country)
+              : (profile.config.country !== undefined ? profile.config.country : prev.country),
+            city: localStrictlyNewer
+              ? (prev.city !== undefined ? prev.city : profile.config.city)
+              : (profile.config.city !== undefined ? profile.config.city : prev.city),
+            address: localStrictlyNewer
+              ? (prev.address !== undefined ? prev.address : profile.config.address)
+              : (profile.config.address !== undefined ? profile.config.address : prev.address),
+            bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
+            reviews: mergedReviews,
+            updatedAt: localStrictlyNewer
+              ? prev.updatedAt
+              : (profile.updatedAt || profile.config.updatedAt || prev.updatedAt)
+          };
+        });
+      })
+      .catch(() => {});
   };
 
   // Logout handler (keeps data safely stored in IndexedDB without deleting it)
@@ -985,10 +1060,16 @@ export default function App() {
   };
 
   const handleAddNewReview = (review: ClientReview) => {
-    setSalonConfig((prev) => ({
-      ...prev,
-      reviews: [review, ...(prev.reviews || [])]
-    }));
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+    setSalonConfig((prev) => {
+      const merged = normalizeAndMergeReviews(currentBizId, [review], prev.reviews);
+      const updated: SalonConfig = {
+        ...prev,
+        reviews: merged
+      };
+      persistActiveConfig(updated);
+      return updated;
+    });
   };
 
   // Cross-Module Automation: When an appointment is created, automatically add/update Pet & Tutor & PERSIST

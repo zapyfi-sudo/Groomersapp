@@ -156,24 +156,9 @@ function findBusiness(idOrSlug: string, db: Record<string, StoredBusiness>): Sto
   });
   if (matchName) return matchName;
 
-  // 5. If generic parameter requested or single business exists
-  if (all.length > 0) {
-    const stripped = targetClean.replace(/[-_]/g, '');
-    const isGenericTarget =
-      !targetClean ||
-      stripped === 'reservas' ||
-      stripped === 'reservar' ||
-      stripped === 'online' ||
-      stripped === 'book' ||
-      stripped === 'booking' ||
-      stripped === 'bizmain' ||
-      stripped === 'notspecifiedbusiness' ||
-      stripped === 'default' ||
-      stripped === 'main';
-
-    if (isGenericTarget) {
-      return db['biz_main'] || null;
-    }
+  // 5. Explicit biz_main aliases only (never hijack real slugs or unknown links)
+  if (all.length > 0 && targetClean === 'bizmain') {
+    return db['biz_main'] || null;
   }
 
   return null;
@@ -219,11 +204,13 @@ businessId: ${business ? business.businessId : 'null'}`);
 
   // Return complete business profile with strictly active services, appointments, pets, and sales
   const allServices = (business.config?.services || []).filter((s: any) => s && s.id && s.active !== false);
+  const resolvedUpdatedAt = business.config?.updatedAt || business.updatedAt;
   const publicConfig = {
     ...business.config,
     id: business.businessId,
     currency: business.config?.currency || 'USD',
-    services: allServices
+    services: allServices,
+    updatedAt: resolvedUpdatedAt
   };
 
   res.json({
@@ -232,7 +219,8 @@ businessId: ${business ? business.businessId : 'null'}`);
     services: allServices,
     appointments: business.appointments || [],
     pets: business.pets || [],
-    sales: business.sales || []
+    sales: business.sales || [],
+    updatedAt: resolvedUpdatedAt
   });
 });
 
@@ -247,10 +235,27 @@ app.post('/api/businesses', (req, res) => {
 
   const db = readDb();
   const existing = db[id] || {};
+  const now = new Date().toISOString();
 
   const cleanSlug = config.bookingSlug
     ? (extractSlug(config.bookingSlug) || cleanString(config.bookingSlug))
-    : (existing.config?.bookingSlug || 'luna');
+    : (existing.config?.bookingSlug || cleanString(config.name) || id);
+
+  // Merge reviews safely by ID so saving business config never erases newly submitted reviews
+  const existingReviews: any[] = Array.isArray(existing.config?.reviews) ? existing.config.reviews : [];
+  const incomingReviews: any[] = Array.isArray(config.reviews) ? config.reviews : [];
+  const revMap = new Map<string, any>();
+  for (const r of existingReviews) {
+    if (r?.id && (!r.businessId || r.businessId === id)) revMap.set(r.id, r);
+  }
+  for (const r of incomingReviews) {
+    if (r?.id && (!r.businessId || r.businessId === id)) revMap.set(r.id, r);
+  }
+  const mergedReviews = Array.from(revMap.values()).sort((a, b) =>
+    String(b.createdAt || b.date || '').localeCompare(String(a.createdAt || a.date || ''))
+  );
+
+  const resolvedUpdatedAt = config.updatedAt || now;
 
   const cleanConfig = {
     ...(existing.config || {}),
@@ -258,9 +263,14 @@ app.post('/api/businesses', (req, res) => {
     id,
     bookingSlug: cleanSlug,
     name: (config.name !== undefined ? config.name : existing.config?.name) || 'Groomer Aida',
+    country: config.country !== undefined ? config.country : (existing.config?.country ?? ''),
+    city: config.city !== undefined ? config.city : (existing.config?.city ?? ''),
+    address: config.address !== undefined ? config.address : (existing.config?.address ?? ''),
     logoUrl: config.logoUrl !== undefined ? config.logoUrl : (existing.config?.logoUrl || ''),
     currency: config.currency || existing.config?.currency || 'USD',
-    services: config.services !== undefined ? config.services : (existing.config?.services || [])
+    services: config.services !== undefined ? config.services : (existing.config?.services || []),
+    reviews: mergedReviews,
+    updatedAt: resolvedUpdatedAt
   };
 
   db[id] = {
@@ -270,7 +280,7 @@ app.post('/api/businesses', (req, res) => {
     appointments: appointments || existing.appointments || [],
     bookedRetentions: bookedRetentions || existing.bookedRetentions || [],
     sales: sales || existing.sales || [],
-    updatedAt: new Date().toISOString()
+    updatedAt: resolvedUpdatedAt
   };
 
   writeDb(db);
@@ -279,10 +289,12 @@ app.post('/api/businesses', (req, res) => {
 businessId: ${id}
 businessName: ${cleanConfig.name}
 bookingSlug: ${cleanSlug}
+location: ${cleanConfig.country} / ${cleanConfig.city} / ${cleanConfig.address}
+reviews count: ${mergedReviews.length}
 services count: ${(cleanConfig.services || []).length}
 successfully persisted to db`);
 
-  res.json({ success: true, businessId: id, slug: cleanSlug, config: cleanConfig });
+  res.json({ success: true, businessId: id, slug: cleanSlug, config: cleanConfig, updatedAt: resolvedUpdatedAt });
 });
 
 // Sales endpoints

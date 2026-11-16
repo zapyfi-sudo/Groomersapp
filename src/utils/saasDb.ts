@@ -3,6 +3,7 @@ import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressI
 import { generateStableBusinessId, slugify, extractSlugOnly } from './slugUtils';
 import { saveBusinessToFirestore } from './firebase';
 import { syncBusinessToServer } from './api';
+import { normalizeAndMergeReviews } from './syncHelpers';
 
 const DB_NAME = 'agendacan_saas_db';
 const DB_VERSION = 3;
@@ -163,7 +164,15 @@ export function getSyncActiveData(): BusinessAccountData {
   const fallbackData: BusinessAccountData = {
     businessId: 'biz_main',
     userId: 'usr_owner',
-    config: { ...DEFAULT_SALON_CONFIG, id: 'biz_main', userId: 'usr_owner' },
+    config: {
+      ...DEFAULT_SALON_CONFIG,
+      id: 'biz_main',
+      userId: 'usr_owner',
+      country: '',
+      city: '',
+      address: '',
+      reviews: []
+    },
     pets: [],
     appointments: [],
     bookedRetentions: [],
@@ -347,7 +356,19 @@ export async function initSaasDatabase(): Promise<{
     const cleanGuestData: BusinessAccountData = {
       businessId: '',
       userId: '',
-      config: { ...DEFAULT_SALON_CONFIG, id: '', name: 'Mi Peluquería Canina', services: [] },
+      config: {
+        ...DEFAULT_SALON_CONFIG,
+        id: '',
+        name: 'Mi Peluquería Canina',
+        country: '',
+        city: '',
+        address: '',
+        googleMapsPlaceName: undefined,
+        googleMapsUrl: undefined,
+        coordinates: undefined,
+        reviews: [],
+        services: []
+      },
       pets: [],
       appointments: [],
       bookedRetentions: [],
@@ -392,19 +413,24 @@ export async function createNewBusinessAccount(params: {
   const newBizId = generateStableBusinessId(params.businessName);
   const now = new Date().toISOString();
 
-  // Fresh, clean business config for new user (no fake customers or fake appointments)
+  // Fresh, clean business config for new user (no fake customers, fake locations, or fake reviews)
   const newConfig: SalonConfig = {
     ...DEFAULT_SALON_CONFIG,
     id: newBizId,
     userId: newUserId,
     name: params.businessName || 'Mi Peluquería Canina',
     country: params.country || 'Ecuador',
+    city: '',
     currency: params.currency || 'USD',
     phonePrefix: params.phonePrefix || '+593',
     phone: params.phone || '',
-    address: 'Dirección del Salón',
+    address: '',
+    googleMapsPlaceName: undefined,
+    googleMapsUrl: undefined,
+    coordinates: undefined,
     bookingSlug: slugify(params.businessName || 'mipeluqueria', 'mipeluqueria'),
     simultaneousCapacity: 2,
+    updatedAt: now,
     // Clean starting services as editable defaults
     services: [
       {
@@ -522,15 +548,21 @@ export async function restoreRemoteAccount(params: {
     lastLoginAt: now
   };
 
+  const normalizedConfig: SalonConfig = {
+    ...params.config,
+    id: params.businessId,
+    reviews: normalizeAndMergeReviews(params.businessId, params.config.reviews)
+  };
+
   const data: BusinessAccountData = {
     businessId: params.businessId,
     userId: params.user.uid,
-    config: params.config,
+    config: normalizedConfig,
     pets: params.pets || [],
     appointments: params.appointments || [],
     bookedRetentions: [],
     sales: [],
-    updatedAt: now
+    updatedAt: normalizedConfig.updatedAt || now
   };
 
   await dbPut(STORE_ACCOUNTS, account);
