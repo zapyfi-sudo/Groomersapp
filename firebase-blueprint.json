@@ -5,9 +5,9 @@
       "description": "A pet grooming business profile and settings",
       "type": "object",
       "properties": {
-        "businessId": { "type": "string" },
-        "name": { "type": "string" },
-        "bookingSlug": { "type": "string" },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "name": { "type": "string", "minLength": 1, "maxLength": 160 },
+        "bookingSlug": { "type": "string", "minLength": 1, "maxLength": 128 },
         "config": { "type": "object" },
         "updatedAt": { "type": "string" }
       },
@@ -18,8 +18,9 @@
       "description": "Mapping from public booking slug to business ID",
       "type": "object",
       "properties": {
-        "slug": { "type": "string" },
-        "businessId": { "type": "string" },
+        "slug": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "businessName": { "type": "string", "maxLength": 160 },
         "updatedAt": { "type": "string" }
       },
       "required": ["slug", "businessId"]
@@ -29,8 +30,8 @@
       "description": "A grooming appointment booked by a customer or admin",
       "type": "object",
       "properties": {
-        "id": { "type": "string" },
-        "businessId": { "type": "string" },
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128 },
         "petName": { "type": "string" },
         "tutorName": { "type": "string" },
         "tutorPhone": { "type": "string" },
@@ -41,6 +42,78 @@
         "createdAt": { "type": "string" }
       },
       "required": ["id", "businessId", "petName", "serviceName", "date", "time"]
+    },
+    "Review": {
+      "title": "Review",
+      "description": "A customer rating and review submitted for a business",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "businessId": { "type": "string", "minLength": 1, "maxLength": 128 },
+        "clientName": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "petName": { "type": "string", "maxLength": 120 },
+        "serviceName": { "type": "string", "maxLength": 160 },
+        "stars": { "type": "number" },
+        "comment": { "type": "string", "maxLength": 2000 },
+        "date": { "type": "string", "maxLength": 80 },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "verified": { "type": "boolean" },
+        "tutorPhone": { "type": "string", "maxLength": 40 }
+      },
+      "required": ["clientName", "stars"]
+    },
+    "Service": {
+      "title": "Service",
+      "description": "A grooming service offered by a business",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "businessId": { "type": "string" },
+        "name": { "type": "string" },
+        "durationMin": { "type": "number" },
+        "price": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Medication": {
+      "title": "Medication",
+      "description": "An optional medication or treatment product offered by a business",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "price": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "price"]
+    },
+    "Pet": {
+      "title": "Pet",
+      "description": "A pet client record with grooming history",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "breed": { "type": "string" },
+        "size": { "type": "string" }
+      },
+      "required": ["id", "name"]
+    },
+    "Sale": {
+      "title": "Sale",
+      "description": "A financial sale record generated from an attended grooming service",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "appointmentId": { "type": "string" },
+        "businessId": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "date": { "type": "string" },
+        "status": { "type": "string" }
+      },
+      "required": ["id", "appointmentId", "amount"]
     }
   },
   "firestore": {
@@ -55,6 +128,26 @@
     "/businesses/{businessId}/appointments/{appointmentId}": {
       "schema": "Appointment",
       "description": "Appointments for a specific business"
+    },
+    "/businesses/{businessId}/reviews/{reviewId}": {
+      "schema": "Review",
+      "description": "Customer ratings and reviews for a specific business"
+    },
+    "/businesses/{businessId}/services/{serviceId}": {
+      "schema": "Service",
+      "description": "Grooming services for a specific business"
+    },
+    "/businesses/{businessId}/medications/{medicationId}": {
+      "schema": "Medication",
+      "description": "Medications/products for a specific business"
+    },
+    "/businesses/{businessId}/pets/{petId}": {
+      "schema": "Pet",
+      "description": "Pet client records for a specific business"
+    },
+    "/businesses/{businessId}/sales/{saleId}": {
+      "schema": "Sale",
+      "description": "Financial sale records for a specific business"
     }
   }
 }

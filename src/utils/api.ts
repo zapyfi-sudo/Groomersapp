@@ -14,7 +14,8 @@ import {
   recordSaleInFirestore,
   fetchSalesFromFirestore,
   upsertPetInFirestore,
-  fetchAppointmentsAndPetsFromFirestore
+  fetchAppointmentsAndPetsFromFirestore,
+  getLastFirestoreReadErrorKind
 } from './firebase';
 import {
   normalizeAndMergeReviews,
@@ -34,6 +35,7 @@ export {
 
 export interface PublicBusinessResult {
   businessId: string;
+  firestoreDocId?: string;
   config: SalonConfig;
   services: SalonService[];
   appointments: Appointment[];
@@ -103,11 +105,15 @@ async function fetchServerProfile(rawTarget: string, cleanTarget: string): Promi
   return null;
 }
 
-async function fetchFirestoreProfile(rawTarget: string, cleanTarget: string): Promise<PublicBusinessResult | null> {
+async function fetchFirestoreProfile(
+  rawTarget: string,
+  cleanTarget: string,
+  options?: { summaryOnly?: boolean }
+): Promise<PublicBusinessResult | null> {
   try {
-    let firestoreResult = await getBusinessFromFirestore(rawTarget);
+    let firestoreResult = await getBusinessFromFirestore(rawTarget, options);
     if (!firestoreResult && cleanTarget !== rawTarget) {
-      firestoreResult = await getBusinessFromFirestore(cleanTarget);
+      firestoreResult = await getBusinessFromFirestore(cleanTarget, options);
     }
 
     if (firestoreResult && firestoreResult.businessId && firestoreResult.config) {
@@ -133,6 +139,7 @@ async function fetchFirestoreProfile(rawTarget: string, cleanTarget: string): Pr
 
       return {
         businessId: firestoreResult.businessId,
+        firestoreDocId: firestoreResult.firestoreDocId || firestoreResult.businessId,
         config: resolvedConfig,
         services: cleanSvcs,
         appointments: firestoreResult.appointments || [],
@@ -191,22 +198,23 @@ async function resolveCanonicalBusinessId(businessIdOrSlug: string): Promise<str
   return raw;
 }
 
-/**
- * Universal resolution of a business profile for public booking:
- * 1. Query Server API AND Cloud Firestore concurrently, reconciling by updatedAt and merging all valid reviews
- * 2. Fallback: localStorage cache strictly for requested business
- * 3. Backward-compat: query params or legacy URL token (&p=...) if present
- * 4. NEVER falls back to demo data or another business!
- */
-export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusinessResult | null> {
-  if (!idOrSlug) return null;
+export interface BusinessProfileLookupOutcome {
+  profile: PublicBusinessResult | null;
+  reason?: 'quota_exceeded' | 'not_found';
+}
+
+export async function fetchBusinessProfileWithStatus(
+  idOrSlug: string,
+  options?: { summaryOnly?: boolean }
+): Promise<BusinessProfileLookupOutcome> {
+  if (!idOrSlug) return { profile: null, reason: 'not_found' };
   const rawTarget = idOrSlug.trim();
   const cleanTarget = extractSlugOnly(idOrSlug) || rawTarget;
 
   // 1. Query both Server API and Cloud Firestore in parallel
   const [serverSettled, firestoreSettled] = await Promise.allSettled([
     fetchServerProfile(rawTarget, cleanTarget),
-    fetchFirestoreProfile(rawTarget, cleanTarget)
+    fetchFirestoreProfile(rawTarget, cleanTarget, options)
   ]);
 
   const serverResult = serverSettled.status === 'fulfilled' ? serverSettled.value : null;
@@ -215,13 +223,18 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
   let resolvedResult: PublicBusinessResult | null = null;
   if (firestoreResult && serverResult) {
     if (firestoreResult.businessId === serverResult.businessId) {
-      resolvedResult = reconcileBusinessSources(firestoreResult, serverResult);
+      const reconciled = reconcileBusinessSources(firestoreResult, serverResult);
+      resolvedResult = reconciled
+        ? {
+            ...reconciled,
+            firestoreDocId: firestoreResult.firestoreDocId || firestoreResult.businessId
+          }
+        : null;
     } else {
-      // Different businessIds matched the slug (e.g. legacy biz_main vs real Firestore account):
-      // Prefer Cloud Firestore slug mapping unless server explicitly matches businessId
-      resolvedResult = serverResult.businessId === rawTarget || serverResult.businessId === cleanTarget
-        ? serverResult
-        : firestoreResult;
+      resolvedResult =
+        serverResult.businessId === rawTarget || serverResult.businessId === cleanTarget
+          ? serverResult
+          : firestoreResult;
     }
   } else {
     resolvedResult = firestoreResult || serverResult;
@@ -244,10 +257,10 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
         }
       } catch {}
     }
-    return resolvedResult;
+    return { profile: resolvedResult };
   }
 
-  // 2. Fallback: Local storage cache (strictly for the requested target or slug, NEVER substituting with demo data)
+  // 2. Fallback: Local storage & IndexedDB cache (strictly for the requested business, NEVER demo data)
   if (typeof window !== 'undefined') {
     try {
       const keysToTry = [`agendacan_public_biz_${cleanTarget}`];
@@ -264,32 +277,55 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
           const cached = JSON.parse(cachedRaw);
           if (cached && cached.config && cached.businessId) {
             return {
-              ...cached,
-              config: {
-                ...cached.config,
-                reviews: normalizeAndMergeReviews(cached.businessId, cached.config.reviews)
+              profile: {
+                ...cached,
+                config: {
+                  ...cached.config,
+                  reviews: normalizeAndMergeReviews(cached.businessId, cached.config.reviews)
+                }
               }
             };
           }
         }
       }
+
+      // Check local IndexedDB business store (covers owners/devices where localStorage mirror hit 5MB quota)
+      const { findBusinessInLocalSaaSDb } = await import('./saasDb');
+      const localSaaS = await findBusinessInLocalSaaSDb(rawTarget);
+      if (localSaaS && localSaaS.config) {
+        return {
+          profile: {
+            businessId: localSaaS.businessId,
+            firestoreDocId: localSaaS.businessId,
+            config: localSaaS.config,
+            services: localSaaS.services || [],
+            appointments: localSaaS.appointments || [],
+            pets: localSaaS.pets || [],
+            sales: localSaaS.sales || [],
+            updatedAt: localSaaS.updatedAt
+          }
+        };
+      }
     } catch {}
   }
 
   // 3. Query params check ?businessId= or ?bid=
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.location?.search) {
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const queryBizId = searchParams.get('businessId') || searchParams.get('bid');
       if (queryBizId && queryBizId !== cleanTarget && queryBizId !== rawTarget) {
-        const fbResult = await getBusinessFromFirestore(queryBizId);
+        const fbResult = await getBusinessFromFirestore(queryBizId, options);
         if (fbResult && fbResult.config) {
           return {
-            businessId: fbResult.businessId,
-            config: fbResult.config,
-            services: fbResult.services || fbResult.config.services || [],
-            appointments: fbResult.appointments || [],
-            updatedAt: fbResult.updatedAt
+            profile: {
+              businessId: fbResult.businessId,
+              firestoreDocId: fbResult.firestoreDocId || fbResult.businessId,
+              config: fbResult.config,
+              services: fbResult.services || fbResult.config.services || [],
+              appointments: fbResult.appointments || [],
+              updatedAt: fbResult.updatedAt
+            }
           };
         }
 
@@ -299,14 +335,16 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
           const data = await resQuery.json();
           if (data && data.businessId && data.config) {
             return {
-              businessId: data.businessId,
-              config: {
-                ...data.config,
-                reviews: normalizeAndMergeReviews(data.businessId, data.config.reviews)
-              },
-              services: data.services || data.config.services || [],
-              appointments: data.appointments || [],
-              updatedAt: data.updatedAt || data.config.updatedAt
+              profile: {
+                businessId: data.businessId,
+                config: {
+                  ...data.config,
+                  reviews: normalizeAndMergeReviews(data.businessId, data.config.reviews)
+                },
+                services: data.services || data.config.services || [],
+                appointments: data.appointments || [],
+                updatedAt: data.updatedAt || data.config.updatedAt
+              }
             };
           }
         }
@@ -315,7 +353,7 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
   }
 
   // 4. Backward-compatibility: Check for legacy URL token (&p=...)
-  if (typeof window !== 'undefined') {
+  if (typeof window !== 'undefined' && window.location?.search) {
     try {
       const searchParams = new URLSearchParams(window.location.search);
       const token = searchParams.get('p') || searchParams.get('token');
@@ -323,10 +361,12 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
         const decoded = decodePublicProfileToken(token);
         if (decoded && decoded.config) {
           return {
-            businessId: decoded.businessId,
-            config: decoded.config,
-            services: decoded.services || decoded.config.services || [],
-            appointments: []
+            profile: {
+              businessId: decoded.businessId,
+              config: decoded.config,
+              services: decoded.services || decoded.config.services || [],
+              appointments: []
+            }
           };
         }
       }
@@ -335,8 +375,24 @@ export async function fetchBusinessProfile(idOrSlug: string): Promise<PublicBusi
     }
   }
 
-  // 5. Zero demo fallback: If not found anywhere, return null so the proper Spanish error is displayed
-  return null;
+  // 5. Distinguish Firestore read quota exhaustion from genuine missing business links
+  const lastReadErr = getLastFirestoreReadErrorKind();
+  return {
+    profile: null,
+    reason: lastReadErr === 'quota-exceeded' ? 'quota_exceeded' : 'not_found'
+  };
+}
+
+/**
+ * Universal resolution of a business profile for public booking and reviews.
+ * NEVER falls back to demo data or another business!
+ */
+export async function fetchBusinessProfile(
+  idOrSlug: string,
+  options?: { summaryOnly?: boolean }
+): Promise<PublicBusinessResult | null> {
+  const outcome = await fetchBusinessProfileWithStatus(idOrSlug, options);
+  return outcome.profile;
 }
 
 const inFlightSyncs = new Map<string, Promise<boolean>>();
@@ -697,10 +753,12 @@ export async function syncPetToBackend(businessIdOrSlug: string, pet: Pet): Prom
  * Server API and Cloud Firestore for background/focus synchronization across devices.
  */
 export async function fetchLatestAppointmentsAndPets(
-  businessIdOrSlug: string
+  businessIdOrSlug: string,
+  options?: { includeFirestore?: boolean }
 ): Promise<{ appointments: Appointment[]; pets: Pet[]; sales?: SaleRecord[] } | null> {
   if (!businessIdOrSlug) return null;
   const canonicalBizId = await resolveCanonicalBusinessId(businessIdOrSlug);
+  const includeFirestore = options?.includeFirestore !== false;
 
   const serverFetch = (async () => {
     const controller = new AbortController();
@@ -732,7 +790,9 @@ export async function fetchLatestAppointmentsAndPets(
     return null;
   })();
 
-  const firestoreFetch = fetchAppointmentsAndPetsFromFirestore(canonicalBizId).catch(() => null);
+  const firestoreFetch = includeFirestore
+    ? fetchAppointmentsAndPetsFromFirestore(canonicalBizId).catch(() => null)
+    : Promise.resolve(null);
 
   const [serverSettled, firestoreSettled] = await Promise.allSettled([serverFetch, firestoreFetch]);
   const serverData = serverSettled.status === 'fulfilled' ? serverSettled.value : null;
@@ -787,72 +847,153 @@ export async function fetchBusinessSales(businessIdOrSlug: string): Promise<Sale
   return [];
 }
 
+export interface ReviewBusinessSummary {
+  businessId: string;
+  name?: string;
+  bookingSlug?: string;
+  country?: string;
+  city?: string;
+  address?: string;
+  currency?: string;
+  logoUrl?: string;
+}
+
+export interface SubmitReviewResult {
+  success: boolean;
+  review?: ClientReview;
+  error?: string;
+  errorCode?: string;
+  persistedTo?: ('firestore' | 'server')[];
+}
+
 /**
  * Submits a public client rating and review for a business.
- * Persists to both Cloud Firestore and Server API.
+ * Persists to both Cloud Firestore and Server API without redundant reads or unsafe fallbacks.
  */
 export async function submitPublicReview(
   businessIdOrSlug: string,
-  review: ClientReview
-): Promise<{ success: boolean; review?: ClientReview }> {
-  if (!businessIdOrSlug || !review || !review.clientName || !review.stars) {
-    return { success: false };
+  review: ClientReview,
+  options?: {
+    firestoreDocId?: string;
+    businessSummary?: ReviewBusinessSummary;
+  }
+): Promise<SubmitReviewResult> {
+  const trimmedTarget = (businessIdOrSlug || '').trim();
+  const trimmedName = String(review?.clientName || '').trim().slice(0, 120);
+  const parsedStars = Number(review?.stars);
+
+  if (!trimmedTarget || !review || !trimmedName || !Number.isFinite(parsedStars) || parsedStars < 1 || parsedStars > 5) {
+    return {
+      success: false,
+      errorCode: 'invalid-argument',
+      error: 'Por favor escribe tu nombre y selecciona una calificación de 1 a 5 estrellas.'
+    };
   }
 
-  // 1. Resolve canonical businessId (never store under a slug key)
-  let targetBizId = businessIdOrSlug.trim();
-  let resolvedSlug = '';
-  try {
-    const resolvedProfile = await fetchBusinessProfile(businessIdOrSlug);
-    if (resolvedProfile && resolvedProfile.businessId) {
-      targetBizId = resolvedProfile.businessId;
-      resolvedSlug = resolvedProfile.config?.bookingSlug
-        ? extractSlugOnly(resolvedProfile.config.bookingSlug)
-        : '';
-    }
-  } catch {}
+  // 1. Resolve canonical businessId and Firestore docId (reuse pre-resolved profile if provided)
+  let targetBizId = options?.businessSummary?.businessId?.trim() || trimmedTarget;
+  let targetDocId = options?.firestoreDocId?.trim() || '';
+  let resolvedSlug = options?.businessSummary?.bookingSlug
+    ? extractSlugOnly(options.businessSummary.bookingSlug)
+    : '';
+  let businessSummary: ReviewBusinessSummary | undefined = options?.businessSummary
+    ? {
+        ...options.businessSummary,
+        businessId: targetBizId
+      }
+    : undefined;
+
+  if (!businessSummary || !targetDocId) {
+    try {
+      const resolvedProfile = await fetchBusinessProfile(trimmedTarget);
+      if (resolvedProfile && resolvedProfile.businessId) {
+        targetBizId = resolvedProfile.businessId;
+        targetDocId = resolvedProfile.firestoreDocId || resolvedProfile.businessId;
+        resolvedSlug = resolvedProfile.config?.bookingSlug
+          ? extractSlugOnly(resolvedProfile.config.bookingSlug)
+          : resolvedSlug;
+        if (!businessSummary) {
+          businessSummary = {
+            businessId: resolvedProfile.businessId,
+            name: resolvedProfile.config?.name,
+            bookingSlug: resolvedProfile.config?.bookingSlug,
+            country: resolvedProfile.config?.country,
+            city: resolvedProfile.config?.city,
+            address: resolvedProfile.config?.address,
+            currency: resolvedProfile.config?.currency,
+            logoUrl: resolvedProfile.config?.logoUrl
+          };
+        }
+      }
+    } catch {}
+  }
+
+  if (!targetDocId) {
+    targetDocId = targetBizId;
+  }
 
   const now = new Date().toISOString();
-  const parsedStars = Number(review.stars);
-  const safeStars = Number.isFinite(parsedStars) ? Math.min(5, Math.max(1, parsedStars)) : 5;
+  const safeStars = Math.round(Math.min(5, Math.max(1, parsedStars)) * 10) / 10;
 
   const cleanReview: ClientReview = {
     ...review,
     id: review.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     businessId: targetBizId,
     stars: safeStars,
-    clientName: review.clientName.trim(),
-    comment: review.comment ? review.comment.trim() : '',
+    clientName: trimmedName,
+    comment: review.comment ? String(review.comment).trim().slice(0, 2000) : '',
     date: review.date || new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
     createdAt: review.createdAt || now,
     verified: true
   };
 
   // 2. Run Cloud Firestore and Server API saves in parallel
-  const firestoreTask = addReviewToFirestore(targetBizId, cleanReview).catch((err) => {
+  const firestoreTask = addReviewToFirestore(targetBizId, cleanReview, targetDocId).catch((err) => {
     console.warn('[FIRESTORE SUBMIT REVIEW WARN]', err);
-    return false;
+    return {
+      success: false,
+      errorCode: err?.code || 'unknown',
+      errorMessage: 'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.'
+    };
   });
 
-  const serverTask = (async () => {
+  const serverTask = (async (): Promise<boolean> => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
     try {
       const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(targetBizId)}/reviews`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ review: cleanReview })
+        signal: controller.signal,
+        body: JSON.stringify({
+          review: cleanReview,
+          businessSummary
+        })
       });
+      clearTimeout(timeoutId);
       const contentType = res.headers.get('content-type') || '';
-      return res.ok && contentType.includes('application/json');
+      if (res.ok && contentType.includes('application/json')) {
+        const data = await res.json().catch(() => null);
+        return Boolean(data && data.success !== false);
+      }
+      return false;
     } catch (err) {
+      clearTimeout(timeoutId);
       console.warn('Server API review post warn:', err);
       return false;
     }
   })();
 
-  const [firestoreSuccess, serverSuccess] = await Promise.all([firestoreTask, serverTask]);
+  const [firestoreOutcome, serverSuccess] = await Promise.all([firestoreTask, serverTask]);
+  const firestoreSuccess = Boolean(firestoreOutcome?.success);
+  const overallSuccess = firestoreSuccess || serverSuccess;
 
-  // 3. Update local caches if available so reloading immediately shows the new review
-  if (typeof window !== 'undefined') {
+  const persistedTo: ('firestore' | 'server')[] = [];
+  if (firestoreSuccess) persistedTo.push('firestore');
+  if (serverSuccess) persistedTo.push('server');
+
+  // 3. ONLY update local caches if real persistent storage confirmed saving the review
+  if (overallSuccess && typeof window !== 'undefined') {
     try {
       const cacheKey = `agendacan_reviews_${targetBizId}`;
       const raw = localStorage.getItem(cacheKey);
@@ -862,6 +1003,9 @@ export async function submitPublicReview(
 
       const keysToPatch = [`agendacan_public_biz_${targetBizId}`];
       if (resolvedSlug) keysToPatch.push(`agendacan_public_biz_${resolvedSlug}`);
+      if (trimmedTarget !== targetBizId && trimmedTarget !== resolvedSlug) {
+        keysToPatch.push(`agendacan_public_biz_${trimmedTarget}`);
+      }
       for (const pubKey of keysToPatch) {
         const pubRaw = localStorage.getItem(pubKey);
         if (pubRaw) {
@@ -879,9 +1023,21 @@ export async function submitPublicReview(
     } catch {}
   }
 
+  if (!overallSuccess) {
+    return {
+      success: false,
+      errorCode: firestoreOutcome?.errorCode || 'save-failed',
+      error:
+        firestoreOutcome?.errorMessage ||
+        'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.',
+      persistedTo
+    };
+  }
+
   return {
-    success: firestoreSuccess || serverSuccess,
-    review: cleanReview
+    success: true,
+    review: cleanReview,
+    persistedTo
   };
 }
 
@@ -893,16 +1049,23 @@ export async function fetchBusinessReviews(businessIdOrSlug: string): Promise<Cl
 
   const [serverRes, firestoreRes] = await Promise.allSettled([
     (async () => {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 3500);
       try {
         const res = await fetch(getApiUrl(`/api/businesses/${encodeURIComponent(businessIdOrSlug)}/reviews`), {
-          cache: 'no-store'
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store' },
+          signal: controller.signal
         });
+        clearTimeout(timeoutId);
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
           const data = await res.json();
           return Array.isArray(data?.reviews) ? (data.reviews as ClientReview[]) : [];
         }
-      } catch {}
+      } catch {
+        clearTimeout(timeoutId);
+      }
       return [] as ClientReview[];
     })(),
     (async () => {

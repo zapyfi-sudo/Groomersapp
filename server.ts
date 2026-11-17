@@ -581,6 +581,10 @@ app.post('/api/businesses/:idOrSlug/pets', (req, res) => {
 
 // Reviews API
 app.get('/api/businesses/:idOrSlug/reviews', (req, res) => {
+  res.header('Cache-Control', 'no-cache, no-store, must-revalidate');
+  res.header('Pragma', 'no-cache');
+  res.header('Expires', '0');
+
   const { idOrSlug } = req.params;
   const db = readDb();
   const business = findBusiness(idOrSlug, db);
@@ -590,51 +594,110 @@ app.get('/api/businesses/:idOrSlug/reviews', (req, res) => {
     return;
   }
 
-  const reviews = business.config?.reviews || [];
-  res.json({ reviews });
+  const reviews = (business.config?.reviews || []).map((r: any) => ({
+    ...r,
+    businessId: r?.businessId || business.businessId
+  }));
+  res.json({ businessId: business.businessId, reviews });
 });
 
 app.post('/api/businesses/:idOrSlug/reviews', (req, res) => {
   const { idOrSlug } = req.params;
-  const { review } = req.body;
+  const { review, businessSummary } = req.body;
 
-  if (!review || !review.clientName || !review.stars) {
+  const trimmedName = String(review?.clientName || '').trim().slice(0, 120);
+  const parsedStars = Number(review?.stars);
+  if (!review || !trimmedName || !Number.isFinite(parsedStars) || parsedStars < 1 || parsedStars > 5) {
     res.status(400).json({ error: 'Invalid review payload' });
     return;
   }
 
   const db = readDb();
-  const business = findBusiness(idOrSlug, db);
+  let business = findBusiness(idOrSlug, db);
+
+  if (!business && businessSummary && typeof businessSummary.businessId === 'string' && businessSummary.businessId.trim()) {
+    const mirrorBizId = businessSummary.businessId.trim();
+    business = db[mirrorBizId] || null;
+    if (!business) {
+      const mirrorSlug = businessSummary.bookingSlug
+        ? (extractSlug(businessSummary.bookingSlug) || cleanString(businessSummary.bookingSlug))
+        : cleanString(idOrSlug);
+      business = {
+        businessId: mirrorBizId,
+        config: {
+          id: mirrorBizId,
+          name: businessSummary.name || mirrorBizId,
+          bookingSlug: mirrorSlug || mirrorBizId,
+          country: businessSummary.country ?? '',
+          city: businessSummary.city ?? '',
+          address: businessSummary.address ?? '',
+          currency: businessSummary.currency || 'USD',
+          logoUrl: businessSummary.logoUrl || '',
+          reviews: []
+        },
+        appointments: [],
+        pets: [],
+        bookedRetentions: [],
+        updatedAt: new Date().toISOString()
+      };
+      db[mirrorBizId] = business;
+    }
+  }
 
   if (!business) {
     res.status(404).json({ error: 'Business not found' });
     return;
   }
 
+  const now = new Date().toISOString();
+  const safeStars = Math.round(Math.min(5, Math.max(1, parsedStars)) * 10) / 10;
+  const trimmedComment = review.comment ? String(review.comment).trim().slice(0, 2000) : '';
+
   const cleanReview = {
     ...review,
     id: review.id || `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
     businessId: business.businessId,
-    stars: Math.min(5, Math.max(1, Number(review.stars) || 5)),
-    clientName: String(review.clientName).trim(),
-    comment: review.comment ? String(review.comment).trim() : '',
+    stars: safeStars,
+    clientName: trimmedName,
+    comment: trimmedComment,
     date: review.date || new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
-    createdAt: review.createdAt || new Date().toISOString()
+    createdAt: review.createdAt || now,
+    verified: review.verified !== false
   };
 
-  const existingReviews = business.config?.reviews || [];
-  const updatedReviews = [cleanReview, ...existingReviews.filter((r: any) => r.id !== cleanReview.id)];
+  const existingReviews: any[] = Array.isArray(business.config?.reviews) ? business.config.reviews : [];
+
+  // Deduplicate by exact ID OR semantic duplicate within 2 minutes
+  const incomingMs = Date.parse(cleanReview.createdAt) || Date.now();
+  const semanticDup = existingReviews.find((r: any) => {
+    if (!r) return false;
+    if (r.id === cleanReview.id) return true;
+    const sameClient = String(r.clientName || '').trim().toLowerCase() === cleanReview.clientName.toLowerCase();
+    const sameStars = Number(r.stars) === cleanReview.stars;
+    const sameComment = String(r.comment || '').trim().toLowerCase() === cleanReview.comment.toLowerCase();
+    if (!sameClient || !sameStars || !sameComment) return false;
+    const prevMs = Date.parse(r.createdAt || '') || 0;
+    return prevMs > 0 && Math.abs(incomingMs - prevMs) <= 120000;
+  });
+
+  const updatedReviews = semanticDup
+    ? existingReviews.map((r: any) =>
+        r.id === semanticDup.id ? { ...r, ...cleanReview, id: semanticDup.id } : r
+      )
+    : [cleanReview, ...existingReviews.filter((r: any) => r.id !== cleanReview.id)];
+
+  const savedReview = semanticDup ? { ...semanticDup, ...cleanReview, id: semanticDup.id } : cleanReview;
 
   business.config = {
     ...business.config,
     reviews: updatedReviews
   };
-  business.updatedAt = new Date().toISOString();
+  business.updatedAt = now;
   db[business.businessId] = business;
   writeDb(db);
 
-  console.log(`[REVIEW SAVED ON SERVER] Business: ${business.businessId}, From: ${cleanReview.clientName}, Stars: ${cleanReview.stars}`);
-  res.status(201).json({ success: true, review: cleanReview });
+  console.log(`[REVIEW SAVED ON SERVER] Business: ${business.businessId}, From: ${savedReview.clientName}, Stars: ${savedReview.stars}`);
+  res.status(201).json({ success: true, businessId: business.businessId, review: savedReview });
 });
 
 app.get('/api/businesses/:idOrSlug/appointments', (req, res) => {

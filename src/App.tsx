@@ -29,7 +29,8 @@ import {
   createInternalAppointment,
   subscribeToBusinessSales,
   recordSaleInFirestore,
-  syncPetToBackend
+  syncPetToBackend,
+  fetchBusinessReviews
 } from './utils/api';
 import { AppLanguage } from './utils/translations';
 import { Header } from './components/Header';
@@ -59,6 +60,16 @@ import {
 } from './utils/syncHelpers';
 import { isDateMatching } from './utils/scheduleUtils';
 
+function extractPublicIdentifierPreservingCase(raw?: string | null): string {
+  if (!raw) return '';
+  let str = raw.trim().split('?')[0].split('#')[0];
+  if (str.includes('/')) {
+    const parts = str.split('/').filter(Boolean);
+    str = parts[parts.length - 1] || '';
+  }
+  return str.replace(/\/+$/, '').trim();
+}
+
 function getPublicReviewIdentifierFromUrl(): string | null {
   if (typeof window === 'undefined') return null;
 
@@ -66,21 +77,29 @@ function getPublicReviewIdentifierFromUrl(): string | null {
   const path = window.location.pathname;
   const pathMatch = path.match(/^\/(?:calificar|opiniones|review|reviews|calificaciones)\/([^\/?#]+)/i);
   if (pathMatch && pathMatch[1]) {
-    return extractSlugOnly(decodeURIComponent(pathMatch[1]));
+    try {
+      return extractPublicIdentifierPreservingCase(decodeURIComponent(pathMatch[1]));
+    } catch {
+      return extractPublicIdentifierPreservingCase(pathMatch[1]);
+    }
   }
 
   // 2. Query params: ?calificar=slug or ?review=slug
   const searchParams = new URLSearchParams(window.location.search);
   const explicitReview = searchParams.get('calificar') || searchParams.get('review') || searchParams.get('opinion');
   if (explicitReview) {
-    return extractSlugOnly(explicitReview) || explicitReview;
+    return extractPublicIdentifierPreservingCase(explicitReview) || explicitReview.trim();
   }
 
   // 3. Hash routing: #calificar/:idOrSlug, #review/:idOrSlug
   const hash = window.location.hash;
   const hashMatch = hash.match(/^#(?:calificar|opiniones|review|reviews|calificaciones)(?:\/([^\/?#]+))?/i);
   if (hashMatch && hashMatch[1]) {
-    return extractSlugOnly(decodeURIComponent(hashMatch[1]));
+    try {
+      return extractPublicIdentifierPreservingCase(decodeURIComponent(hashMatch[1]));
+    } catch {
+      return extractPublicIdentifierPreservingCase(hashMatch[1]);
+    }
   }
 
   // 4. Exact path match /calificar or /opiniones without slug -> default
@@ -98,14 +117,18 @@ function getPublicBookingIdentifierFromUrl(): string | null {
   const path = window.location.pathname;
   const pathMatch = path.match(/^\/(?:book|booking|reservar|reservas)\/([^\/?#]+)/i);
   if (pathMatch && pathMatch[1]) {
-    return extractSlugOnly(decodeURIComponent(pathMatch[1]));
+    try {
+      return extractPublicIdentifierPreservingCase(decodeURIComponent(pathMatch[1]));
+    } catch {
+      return extractPublicIdentifierPreservingCase(pathMatch[1]);
+    }
   }
 
   // 2. Query params: businessId, bid, slug, or embedded token p
   const searchParams = new URLSearchParams(window.location.search);
   const explicitBiz = searchParams.get('businessId') || searchParams.get('bid') || searchParams.get('slug');
   if (explicitBiz) {
-    return extractSlugOnly(explicitBiz) || explicitBiz;
+    return extractPublicIdentifierPreservingCase(explicitBiz) || explicitBiz.trim();
   }
 
   const token = searchParams.get('p') || searchParams.get('token');
@@ -120,7 +143,11 @@ function getPublicBookingIdentifierFromUrl(): string | null {
   const hash = window.location.hash;
   const hashMatch = hash.match(/^#(?:book|booking|reservar|reservas)(?:\/([^\/?#]+))?/i);
   if (hashMatch && hashMatch[1]) {
-    return extractSlugOnly(decodeURIComponent(hashMatch[1]));
+    try {
+      return extractPublicIdentifierPreservingCase(decodeURIComponent(hashMatch[1]));
+    } catch {
+      return extractPublicIdentifierPreservingCase(hashMatch[1]);
+    }
   }
 
   // 4. ?book=online parameter without explicit id -> invalid identifier to show clean error
@@ -492,10 +519,12 @@ export default function App() {
       });
     });
 
-    // 3. Periodic server + Firestore polling (every 8 seconds + window focus) for zero desync across devices
-    const pollServerSync = async () => {
+    // 3. Periodic server polling (every 8 seconds via Express) + throttled Cloud Firestore focus sync
+    // Real-time Firestore updates already arrive via onSnapshot above without burning read quota.
+    let lastFirestoreSyncAt = Date.now();
+    const pollServerSync = async (includeFirestore = false) => {
       try {
-        const latest = await fetchLatestAppointmentsAndPets(currentBizId);
+        const latest = await fetchLatestAppointmentsAndPets(currentBizId, { includeFirestore });
         if (latest) {
           if (latest.appointments && latest.appointments.length > 0) {
             setAppointments((prev) => {
@@ -558,10 +587,20 @@ export default function App() {
       }
     };
 
-    pollServerSync();
-    const pollInterval = setInterval(pollServerSync, 8000);
+    pollServerSync(false);
+    const pollInterval = setInterval(() => pollServerSync(false), 8000);
 
-    const onFocus = () => pollServerSync();
+    const onFocus = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      const now = Date.now();
+      const shouldSyncFirestore = now - lastFirestoreSyncAt > 20000;
+      if (shouldSyncFirestore) {
+        lastFirestoreSyncAt = now;
+      }
+      pollServerSync(shouldSyncFirestore);
+    };
     window.addEventListener('focus', onFocus);
     document.addEventListener('visibilitychange', onFocus);
 
@@ -956,6 +995,31 @@ export default function App() {
       persistActiveConfig(updated);
       return updated;
     });
+  };
+
+  const handleRefreshReviews = async () => {
+    const currentBizId = activeAccount?.businessId || salonConfig?.id || 'biz_main';
+    if (!currentBizId) return;
+    try {
+      const remoteReviews = await fetchBusinessReviews(currentBizId);
+      setSalonConfig((prev) => {
+        if ((prev.id || 'biz_main') !== currentBizId) return prev;
+        const merged = normalizeAndMergeReviews(currentBizId, prev.reviews, remoteReviews);
+        if (merged.length === (prev.reviews || []).length) {
+          const prevIds = new Set((prev.reviews || []).map((r) => r.id));
+          const allMatch = merged.every((r) => prevIds.has(r.id));
+          if (allMatch) return prev;
+        }
+        const updated: SalonConfig = {
+          ...prev,
+          reviews: merged
+        };
+        persistActiveConfig(updated);
+        return updated;
+      });
+    } catch (err) {
+      console.warn('Could not refresh reviews:', err);
+    }
   };
 
   // Cross-Module Automation: Persist appointment & petSnapshot; defer Pet ficha creation until service starts or completes (Etapa 6)
@@ -1542,6 +1606,7 @@ export default function App() {
               }}
               appointments={appointments}
               onAddNewReview={handleAddNewReview}
+              onRefreshReviews={handleRefreshReviews}
               currentLanguage={currentLanguage}
               onUpdateLanguage={setCurrentLanguage}
               activeAccount={activeAccount}

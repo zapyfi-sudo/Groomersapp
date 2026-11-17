@@ -1,6 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { SalonConfig, ClientReview } from '../types';
-import { fetchBusinessProfile, submitPublicReview } from '../utils/api';
+import { fetchBusinessProfileWithStatus, submitPublicReview, ReviewBusinessSummary } from '../utils/api';
+import { getSyncActiveData } from '../utils/saasDb';
+import { extractSlugOnly, slugify } from '../utils/slugUtils';
 import { HOTLINK_IMAGES } from '../mockData';
 
 interface PublicReviewPageProps {
@@ -14,8 +16,11 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
 }) => {
   const [config, setConfig] = useState<SalonConfig | null>(null);
   const [businessId, setBusinessId] = useState<string>(businessIdOrSlug);
+  const [firestoreDocId, setFirestoreDocId] = useState<string | undefined>(undefined);
+  const [businessSummary, setBusinessSummary] = useState<ReviewBusinessSummary | undefined>(undefined);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadErrorKind, setLoadErrorKind] = useState<'quota_exceeded' | 'not_found' | null>(null);
 
   // Form states
   const [clientName, setClientName] = useState<string>('');
@@ -26,25 +31,93 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submittedSuccessfully, setSubmittedSuccessfully] = useState<boolean>(false);
 
+  // Synchronous submit guard & idempotent review ID across retries of identical content
+  const submittingRef = useRef<boolean>(false);
+  const draftReviewIdRef = useRef<{ signature: string; id: string; createdAt: string } | null>(null);
+
   useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
     setLoadError(null);
+    setLoadErrorKind(null);
+    setFirestoreDocId(undefined);
+    setBusinessSummary(undefined);
 
-    fetchBusinessProfile(businessIdOrSlug)
-      .then((res) => {
+    let hasEagerMatch = false;
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = businessIdOrSlug.trim();
+        const clean = extractSlugOnly(raw) || raw.toLowerCase();
+        const syncData = getSyncActiveData();
+        const activeSlug = syncData?.config?.bookingSlug ? extractSlugOnly(syncData.config.bookingSlug) : '';
+        const activeNameSlug = syncData?.config?.name ? slugify(syncData.config.name) : '';
+        const syncBizId = (syncData?.businessId || syncData?.config?.id || '').trim();
+        const isSessionMatch =
+          Boolean(syncData?.config && syncBizId) &&
+          (syncBizId === raw ||
+            syncBizId.toLowerCase() === clean ||
+            (Boolean(activeSlug) && activeSlug === clean) ||
+            (Boolean(activeNameSlug) && activeNameSlug === clean));
+
+        if (isSessionMatch && syncData?.config) {
+          hasEagerMatch = true;
+          setConfig(syncData.config);
+          setBusinessId(syncBizId);
+          setFirestoreDocId(syncBizId);
+          setBusinessSummary({
+            businessId: syncBizId,
+            name: syncData.config.name,
+            bookingSlug: syncData.config.bookingSlug,
+            country: syncData.config.country,
+            city: syncData.config.city,
+            address: syncData.config.address,
+            currency: syncData.config.currency,
+            logoUrl: syncData.config.logoUrl
+          });
+          setIsLoading(false);
+        }
+      } catch {}
+    }
+
+    fetchBusinessProfileWithStatus(businessIdOrSlug, { summaryOnly: true })
+      .then((outcome) => {
         if (!isMounted) return;
+        const res = outcome.profile;
         if (res && res.config) {
           setConfig(res.config);
           setBusinessId(res.businessId);
-        } else {
-          setLoadError('No pudimos encontrar este negocio. Por favor verifica el enlace.');
+          setFirestoreDocId(res.firestoreDocId || res.businessId);
+          setBusinessSummary({
+            businessId: res.businessId,
+            name: res.config.name,
+            bookingSlug: res.config.bookingSlug,
+            country: res.config.country,
+            city: res.config.city,
+            address: res.config.address,
+            currency: res.config.currency,
+            logoUrl: res.config.logoUrl
+          });
+          setLoadError(null);
+          setLoadErrorKind(null);
+        } else if (!hasEagerMatch) {
+          if (outcome.reason === 'quota_exceeded') {
+            setLoadErrorKind('quota_exceeded');
+            setLoadError(
+              'Se alcanzó temporalmente el límite diario gratuito de consultas en la base de datos. Intenta nuevamente más tarde o verifica tu plan en Firebase.'
+            );
+          } else {
+            setLoadErrorKind('not_found');
+            setLoadError('No pudimos encontrar este negocio. Por favor verifica el enlace.');
+          }
         }
       })
       .catch((err) => {
         if (!isMounted) return;
         console.error('Error loading business for rating:', err);
-        setLoadError('Hubo un error al cargar la información del negocio.');
+        if (!hasEagerMatch) {
+          setLoadErrorKind('not_found');
+          setLoadError('Hubo un error al cargar la información del negocio.');
+        }
       })
       .finally(() => {
         if (isMounted) setIsLoading(false);
@@ -57,38 +130,68 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (submittingRef.current || isSubmitting || submittedSuccessfully) {
+      return;
+    }
+
     setSubmitError(null);
 
     const trimmedName = clientName.trim();
+    const trimmedComment = comment.trim();
+
     if (!trimmedName) {
       setSubmitError('Por favor escribe tu nombre para enviar la calificación.');
       return;
     }
 
-    if (stars < 1 || stars > 5) {
+    if (trimmedName.length > 120) {
+      setSubmitError('El nombre no puede superar los 120 caracteres.');
+      return;
+    }
+
+    if (trimmedComment.length > 2000) {
+      setSubmitError('El comentario no puede superar los 2000 caracteres.');
+      return;
+    }
+
+    if (!Number.isFinite(stars) || stars < 1 || stars > 5) {
       setSubmitError('Por favor selecciona una puntuación de 1 a 5 estrellas.');
       return;
     }
 
+    const targetBizId = businessId || businessIdOrSlug;
+    const signature = `${targetBizId}|${trimmedName.toLowerCase()}|${stars}|${trimmedComment.toLowerCase()}`;
+    if (!draftReviewIdRef.current || draftReviewIdRef.current.signature !== signature) {
+      draftReviewIdRef.current = {
+        signature,
+        id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+        createdAt: new Date().toISOString()
+      };
+    }
+
+    submittingRef.current = true;
     setIsSubmitting(true);
 
     try {
       const reviewPayload: ClientReview = {
-        id: `rev_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
-        businessId: businessId || businessIdOrSlug,
+        id: draftReviewIdRef.current.id,
+        businessId: targetBizId,
         clientName: trimmedName,
         stars,
-        comment: comment.trim(),
+        comment: trimmedComment,
         date: new Date().toLocaleDateString('es-ES', {
           day: 'numeric',
           month: 'long',
           year: 'numeric'
         }),
-        createdAt: new Date().toISOString(),
+        createdAt: draftReviewIdRef.current.createdAt,
         verified: true
       };
 
-      const result = await submitPublicReview(businessId || businessIdOrSlug, reviewPayload);
+      const result = await submitPublicReview(targetBizId, reviewPayload, {
+        firestoreDocId,
+        businessSummary
+      });
 
       if (result.success && result.review) {
         setSubmittedSuccessfully(true);
@@ -96,12 +199,15 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
           onReviewSubmitted(result.review);
         }
       } else {
-        throw new Error('No se pudo registrar la calificación.');
+        setSubmitError(
+          result.error || 'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.'
+        );
       }
     } catch (err) {
       console.error('Review submit error:', err);
       setSubmitError('Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.');
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
@@ -120,9 +226,13 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
       <div className="min-h-screen bg-[#fcf8ff] flex flex-col items-center justify-center p-4">
         <div className="bg-white rounded-3xl p-6 sm:p-8 max-w-md w-full text-center shadow-md border border-[#cfc2d2]/40 space-y-4">
           <div className="w-16 h-16 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center mx-auto text-3xl">
-            <span className="material-symbols-outlined text-3xl">storefront</span>
+            <span className="material-symbols-outlined text-3xl">
+              {loadErrorKind === 'quota_exceeded' ? 'cloud_off' : 'storefront'}
+            </span>
           </div>
-          <h1 className="text-xl font-black text-[#1a1a26]">Negocio no encontrado</h1>
+          <h1 className="text-xl font-black text-[#1a1a26]">
+            {loadErrorKind === 'quota_exceeded' ? 'Consultas temporales agotadas' : 'Negocio no encontrado'}
+          </h1>
           <p className="text-xs text-[#7e7482]">{loadError || 'Este enlace no es válido.'}</p>
         </div>
       </div>

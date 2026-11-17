@@ -681,6 +681,64 @@ export async function persistActiveSales(sales: SaleRecord[]): Promise<void> {
   await persistActiveBusinessData({ sales });
 }
 
+// Exact local IndexedDB lookup for offline / read-quota resilience (never cross-matches another business)
+export async function findBusinessInLocalSaaSDb(businessIdOrSlug: string): Promise<{
+  businessId: string;
+  config: SalonConfig;
+  services: SalonService[];
+  appointments: Appointment[];
+  pets: Pet[];
+  sales?: SaleRecord[];
+  updatedAt?: string;
+} | null> {
+  if (!businessIdOrSlug) return null;
+  const raw = businessIdOrSlug.trim();
+  const clean = extractSlugOnly(raw) || raw.toLowerCase();
+
+  try {
+    const allData = await dbGetAll<BusinessAccountData>(STORE_BUSINESS_DATA);
+    const matched = allData.find((d) => {
+      if (!d || !d.config) return false;
+      const dBizId = (d.businessId || '').trim();
+      const cfgId = (d.config.id || '').trim();
+      const dSlug = extractSlugOnly(d.config.bookingSlug);
+      const dNameSlug = slugify(d.config.name || '');
+      return (
+        dBizId === raw ||
+        cfgId === raw ||
+        dBizId.toLowerCase() === clean ||
+        cfgId.toLowerCase() === clean ||
+        (Boolean(dSlug) && dSlug === clean) ||
+        (Boolean(dNameSlug) && dNameSlug === clean)
+      );
+    });
+
+    if (matched && matched.config) {
+      const resolvedId = matched.businessId || matched.config.id || raw;
+      const activeServices = (matched.config.services || []).filter(
+        (s: SalonService) => s && s.id && s.active !== false
+      );
+      return {
+        businessId: resolvedId,
+        config: {
+          ...matched.config,
+          id: resolvedId,
+          services: activeServices,
+          reviews: normalizeAndMergeReviews(resolvedId, matched.config.reviews)
+        },
+        services: activeServices,
+        appointments: matched.appointments || [],
+        pets: matched.pets || [],
+        sales: matched.sales || [],
+        updatedAt: matched.updatedAt || matched.config.updatedAt
+      };
+    }
+  } catch (err) {
+    console.warn('Error searching local SaaS DB:', err);
+  }
+  return null;
+}
+
 // Public Booking support: Retrieve public info for any business by ID or slug (Requirement #20, #21, #23)
 export async function getPublicBusinessProfile(businessIdOrSlug: string): Promise<{
   businessId: string;

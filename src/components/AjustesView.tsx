@@ -38,6 +38,7 @@ interface AjustesViewProps {
   sales?: SaleRecord[];
   initialSection?: 'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas' | null;
   onAddNewReview?: (review: ClientReview) => void;
+  onRefreshReviews?: () => Promise<void> | void;
   currentLanguage: AppLanguage;
   onUpdateLanguage: (lang: AppLanguage) => void;
   activeAccount?: UserAccount | null;
@@ -52,6 +53,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   appointments = [],
   sales = [],
   initialSection = null,
+  onRefreshReviews,
   currentLanguage,
   onUpdateLanguage,
   activeAccount,
@@ -60,11 +62,20 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   // Navigation: null shows the simplified vertical menu; or 'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas'
   const [selectedSection, setSelectedSection] = useState<'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas' | null>(initialSection);
 
+  const onRefreshReviewsRef = useRef(onRefreshReviews);
+  onRefreshReviewsRef.current = onRefreshReviews;
+
   useEffect(() => {
     if (initialSection !== undefined) {
       setSelectedSection(initialSection);
     }
   }, [initialSection]);
+
+  useEffect(() => {
+    if (selectedSection === 'calificaciones') {
+      onRefreshReviewsRef.current?.();
+    }
+  }, [selectedSection, config.id]);
 
   // Client History Filters
   const [clientPeriodFilter, setClientPeriodFilter] = useState<'hoy' | 'semana' | 'mes' | 'todos'>('todos');
@@ -428,7 +439,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   // Dedicated review URL for collecting customer ratings
   const realReviewUrl = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
-    const slug = cleanSlugInput(customSlug) || extractSlugOnly(config.bookingSlug) || slugify(businessName || 'calificar', 'calificar');
+    const slug = extractSlugOnly(config.bookingSlug) || cleanSlugInput(customSlug) || slugify(businessName || 'calificar', 'calificar');
     return buildPublicReviewUrl(origin, config.id || 'biz_main', slug, config);
   }, [config.bookingSlug, config.id, customSlug, businessName]);
 

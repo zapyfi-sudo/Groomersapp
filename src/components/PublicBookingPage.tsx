@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { SalonConfig, SalonService, Appointment, Pet, BehaviorMood } from '../types';
-import { fetchBusinessProfile, createPublicAppointment, subscribeToBusinessReviews } from '../utils/api';
+import { fetchBusinessProfileWithStatus, createPublicAppointment, subscribeToBusinessReviews } from '../utils/api';
 import { formatDateSpanish, compressImage } from '../utils/storage';
 import { normalizePhoneForWhatsApp } from '../utils/phoneUtils';
 import { getSyncActiveData } from '../utils/saasDb';
@@ -31,6 +31,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     appointments: Appointment[];
   } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadErrorKind, setLoadErrorKind] = useState<'quota_exceeded' | 'not_found' | null>(null);
 
   // Form states
   const [selectedServiceId, setSelectedServiceId] = useState<string>('');
@@ -69,6 +70,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   useEffect(() => {
     let isMounted = true;
     setLoadError(null);
+    setLoadErrorKind(null);
 
     // Eagerly initialize if previewing, matching public cache, or matching current active session
     if (typeof window !== 'undefined') {
@@ -141,9 +143,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       setIsLoading(true);
     }
 
-    fetchBusinessProfile(businessIdOrSlug)
-      .then((result) => {
+    fetchBusinessProfileWithStatus(businessIdOrSlug)
+      .then((outcome) => {
         if (!isMounted) return;
+        const result = outcome.profile;
         if (result && result.config) {
           setBusinessData((prevData) => {
             const normalizedResultReviews = normalizeAndMergeReviews(
@@ -308,7 +311,15 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               return;
             }
           }
-          setLoadError('No encontramos este negocio. Este enlace de reservas no es válido o ya no está disponible.');
+          if (outcome.reason === 'quota_exceeded') {
+            setLoadErrorKind('quota_exceeded');
+            setLoadError(
+              'Se alcanzó temporalmente el límite diario gratuito de consultas en la base de datos. Intenta nuevamente más tarde o verifica tu plan en Firebase.'
+            );
+          } else {
+            setLoadErrorKind('not_found');
+            setLoadError('No encontramos este negocio. Este enlace de reservas no es válido o ya no está disponible.');
+          }
         }
       })
       .catch((err) => {
@@ -733,13 +744,15 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       <div className="min-h-screen bg-[#fcf8ff] flex flex-col items-center justify-center p-4">
         <div className="bg-white rounded-3xl p-8 max-w-md w-full text-center shadow-xl border border-[#cfc2d2]/40 space-y-4">
           <div className="w-16 h-16 rounded-2xl bg-rose-50 text-rose-600 flex items-center justify-center mx-auto text-3xl">
-            <span className="material-symbols-outlined text-4xl">store</span>
+            <span className="material-symbols-outlined text-4xl">
+              {loadErrorKind === 'quota_exceeded' ? 'cloud_off' : 'store'}
+            </span>
           </div>
           <h2 className="text-xl font-black text-[#1a1a26]">
-            No encontramos este negocio
+            {loadErrorKind === 'quota_exceeded' ? 'Consultas temporales agotadas' : 'No encontramos este negocio'}
           </h2>
           <p className="text-xs text-[#7e7482] leading-relaxed">
-            Este enlace de reservas no es válido o ya no está disponible. Por favor, verifica el enlace que te compartió tu peluquería o solicita uno nuevo directamente por WhatsApp.
+            {loadError || 'Este enlace de reservas no es válido o ya no está disponible. Por favor, verifica el enlace que te compartió tu peluquería o solicita uno nuevo directamente por WhatsApp.'}
           </p>
           {isPreviewMode && onClosePreview && (
             <button

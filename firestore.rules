@@ -2,67 +2,113 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+    // Global default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string &&
+             id.size() >= 1 &&
+             id.size() <= 128 &&
+             id.matches('^[a-zA-Z0-9_#\\.\\-]+$');
+    }
+
     function isValidBusiness(data) {
-      return (data.businessId is string && data.businessId.size() > 0) ||
-             (resource != null && resource.data.businessId is string);
+      return (data.businessId is string && data.businessId.size() > 0 && data.businessId.size() <= 128) ||
+             (data.config is map && data.config.id is string && data.config.id.size() > 0 && data.config.id.size() <= 128) ||
+             (resource != null && (
+               (resource.data.businessId is string && resource.data.businessId.size() > 0) ||
+               (resource.data.config is map && resource.data.config.id is string && resource.data.config.id.size() > 0)
+             ));
     }
 
     function isValidSlugMapping(data) {
       return data.slug is string &&
              data.slug.size() > 0 &&
+             data.slug.size() <= 128 &&
              data.businessId is string &&
-             data.businessId.size() > 0;
+             data.businessId.size() > 0 &&
+             data.businessId.size() <= 128;
     }
 
     function isValidAppointment(data) {
-      return (data.id is string && data.id.size() > 0) ||
+      return (data.id is string && data.id.size() > 0 && data.id.size() <= 128) ||
              (resource != null && resource.data.id is string);
+    }
+
+    function isValidReview(data) {
+      return data.keys().hasAll(['clientName', 'stars']) &&
+             data.keys().hasOnly([
+               'id', 'businessId', 'clientName', 'petName', 'serviceName',
+               'stars', 'comment', 'date', 'createdAt', 'verified', 'tutorPhone'
+             ]) &&
+             data.stars is number &&
+             data.stars >= 1 &&
+             data.stars <= 5 &&
+             data.clientName is string &&
+             data.clientName.size() >= 1 &&
+             data.clientName.size() <= 120 &&
+             (!('id' in data) || (data.id is string && data.id.size() >= 1 && data.id.size() <= 128)) &&
+             (!('businessId' in data) || data.businessId == null || (data.businessId is string && data.businessId.size() >= 1 && data.businessId.size() <= 128)) &&
+             (!('comment' in data) || data.comment == null || (data.comment is string && data.comment.size() <= 2000)) &&
+             (!('petName' in data) || data.petName == null || (data.petName is string && data.petName.size() <= 120)) &&
+             (!('serviceName' in data) || data.serviceName == null || (data.serviceName is string && data.serviceName.size() <= 160)) &&
+             (!('date' in data) || data.date == null || (data.date is string && data.date.size() <= 80)) &&
+             (!('createdAt' in data) || data.createdAt == null || (data.createdAt is string && data.createdAt.size() <= 64)) &&
+             (!('tutorPhone' in data) || data.tutorPhone == null || (data.tutorPhone is string && data.tutorPhone.size() <= 40)) &&
+             (!('verified' in data) || data.verified is bool);
     }
 
     match /businesses/{businessId} {
       allow read: if true;
-      allow create, update: if isValidBusiness(request.resource.data);
+      allow create, update: if isValidId(businessId) && isValidBusiness(request.resource.data);
       allow delete: if false;
 
       match /appointments/{appointmentId} {
         allow read: if true;
-        allow create: if isValidAppointment(request.resource.data);
-        allow update, delete: if true;
+        allow create: if isValidId(businessId) && isValidId(appointmentId) && isValidAppointment(request.resource.data);
+        allow update, delete: if isValidId(businessId) && isValidId(appointmentId);
       }
 
       match /services/{serviceId} {
         allow read: if true;
-        allow create, update, delete: if true;
+        allow create, update, delete: if isValidId(businessId) && isValidId(serviceId);
       }
 
       match /medications/{medicationId} {
         allow read: if true;
-        allow create, update, delete: if true;
+        allow create, update, delete: if isValidId(businessId) && isValidId(medicationId);
       }
 
       match /pets/{petId} {
         allow read: if true;
-        allow create, update, delete: if true;
+        allow create, update, delete: if isValidId(businessId) && isValidId(petId);
       }
 
       match /reviews/{reviewId} {
-        allow read: if true;
-        allow create: if request.resource.data.stars >= 1 &&
-                         request.resource.data.stars <= 5 &&
-                         request.resource.data.clientName is string &&
-                         request.resource.data.clientName.size() > 0;
-        allow update, delete: if true;
+        allow get: if isValidId(businessId) && isValidId(reviewId);
+        allow list: if isValidId(businessId);
+        allow create: if isValidId(businessId) &&
+                         isValidId(reviewId) &&
+                         isValidReview(request.resource.data);
+        allow update: if isValidId(businessId) &&
+                         isValidId(reviewId) &&
+                         isValidReview(request.resource.data) &&
+                         request.resource.data.clientName == resource.data.clientName &&
+                         request.resource.data.stars == resource.data.stars;
+        allow delete: if false;
       }
 
       match /sales/{saleId} {
         allow read: if true;
-        allow create, update, delete: if true;
+        allow create, update, delete: if isValidId(businessId) && isValidId(saleId);
       }
     }
 
     match /slugs/{slug} {
       allow read: if true;
-      allow create, update: if isValidSlugMapping(request.resource.data);
+      allow create, update: if isValidId(slug) && isValidSlugMapping(request.resource.data);
       allow delete: if false;
     }
   }
