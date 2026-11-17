@@ -44,6 +44,7 @@ import {
 import firebaseConfigRaw from '../../firebase-applet-config.json';
 import { SalonConfig, Appointment, Pet, SalonService, MedicationProduct, ClientReview, ReviewRequestState, SaleRecord } from '../types';
 import { slugify, cleanSlugInput, extractSlugOnly } from './slugUtils';
+import { AppLanguage, getAuthErrorMessage, getTranslations, resolveAppLanguage } from './translations';
 import {
   normalizeAndMergeReviews,
   mergeAppointments,
@@ -185,10 +186,17 @@ export async function logoutFirebaseAuth(): Promise<void> {
 /**
  * Translates Firebase Auth error codes into helpful Spanish user messages with exact console actions
  */
-export function translateFirebaseAuthError(err: any): string {
+export function translateFirebaseAuthError(err: any, lang: AppLanguage = 'es-LA'): string {
   const code = err?.code || '';
-  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'este dominio';
+  const currentHost = typeof window !== 'undefined' ? window.location.hostname : 'domain';
   const projectId = firebaseConfig.projectId || 'third-strength-vh7nb';
+
+  if (lang !== 'es-LA') {
+    if (code === 'auth/operation-not-allowed' || code === 'auth/unauthorized-domain') {
+      return `${getAuthErrorMessage(err, lang)} (${currentHost} / ${projectId})`;
+    }
+    return getAuthErrorMessage(err, lang);
+  }
 
   switch (code) {
     case 'auth/email-already-in-use':
@@ -273,6 +281,7 @@ export interface FirestoreBusinessData {
   businessId: string;
   name: string;
   bookingSlug: string;
+  reviewSlug?: string;
   currency?: string;
   config: SalonConfig;
   services?: SalonService[];
@@ -630,11 +639,13 @@ export async function checkSlugAvailabilityInFirestore(
       }
     }
 
-    // 2. Query businesses collection for safety
-    const q = query(collection(db, 'businesses'), where('bookingSlug', '==', clean));
-    const querySnap = await getDocs(q);
+    // 2. Query businesses collection for both bookingSlug and reviewSlug
+    const [qBookingSnap, qReviewSnap] = await Promise.all([
+      getDocs(query(collection(db, 'businesses'), where('bookingSlug', '==', clean))),
+      getDocs(query(collection(db, 'businesses'), where('reviewSlug', '==', clean)))
+    ]);
 
-    for (const d of querySnap.docs) {
+    for (const d of [...qBookingSnap.docs, ...qReviewSnap.docs]) {
       if (d.id !== currentBusinessId) {
         const bizData = d.data();
         return {
@@ -671,6 +682,10 @@ export async function saveBusinessToFirestore(
     extractSlugOnly(config.bookingSlug) ||
     cleanSlugInput(config.bookingSlug) ||
     slugify(config.name || 'salon', 'salon');
+  const cleanReviewSlug =
+    extractSlugOnly(config.reviewSlug) ||
+    cleanSlugInput(config.reviewSlug) ||
+    '';
 
   const now = new Date().toISOString();
 
@@ -709,6 +724,8 @@ export async function saveBusinessToFirestore(
     ...config,
     id: cleanId,
     bookingSlug: cleanSlug,
+    ...(cleanReviewSlug ? { reviewSlug: cleanReviewSlug } : {}),
+    ...(config.language ? { language: config.language } : {}),
     name: (config.name || 'Groomer Aida').trim(),
     country: config.country !== undefined ? String(config.country).trim() : '',
     city: config.city !== undefined ? String(config.city).trim() : '',
@@ -724,6 +741,7 @@ export async function saveBusinessToFirestore(
     businessId: cleanId,
     name: cleanConfig.name,
     bookingSlug: cleanSlug,
+    ...(cleanReviewSlug ? { reviewSlug: cleanReviewSlug } : {}),
     currency: cleanConfig.currency || 'USD',
     config: cleanConfig,
     services: sanitizedServices,
@@ -765,16 +783,22 @@ export async function saveBusinessToFirestore(
         console.warn('[FIRESTORE SUBCOLLECTIONS WARN]', subErr);
       }
 
-      // 2. Save slug mapping document FIRST / independently for O(1) public URL resolution
-      if (cleanSlug) {
+      // 2. Save slug mapping documents for O(1) public URL resolution (booking & custom review link)
+      const slugEntries: Array<{ slug: string; type: string }> = [];
+      if (cleanSlug) slugEntries.push({ slug: cleanSlug, type: 'booking' });
+      if (cleanReviewSlug && cleanReviewSlug !== cleanSlug) {
+        slugEntries.push({ slug: cleanReviewSlug, type: 'review' });
+      }
+      for (const entry of slugEntries) {
         try {
-          const slugRef = doc(db, 'slugs', cleanSlug);
+          const slugRef = doc(db, 'slugs', entry.slug);
           await setDoc(
             slugRef,
             {
-              slug: cleanSlug,
+              slug: entry.slug,
               businessId: cleanId,
               businessName: cleanConfig.name,
+              type: entry.type,
               updatedAt: now
             },
             { merge: true }
@@ -917,7 +941,7 @@ export async function getBusinessFromFirestore(
         } catch {}
       }
 
-      // Strategy 3: Query by root bookingSlug or nested config.bookingSlug
+      // Strategy 3: Query by root bookingSlug, config.bookingSlug, root reviewSlug, or config.reviewSlug
       if (!targetBizId) {
         try {
           const snapSlug = await getDocsFresh(query(collection(db, 'businesses'), where('bookingSlug', '==', clean)));
@@ -933,14 +957,32 @@ export async function getBusinessFromFirestore(
               const best = pickNewestDoc(snapNestedSlug.docs);
               targetBizId = best.id;
               cachedBizSnap = best;
-            } else if (clean !== raw) {
-              const snapRawSlug = await getDocsFresh(
-                query(collection(db, 'businesses'), where('bookingSlug', '==', raw))
+            } else {
+              const snapReviewSlug = await getDocsFresh(
+                query(collection(db, 'businesses'), where('reviewSlug', '==', clean))
               );
-              if (!snapRawSlug.empty) {
-                const best = pickNewestDoc(snapRawSlug.docs);
+              if (!snapReviewSlug.empty) {
+                const best = pickNewestDoc(snapReviewSlug.docs);
                 targetBizId = best.id;
                 cachedBizSnap = best;
+              } else {
+                const snapNestedReviewSlug = await getDocsFresh(
+                  query(collection(db, 'businesses'), where('config.reviewSlug', '==', clean))
+                );
+                if (!snapNestedReviewSlug.empty) {
+                  const best = pickNewestDoc(snapNestedReviewSlug.docs);
+                  targetBizId = best.id;
+                  cachedBizSnap = best;
+                } else if (clean !== raw) {
+                  const snapRawSlug = await getDocsFresh(
+                    query(collection(db, 'businesses'), where('bookingSlug', '==', raw))
+                  );
+                  if (!snapRawSlug.empty) {
+                    const best = pickNewestDoc(snapRawSlug.docs);
+                    targetBizId = best.id;
+                    cachedBizSnap = best;
+                  }
+                }
               }
             }
           }
@@ -1504,16 +1546,18 @@ export interface FirestoreReviewSaveResult {
 export async function addReviewToFirestore(
   businessId: string,
   review: ClientReview,
-  firestoreDocId?: string
+  firestoreDocId?: string,
+  language?: AppLanguage
 ): Promise<FirestoreReviewSaveResult> {
   const cleanBizId = String(businessId || '').trim();
   const targetDocId = String(firestoreDocId || cleanBizId).trim();
+  const tReview = getTranslations(resolveAppLanguage(language)).publicReview;
 
   if (!cleanBizId || !targetDocId || !review) {
     return {
       success: false,
       errorCode: 'invalid-argument',
-      errorMessage: 'No se pudo identificar el negocio para guardar tu calificación.'
+      errorMessage: tReview.errSaveFailed
     };
   }
 
@@ -1521,7 +1565,7 @@ export async function addReviewToFirestore(
     return {
       success: false,
       errorCode: 'resource-exhausted',
-      errorMessage: 'Se alcanzó temporalmente el límite diario de la base de datos. Intenta nuevamente más tarde.'
+      errorMessage: tReview.errSaveFailed
     };
   }
 
@@ -1531,7 +1575,7 @@ export async function addReviewToFirestore(
     return {
       success: false,
       errorCode: 'invalid-argument',
-      errorMessage: 'Por favor verifica tu nombre y selecciona una calificación de 1 a 5 estrellas.'
+      errorMessage: tReview.errMissingStars
     };
   }
 
@@ -1571,7 +1615,7 @@ export async function addReviewToFirestore(
         resolve({
           success: false,
           errorCode: 'timeout',
-          errorMessage: 'La conexión tardó demasiado en responder. Por favor intenta nuevamente.'
+          errorMessage: tReview.errConnectionFailed
         });
       }, 6500);
     });
@@ -1591,13 +1635,13 @@ export async function addReviewToFirestore(
       return {
         success: false,
         errorCode: 'resource-exhausted',
-        errorMessage: 'Se alcanzó temporalmente el límite diario de la base de datos. Intenta nuevamente más tarde.'
+        errorMessage: tReview.errSaveFailed
       };
     }
     return {
       success: false,
       errorCode: info.code || err?.code || 'unknown',
-      errorMessage: 'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.'
+      errorMessage: tReview.errSaveFailed
     };
   }
 }

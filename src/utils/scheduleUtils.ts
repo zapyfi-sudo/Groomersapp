@@ -1,4 +1,5 @@
 import { SalonConfig, Appointment } from '../types';
+import { AppLanguage, getTranslations } from './translations';
 
 export interface TimeSlot {
   time: string; // e.g. "09:30"
@@ -227,6 +228,7 @@ export interface GenerateSlotsOptions {
   serviceDurationMin?: number;
   existingAppointments?: Appointment[];
   selectedGroomer?: string;
+  lang?: AppLanguage;
 }
 
 /**
@@ -242,7 +244,8 @@ export function generateAvailableTimeSlots({
   selectedDate,
   serviceDurationMin = 60,
   existingAppointments = [],
-  selectedGroomer
+  selectedGroomer,
+  lang = 'es-LA'
 }: GenerateSlotsOptions): TimeSlot[] {
   if (!config || !selectedDate) return [];
 
@@ -313,15 +316,16 @@ export function generateAvailableTimeSlots({
       }
 
       const isAvailable = overlappingCount < capacityLimit && !groomerConflict;
+      const tModals = getTranslations(lang).modals;
 
       slots.push({
         time: timeLabel,
         available: isAvailable,
         bookedCount: overlappingCount,
         reason: groomerConflict
-          ? 'El estilista seleccionado ya tiene una cita en este horario'
+          ? tModals.slotFullReason
           : overlappingCount >= capacityLimit
-          ? 'Capacidad máxima del salón alcanzada para este horario'
+          ? tModals.slotFullReason
           : undefined
       });
     }
@@ -366,7 +370,8 @@ export function validateCustomAppointmentTime({
   timeStr,
   serviceDurationMin = 60,
   existingAppointments = [],
-  selectedGroomer
+  selectedGroomer,
+  lang = 'es-LA'
 }: {
   config: SalonConfig;
   selectedDate: string;
@@ -374,6 +379,7 @@ export function validateCustomAppointmentTime({
   serviceDurationMin?: number;
   existingAppointments?: Appointment[];
   selectedGroomer?: string;
+  lang?: AppLanguage;
 }): CustomTimeValidationResult {
   const startMins = parseTimeToMinutes(timeStr);
   const duration = Math.max(15, serviceDurationMin || 60);
@@ -381,13 +387,14 @@ export function validateCustomAppointmentTime({
 
   const formattedTime12 = formatMinutesTo12H(startMins);
   const formattedTime24 = formatMinutesToTime(startMins);
+  const tModals = getTranslations(lang).modals;
 
   if (!config || !selectedDate || !timeStr) {
     return {
       isValid: false,
       isOutsideHours: true,
       isConflict: false,
-      reason: 'Datos incompletos para validar el horario.',
+      reason: getTranslations(lang).common.emptyField,
       formattedTime12,
       formattedTime24
     };
@@ -412,7 +419,7 @@ export function validateCustomAppointmentTime({
         isValid: false,
         isOutsideHours: true,
         isConflict: false,
-        reason: `El horario (${formattedTime12}) coincide con la pausa para el almuerzo (${formatMinutesTo12H(lStart)} - ${formatMinutesTo12H(lEnd)}).`,
+        reason: `${tModals.lunchBreakReason} (${formatMinutesTo12H(lStart)} - ${formatMinutesTo12H(lEnd)})`,
         formattedTime12,
         formattedTime24
       };
@@ -422,20 +429,11 @@ export function validateCustomAppointmentTime({
     const fallsInAfternoon = startMins >= aStart && endMins <= aEnd;
 
     if (!fallsInMorning && !fallsInAfternoon) {
-      let detail = `Horarios de atención: Mañana (${formatMinutesTo12H(mStart)} - ${formatMinutesTo12H(mEnd)}) y Tarde (${formatMinutesTo12H(aStart)} - ${formatMinutesTo12H(aEnd)}).`;
-      if (startMins < mStart) {
-        detail = `El salón abre a las ${formatMinutesTo12H(mStart)}.`;
-      } else if (startMins >= mEnd && startMins < aStart) {
-        detail = `Pausa de almuerzo entre ${formatMinutesTo12H(mEnd)} y ${formatMinutesTo12H(aStart)}.`;
-      } else if (endMins > aEnd) {
-        detail = `El servicio dura ${duration} min y superaría el horario de cierre (${formatMinutesTo12H(aEnd)}).`;
-      }
-
       return {
         isValid: false,
         isOutsideHours: true,
         isConflict: false,
-        reason: `El horario seleccionado (${formattedTime12}) está fuera de la jornada de atención. ${detail}`,
+        reason: `${tModals.outsideHoursReason} (${formattedTime12})`,
         formattedTime12,
         formattedTime24
       };
@@ -449,7 +447,7 @@ export function validateCustomAppointmentTime({
         isValid: false,
         isOutsideHours: true,
         isConflict: false,
-        reason: `El horario seleccionado (${formattedTime12}) está fuera de la jornada de atención (${formatMinutesTo12H(openMins)} a ${formatMinutesTo12H(closeMins)}).`,
+        reason: `${tModals.outsideHoursReason} (${formatMinutesTo12H(openMins)} - ${formatMinutesTo12H(closeMins)})`,
         formattedTime12,
         formattedTime24
       };
@@ -505,7 +503,7 @@ export function validateCustomAppointmentTime({
       isValid: false,
       isOutsideHours: false,
       isConflict: true,
-      reason: `El estilista seleccionado ya tiene una cita agendada en este horario.`,
+      reason: tModals.slotFullReason,
       formattedTime12,
       formattedTime24
     };
@@ -516,7 +514,7 @@ export function validateCustomAppointmentTime({
       isValid: false,
       isOutsideHours: false,
       isConflict: true,
-      reason: `Capacidad máxima del salón alcanzada para las ${formattedTime12} (${overlappingCount} de ${capacityLimit} cupos ocupados).`,
+      reason: `${tModals.slotFullReason} (${overlappingCount}/${capacityLimit})`,
       formattedTime12,
       formattedTime24
     };
@@ -544,7 +542,8 @@ export function validateSlotAvailability(
     timeStr: options.time,
     serviceDurationMin: options.serviceDurationMin,
     existingAppointments: options.existingAppointments,
-    selectedGroomer: options.selectedGroomer
+    selectedGroomer: options.selectedGroomer,
+    lang: options.lang
   });
 
   if (!customCheck.isValid) {

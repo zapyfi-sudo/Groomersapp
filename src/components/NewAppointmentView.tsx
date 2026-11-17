@@ -4,6 +4,13 @@ import { formatDateSpanish, compressImage } from '../utils/storage';
 import { formatPrice } from '../utils/priceUtils';
 import { TimeSelectPicker } from './TimeSelectPicker';
 import { validateCustomAppointmentTime } from '../utils/scheduleUtils';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import {
+  formatDisplayDate,
+  formatTemplate,
+  getLocaleForLanguage,
+  translateSizeLabel
+} from '../utils/i18n/helpers';
 
 interface NewAppointmentViewProps {
   onClose: () => void;
@@ -30,6 +37,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   initialPet,
   initialDate
 }) => {
+  const { t, lang } = useTranslation();
+  const mt = t.modals;
+  const ct = t.common;
+
   const currency = salonConfig?.currency || 'ARS';
 
   // Real configured services
@@ -101,6 +112,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
   const activeDayLetters = salonConfig?.activeDays || ['L', 'M', 'X', 'J', 'V', 'S'];
 
   const availableDates = useMemo(() => {
+    const dateLocale = getLocaleForLanguage(lang);
     const dates = [];
     for (let i = 0; i < 21; i++) {
       const d = new Date(today);
@@ -113,14 +125,14 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
         dateObj: d,
         formatted,
         dayNum: d.getDate(),
-        monthShort: d.toLocaleDateString('es-ES', { month: 'short' }),
-        weekdayShort: d.toLocaleDateString('es-ES', { weekday: 'short' }),
+        monthShort: d.toLocaleDateString(dateLocale, { month: 'short' }),
+        weekdayShort: d.toLocaleDateString(dateLocale, { weekday: 'short' }),
         isToday: i === 0,
         isWorkingDay
       });
     }
     return dates;
-  }, [today, activeDayLetters]);
+  }, [today, activeDayLetters, lang]);
 
   const defaultSelectedDate = useMemo(() => {
     if (initialDate) {
@@ -218,9 +230,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       selectedDate,
       timeStr: customTimeVal,
       serviceDurationMin: activeService?.durationMin || 60,
-      existingAppointments
+      existingAppointments,
+      lang
     });
-  }, [salonConfig, selectedDate, customTimeVal, activeService, existingAppointments]);
+  }, [salonConfig, selectedDate, customTimeVal, activeService, existingAppointments, lang]);
 
   React.useEffect(() => {
     const firstAvail = timeSlots.find((s) => s.available);
@@ -298,38 +311,38 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
     }
 
     if (!activeService) {
-      setFormError('Por favor selecciona un servicio.');
+      setFormError(mt.errSelectService);
       return;
     }
     if (!selectedDate) {
-      setFormError('Por favor selecciona una fecha.');
+      setFormError(mt.errSelectDate);
       return;
     }
 
     const effectiveTime = isCustomTime ? customValidation.formattedTime12 : selectedTime;
 
     if (!effectiveTime) {
-      setFormError('Por favor selecciona un horario disponible.');
+      setFormError(mt.errSelectTime);
       return;
     }
     if (isCustomTime && !customValidation.isValid) {
-      setFormError(customValidation.reason || 'El horario personalizado no está dentro de la jornada de atención del salón.');
+      setFormError(customValidation.reason || mt.errInvalidCustomTime);
       return;
     }
     if (!tutorName.trim()) {
-      setFormError('Por favor ingresa el nombre del tutor.');
+      setFormError(mt.errMissingTutor);
       return;
     }
     if (!whatsappPhone.trim()) {
-      setFormError('Por favor ingresa el teléfono / WhatsApp de contacto.');
+      setFormError(mt.errMissingPhone);
       return;
     }
     if (!petName.trim()) {
-      setFormError('Por favor ingresa el nombre de la mascota.');
+      setFormError(mt.errMissingPet);
       return;
     }
     if (!breed.trim()) {
-      setFormError('Por favor ingresa la raza de la mascota.');
+      setFormError(mt.errMissingBreed);
       return;
     }
 
@@ -405,7 +418,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
     try {
       const res = await onAppointmentCreated(newApt, newPetData);
       if (res === false) {
-        setFormError('Hubo un error al guardar la cita en la base de datos persistente. Por favor, intenta de nuevo.');
+        setFormError(mt.errSaveDb);
         setIsSubmitting(false);
         isSubmittingRef.current = false;
       } else {
@@ -416,7 +429,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
       }
     } catch (err) {
       console.error('Error al guardar cita interna:', err);
-      setFormError('No se pudo guardar la cita de forma persistente. Intente nuevamente.');
+      setFormError(mt.errSaveDb);
       setIsSubmitting(false);
       isSubmittingRef.current = false;
     }
@@ -433,10 +446,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
             </div>
             <div className="min-w-0">
               <h3 className="font-extrabold text-base leading-tight text-white truncate">
-                Nueva cita
+                {t.agenda.newAppointment}
               </h3>
               <p className="text-xs text-[#e3e0f1] truncate">
-                Agendar turno y registrar información en agenda
+                {mt.newAppointmentSubtitle}
               </p>
             </div>
           </div>
@@ -445,7 +458,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
             type="button"
             onClick={onClose}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 active:scale-95 text-white/90 hover:text-white cursor-pointer shrink-0"
-            title="Cerrar"
+            title={ct.close}
           >
             <span className="material-symbols-outlined text-xl">close</span>
           </button>
@@ -467,7 +480,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-[#4c4451] flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-sm text-[#4b0878]">pets</span>
-                    <span>¿Es una mascota ya registrada en el salón? (Opcional)</span>
+                    <span>{mt.registeredPetPrompt}</span>
                   </label>
                   {selectedExistingPetId && (
                     <button
@@ -482,7 +495,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                       }}
                       className="text-xs text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                     >
-                      Limpiar selección
+                      {mt.clearSelection}
                     </button>
                   )}
                 </div>
@@ -500,10 +513,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                   }}
                   className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] cursor-pointer"
                 >
-                  <option value="">-- Seleccionar cliente / mascota existente --</option>
+                  <option value="">{mt.selectExistingPetOpt}</option>
                   {existingPets.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} ({p.breed}) - Tutor: {p.tutor.name} ({p.tutor.phone})
+                      {p.name} ({p.breed}) - {ct.tutor}: {p.tutor.name} ({p.tutor.phone})
                     </option>
                   ))}
                 </select>
@@ -511,7 +524,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                 {matchedExistingPet && (
                   <div className="flex items-center gap-2 text-xs font-bold text-emerald-700 pt-1">
                     <span className="material-symbols-outlined text-sm">check_circle</span>
-                    <span>Mascota vinculada: {matchedExistingPet.name} (ID {matchedExistingPet.id})</span>
+                    <span>{formatTemplate(mt.linkedPetBadge, { name: matchedExistingPet.name, id: matchedExistingPet.id })}</span>
                   </div>
                 )}
               </div>
@@ -524,13 +537,13 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                   1
                 </span>
                 <h4 className="font-extrabold text-sm text-[#1a1a26]">
-                  Selecciona el servicio
+                  {mt.step1Service}
                 </h4>
               </div>
 
               {services.length === 0 ? (
                 <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 text-xs text-[#7e7482] text-center">
-                  No hay servicios configurados actualmente en el salón.
+                  {t.settings.noServicesConfigured}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -566,7 +579,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                         </div>
                         <span className="text-[10px] text-[#7e7482] font-semibold flex items-center gap-1">
                           <span className="material-symbols-outlined text-xs">schedule</span>
-                          {svc.durationMin} min
+                          {svc.durationMin} {ct.minutesShort}
                         </span>
                       </div>
                     );
@@ -578,15 +591,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               {activeService?.pricingType === 'tamano' && (
                 <div className="p-3 bg-[#f5f2ff] rounded-2xl border border-[#cfc2d2]/40 space-y-2">
                   <span className="text-xs font-bold text-[#4c4451] block">
-                    Tarifa según tamaño de la mascota:
+                    {mt.sizeTariffLabel}
                   </span>
                   <div className="grid grid-cols-3 gap-2 text-xs">
                     {(['pequeno', 'mediano', 'grande'] as const).map((sz) => {
-                      const labels = {
-                        pequeno: 'Pequeño',
-                        mediano: 'Mediano',
-                        grande: 'Grande'
-                      };
                       const priceForSize = activeService.priceBySize?.[sz] || activeService.price;
                       return (
                         <button
@@ -599,7 +607,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                               : 'bg-white text-[#4c4451] border border-[#cfc2d2]/30 hover:bg-gray-50'
                           }`}
                         >
-                          <span className="block text-[11px]">{labels[sz]}</span>
+                          <span className="block text-[11px]">{translateSizeLabel(sz, lang)}</span>
                           <span className="block text-[10px] opacity-90 mt-0.5">
                             {formatPrice(priceForSize, currency, { includeCode: true })}
                           </span>
@@ -618,7 +626,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                   2
                 </span>
                 <h4 className="font-extrabold text-sm text-[#1a1a26]">
-                  Selecciona el día
+                  {mt.step2Day}
                 </h4>
               </div>
 
@@ -650,7 +658,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                         {item.dayNum}
                       </span>
                       <span className="block text-[10px] opacity-80">
-                        {item.isWorkingDay ? item.monthShort : 'Cerrado'}
+                        {item.isWorkingDay ? item.monthShort : ct.closedLabel}
                       </span>
                     </button>
                   );
@@ -666,13 +674,13 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                     3
                   </span>
                   <h4 className="font-extrabold text-sm text-[#1a1a26]">
-                    Horarios disponibles ({selectedDate})
+                    {formatTemplate(mt.step3Times, { date: formatDisplayDate(selectedDate, lang) || selectedDate })}
                   </h4>
                 </div>
                 {isCustomTime && (
                   <span className="text-[11px] font-bold text-[#4b0878] bg-[#f5f2ff] px-2 py-0.5 rounded-full border border-[#cfc2d2]/40 flex items-center gap-1">
                     <span className="material-symbols-outlined text-xs">edit_calendar</span>
-                    <span>Modo personalizado</span>
+                    <span>{mt.customModeBadge}</span>
                   </span>
                 )}
               </div>
@@ -699,7 +707,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                           : 'bg-white text-[#1a1a26] border border-[#cfc2d2]/40 hover:bg-[#f5f2ff] cursor-pointer'
                       }`}
                     >
-                      {slot.time} hs
+                      {slot.time} {ct.hoursUnit}
                     </button>
                   );
                 })}
@@ -713,16 +721,16 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                       ? 'bg-[#2e004e] text-white shadow-xs ring-2 ring-[#2e004e]/20'
                       : 'bg-white text-[#4b0878] border border-dashed border-[#4b0878]/60 hover:bg-[#f5f2ff]'
                   }`}
-                  title="Elegir hora y minutos específicos (ej: 9:15 AM, 4:20 PM)"
+                  title={mt.customTimeHint}
                 >
                   <span className="material-symbols-outlined text-sm">schedule</span>
-                  <span>Personalizado</span>
+                  <span>{mt.customBtn}</span>
                 </button>
               </div>
 
               {timeSlots.length === 0 && !isCustomTime && (
                 <div className="p-3 bg-gray-50 rounded-2xl border border-dashed border-gray-300 text-xs text-[#7e7482] text-center">
-                  No hay intervalos automáticos disponibles para este día según el horario de atención. Puedes pulsar en <strong>Personalizado</strong> para seleccionar una hora exacta.
+                  {mt.noAutoSlotsMsg}
                 </div>
               )}
 
@@ -733,10 +741,10 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                     <div>
                       <h5 className="font-extrabold text-xs text-[#2e004e] flex items-center gap-1.5">
                         <span className="material-symbols-outlined text-sm text-[#4b0878]">edit_calendar</span>
-                        <span>Horario personalizado para la cita:</span>
+                        <span>{mt.customTimeTitle}</span>
                       </h5>
                       <p className="text-[11px] text-[#7e7482]">
-                        Selecciona la hora, los minutos exactos (00 a 59) y el período AM/PM.
+                        {mt.customTimeHint}
                       </p>
                     </div>
 
@@ -755,14 +763,14 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                     <div className="p-3 bg-rose-50 border border-rose-200 text-rose-800 text-xs rounded-xl font-medium flex items-start gap-2 leading-relaxed">
                       <span className="material-symbols-outlined text-base text-rose-600 shrink-0 mt-0.5">warning</span>
                       <div>
-                        <strong className="block font-bold text-rose-900">Horario no disponible:</strong>
+                        <strong className="block font-bold text-rose-900">{mt.timeUnavailableTitle}</strong>
                         <span>{customValidation.reason}</span>
                       </div>
                     </div>
                   ) : (
                     <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl font-bold flex items-center gap-2">
                       <span className="material-symbols-outlined text-base text-emerald-600 shrink-0">check_circle</span>
-                      <span>Horario válido: dentro de la jornada de atención del salón y con cupo disponible.</span>
+                      <span>{mt.timeValidNotice}</span>
                     </div>
                   )}
                 </div>
@@ -776,7 +784,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                   4
                 </span>
                 <h4 className="font-extrabold text-sm text-[#1a1a26]">
-                  Datos del tutor y de la mascota
+                  {mt.step4Details}
                 </h4>
               </div>
 
@@ -784,28 +792,28 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Nombre del tutor *
+                    {mt.tutorNameLabel}
                   </label>
                   <input
                     type="text"
                     required
                     value={tutorName}
                     onChange={(e) => setTutorName(e.target.value)}
-                    placeholder="Ej: Ana Gómez"
+                    placeholder={t.publicBooking.tutorNamePlaceholder}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Teléfono / WhatsApp de contacto *
+                    {mt.tutorPhoneLabel} *
                   </label>
                   <input
                     type="tel"
                     required
                     value={whatsappPhone}
                     onChange={(e) => setWhatsappPhone(e.target.value)}
-                    placeholder="Ej: +54 9 11 5566-7788"
+                    placeholder={t.publicBooking.whatsappPlaceholder}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
@@ -815,28 +823,28 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Nombre de la mascota *
+                    {mt.petNameLabel}
                   </label>
                   <input
                     type="text"
                     required
                     value={petName}
                     onChange={(e) => setPetName(e.target.value)}
-                    placeholder="Ej: Toby"
+                    placeholder={t.publicBooking.petNamePlaceholder}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Raza *
+                    {mt.petBreedLabel}
                   </label>
                   <input
                     type="text"
                     required
                     value={breed}
                     onChange={(e) => setBreed(e.target.value)}
-                    placeholder="Ej: Caniche / Golden / Mestizo"
+                    placeholder={t.publicBooking.petBreedPlaceholder}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
@@ -845,25 +853,21 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               {/* Requirement #2: Tamaño de la mascota (Pequeño, Mediano, Grande) */}
               <div>
                 <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                  Tamaño de la mascota *
+                  {mt.petSizeLabel} *
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'pequeno', label: 'Pequeño' },
-                    { id: 'mediano', label: 'Mediano' },
-                    { id: 'grande', label: 'Grande' }
-                  ].map((sz) => (
+                  {(['pequeno', 'mediano', 'grande'] as const).map((sz) => (
                     <button
-                      key={sz.id}
+                      key={sz}
                       type="button"
-                      onClick={() => setSelectedDogSize(sz.id as 'pequeno' | 'mediano' | 'grande')}
+                      onClick={() => setSelectedDogSize(sz)}
                       className={`py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        selectedDogSize === sz.id
+                        selectedDogSize === sz
                           ? 'bg-[#2e004e] text-white shadow-xs'
                           : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
                       }`}
                     >
-                      {sz.label}
+                      {translateSizeLabel(sz, lang)}
                     </button>
                   ))}
                 </div>
@@ -873,34 +877,34 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Edad de la mascota
+                    {t.publicBooking.ageFieldLabel}
                   </label>
                   <input
                     type="text"
                     value={age}
                     onChange={(e) => setAge(e.target.value)}
-                    placeholder="Ej: 2 años / 8 meses"
+                    placeholder={t.publicBooking.ageFieldPlaceholder}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Sexo
+                    {mt.petGenderLabel}
                   </label>
                   <select
                     value={gender}
                     onChange={(e) => setGender(e.target.value as 'Macho' | 'Hembra')}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] cursor-pointer"
                   >
-                    <option value="Macho">Macho ♂</option>
-                    <option value="Hembra">Hembra ♀</option>
+                    <option value="Macho">{ct.male} ♂</option>
+                    <option value="Hembra">{ct.female} ♀</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Peso aproximado (kg)
+                    {t.publicBooking.weightFieldLabel}
                   </label>
                   <div className="relative">
                     <input
@@ -925,7 +929,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-[#4c4451] flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-sm text-[#2e004e]">photo_camera</span>
-                    <span>Fotografía de la mascota (Perfil / Identificación)</span>
+                    <span>{mt.petPhotoTitle}</span>
                   </label>
                   {petPhoto && (
                     <button
@@ -933,23 +937,23 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                       onClick={() => setPetPhoto('')}
                       className="text-xs text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                     >
-                      Quitar foto
+                      {ct.removePhoto}
                     </button>
                   )}
                 </div>
 
                 <p className="text-[11px] text-[#7e7482] leading-tight">
-                  Toma una foto con la cámara o selecciona una imagen desde la galería. Quedará guardada de forma persistente en la ficha de Clientes.
+                  {mt.petPhotoDesc}
                 </p>
 
                 {petPhoto ? (
                   <div className="flex items-center gap-3 pt-1">
                     <div className="w-20 h-20 rounded-xl overflow-hidden border border-[#cfc2d2]/60 bg-gray-100 shrink-0 shadow-xs">
-                      <img src={petPhoto} alt="Foto mascota" className="w-full h-full object-cover" />
+                      <img src={petPhoto} alt={ct.pet} className="w-full h-full object-cover" />
                     </div>
                     <div className="text-xs text-emerald-700 font-semibold flex items-center gap-1">
                       <span className="material-symbols-outlined text-base">check_circle</span>
-                      <span>Foto adjuntada correctamente</span>
+                      <span>{mt.photoAttachedOk}</span>
                     </div>
                   </div>
                 ) : (
@@ -957,7 +961,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                     {/* Tomar foto con cámara */}
                     <label className="flex-1 py-2.5 px-3 bg-[#fcf8ff] hover:bg-[#f5f2ff] border border-dashed border-[#cfc2d2] hover:border-[#2e004e] rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#2e004e] cursor-pointer transition-all active:scale-98">
                       <span className="material-symbols-outlined text-base">photo_camera</span>
-                      <span>Tomar foto</span>
+                      <span>{mt.takePhotoOption}</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -983,7 +987,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                     {/* Elegir de galería */}
                     <label className="flex-1 py-2.5 px-3 bg-[#fcf8ff] hover:bg-[#f5f2ff] border border-dashed border-[#cfc2d2] hover:border-[#2e004e] rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#4c4451] cursor-pointer transition-all active:scale-98">
                       <span className="material-symbols-outlined text-base">photo_library</span>
-                      <span>Elegir de galería</span>
+                      <span>{mt.uploadFromGallery}</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -1009,7 +1013,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
 
                 {isPhotoCompressing && (
                   <p className="text-[11px] text-[#4b0878] font-bold animate-pulse">
-                    Procesando fotografía...
+                    {mt.processingPhoto}
                   </p>
                 )}
               </div>
@@ -1017,13 +1021,13 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               {/* Requirement #3: Exactamente 3 opciones de Comportamiento Habitual */}
               <div>
                 <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                  Comportamiento habitual en la peluquería *
+                  {mt.habitualMoodQuestion}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
                   {[
-                    { id: 'tranquilo', label: '🟢 Tranquilo' },
-                    { id: 'inquieto', label: '🟡 Inquieto' },
-                    { id: 'dificil', label: '🔴 Difícil' }
+                    { id: 'tranquilo', label: `🟢 ${t.statuses.moodCalm}` },
+                    { id: 'inquieto', label: `🟡 ${t.statuses.moodRestless}` },
+                    { id: 'dificil', label: `🔴 ${t.statuses.moodDifficult}` }
                   ].map((m) => (
                     <button
                       key={m.id}
@@ -1045,26 +1049,26 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Salud, alergias o piel sensible (opcional)
+                    {t.publicBooking.notesLabel}
                   </label>
                   <input
                     type="text"
                     value={healthNotes}
                     onChange={(e) => setHealthNotes(e.target.value)}
-                    placeholder="Ej: Champú hipoalergénico / piel sensible"
+                    placeholder={t.publicBooking.notesPlaceholder}
                     className="w-full bg-white text-xs px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Observaciones de manejo (opcional)
+                    {t.petProfile.handlingNotes} ({ct.optional})
                   </label>
                   <input
                     type="text"
                     value={handlingNotes}
                     onChange={(e) => setHandlingNotes(e.target.value)}
-                    placeholder="Ej: Cuidado con pata trasera / secador suave"
+                    placeholder={mt.handlingObsPlaceholder}
                     className="w-full bg-white text-xs px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
@@ -1077,7 +1081,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                 <div className="flex items-center justify-between">
                   <h4 className="font-extrabold text-xs text-[#2e004e] flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-sm">medication</span>
-                    <span>Medicamentos o productos adicionales durante el turno</span>
+                    <span>{mt.medicationsSectionTitle}</span>
                   </h4>
                 </div>
 
@@ -1124,7 +1128,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
             {/* Total & Submit Button */}
             <div className="pt-3 border-t border-[#cfc2d2]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <span className="text-xs text-[#7e7482] block font-semibold">Total a abonar en el salón:</span>
+                <span className="text-xs text-[#7e7482] block font-semibold">{mt.totalToPaySalon}</span>
                 <strong className="text-xl font-black text-[#2e004e]">
                   {formatPrice(totalPrice, currency, { includeCode: true })}
                 </strong>
@@ -1138,7 +1142,7 @@ export const NewAppointmentView: React.FC<NewAppointmentViewProps> = ({
                 <span className={`material-symbols-outlined font-black ${isSubmitting ? 'animate-spin' : ''}`}>
                   {isSubmitting ? 'progress_activity' : 'event_available'}
                 </span>
-                <span>{isSubmitting ? 'Agendando turno...' : 'Confirmar Cita'}</span>
+                <span>{isSubmitting ? mt.schedulingSlot : mt.confirmAptBtn}</span>
               </button>
             </div>
           </form>

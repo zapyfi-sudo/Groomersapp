@@ -1,5 +1,6 @@
 import React from 'react';
 import { StaffScheduleConfig } from '../types';
+import { useTranslation } from '../utils/i18n/I18nContext';
 
 interface StaffShiftScheduleManagerProps {
   schedule: StaffScheduleConfig;
@@ -10,6 +11,10 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
   schedule,
   onChangeSchedule
 }) => {
+  const { t } = useTranslation();
+  const mt = t.managers;
+  const st = t.settings;
+
   const updateShift = (
     shiftKey: keyof StaffScheduleConfig,
     field: 'start' | 'end',
@@ -30,8 +35,8 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined text-[#4b0878] text-base">nest_clock_farsight_analog</span>
           <div>
-            <h4 className="text-xs font-bold text-[#1a1a26]">Turnos y Horarios de Trabajo del Personal</h4>
-            <p className="text-[11px] text-[#7e7482]">Configura las franjas horarias exactas que cumple tu equipo</p>
+            <h4 className="text-xs font-bold text-[#1a1a26]">{mt.staffShiftsTitle}</h4>
+            <p className="text-[11px] text-[#7e7482]">{mt.shiftScheduleDesc}</p>
           </div>
         </div>
       </div>
@@ -41,12 +46,12 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
         <div className="bg-white p-3 rounded-xl border border-[#cfc2d2]/30 space-y-2 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black text-[#2e004e] flex items-center gap-1">
-              <span>☀️🌙</span> Todo el día
+              <span>☀️🌙</span> {st.shiftAllDay}
             </span>
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[#7e7482]">Desde:</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.startLabel}:</span>
               <input
                 type="text"
                 value={schedule.allDay.start}
@@ -56,7 +61,7 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[#7e7482]">Hasta:</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.endLabel}:</span>
               <input
                 type="text"
                 value={schedule.allDay.end}
@@ -72,12 +77,12 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
         <div className="bg-white p-3 rounded-xl border border-[#cfc2d2]/30 space-y-2 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black text-[#7a5900] flex items-center gap-1">
-              <span>☀️</span> Solo mañana
+              <span>☀️</span> {st.shiftMorningOnly}
             </span>
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[#7e7482]">Desde:</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.startLabel}:</span>
               <input
                 type="text"
                 value={schedule.morning.start}
@@ -87,7 +92,7 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[#7e7482]">Hasta:</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.endLabel}:</span>
               <input
                 type="text"
                 value={schedule.morning.end}
@@ -103,12 +108,12 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
         <div className="bg-white p-3 rounded-xl border border-[#cfc2d2]/30 space-y-2 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-xs font-black text-[#4b0878] flex items-center gap-1">
-              <span>🌙</span> Solo en la tarde
+              <span>🌙</span> {st.shiftAfternoonOnly}
             </span>
           </div>
           <div className="space-y-1.5 text-xs">
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[#7e7482]">Desde:</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.startLabel}:</span>
               <input
                 type="text"
                 value={schedule.afternoon.start}
@@ -118,7 +123,7 @@ export const StaffShiftScheduleManager: React.FC<StaffShiftScheduleManagerProps>
               />
             </div>
             <div className="flex items-center justify-between">
-              <span className="text-[11px] text-[#7e7482]">Hasta:</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.endLabel}:</span>
               <input
                 type="text"
                 value={schedule.afternoon.end}

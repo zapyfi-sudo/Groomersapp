@@ -1,6 +1,6 @@
 import React from 'react';
 import { HOTLINK_IMAGES } from '../mockData';
-import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { AppLanguage, getTranslations, useTranslation } from '../utils/i18n';
 import { UserAccount } from '../types';
 
 interface HeaderProps {
@@ -22,11 +22,11 @@ export const Header: React.FC<HeaderProps> = ({
   logoUrl,
   urgentCount = 0,
   inSalonCount = 0,
-  currentLanguage = 'es-LA',
-  activeAccount,
+  currentLanguage,
   onOpenAccountModal
 }) => {
-  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+  const { lang: ctxLang, t: ctxT } = useTranslation();
+  const t = currentLanguage && currentLanguage !== ctxLang ? getTranslations(currentLanguage) : ctxT;
 
   return (
     <>
@@ -48,7 +48,7 @@ export const Header: React.FC<HeaderProps> = ({
                 {salonName}
               </h1>
               <span className="text-[10px] text-[#f9b900] font-bold uppercase tracking-wider block">
-                SISTEMA DE GESTIÓN CANINA
+                {t.nav.systemSubtitle}
               </span>
             </div>
           </div>
@@ -66,7 +66,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">calendar_month</span>
-              <span>{t.agenda}</span>
+              <span>{t.nav.agenda}</span>
             </button>
 
             {/* 2. En salón */}
@@ -80,7 +80,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">storefront</span>
-              <span>{t.inSalonNav || 'En salón'}</span>
+              <span>{t.nav.inSalonNav}</span>
               {inSalonCount > 0 && (
                 <span className="bg-[#2e004e] text-[#f9b900] text-[10px] px-1.5 rounded-full font-black">
                   {inSalonCount}
@@ -99,7 +99,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">pets</span>
-              <span>{t.clients}</span>
+              <span>{t.nav.clients}</span>
             </button>
 
             {/* 4. Por volver */}
@@ -113,7 +113,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">sync</span>
-              <span>{t.retention}</span>
+              <span>{t.nav.retention}</span>
               {urgentCount > 0 && (
                 <span className="bg-[#2e004e] text-[#f9b900] text-[10px] px-1.5 rounded-full font-black">
                   {urgentCount}
@@ -132,7 +132,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <span className="material-symbols-outlined text-base">tune</span>
-              <span>{t.settings}</span>
+              <span>{t.nav.settings}</span>
             </button>
           </nav>
 
@@ -141,11 +141,11 @@ export const Header: React.FC<HeaderProps> = ({
             <button
               type="button"
               onClick={onOpenAccountModal}
-              title="Gestionar Cuentas y Negocios"
+              title={t.nav.manageAccounts}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-bold transition-all cursor-pointer border border-white/10 active:scale-95"
             >
               <span className="material-symbols-outlined text-base text-[#f9b900]">manage_accounts</span>
-              <span>Gestionar cuentas</span>
+              <span>{t.nav.manageAccounts}</span>
             </button>
           </div>
         </div>

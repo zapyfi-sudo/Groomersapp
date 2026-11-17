@@ -1,6 +1,15 @@
 import { jsPDF } from 'jspdf';
 import { Pet, Visit, SalonConfig } from '../types';
 import { formatPrice } from './priceUtils';
+import {
+  AppLanguage,
+  formatDisplayDate,
+  getLocaleForLanguage,
+  getTranslations,
+  resolveAppLanguage,
+  translateGenderLabel,
+  translateMoodLabel
+} from './translations';
 
 /**
  * Strips technical IDs, hashtags and database identifiers from display names
@@ -14,31 +23,13 @@ export function cleanPetDisplayName(name?: string): string {
 }
 
 /**
- * Formats delivery date nicely in Spanish (e.g. "17 de octubre de 2026")
+ * Formats delivery date nicely in the active language
  */
-export function formatDeliveryDate(dateStr?: string): string {
+export function formatDeliveryDate(dateStr?: string, lang: AppLanguage = 'es-LA'): string {
   if (!dateStr || typeof dateStr !== 'string') return '';
   const trimmed = dateStr.trim();
   if (!trimmed) return '';
-  if (trimmed.includes(' de ')) return trimmed;
-  const match = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (match) {
-    const d = new Date(Number(match[1]), Number(match[2]) - 1, Number(match[3]), 12, 0, 0);
-    return d.toLocaleDateString('es-ES', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
-  }
-  const d = new Date(trimmed);
-  if (!isNaN(d.getTime())) {
-    return d.toLocaleDateString('es-ES', {
-      day: 'numeric',
-      month: 'long',
-      year: 'numeric'
-    });
-  }
-  return trimmed;
+  return formatDisplayDate(trimmed, lang) || trimmed;
 }
 
 /**
@@ -48,7 +39,6 @@ export function formatDeliveryDate(dateStr?: string): string {
 async function loadImageDataUrl(url?: string): Promise<string | null> {
   if (!url || typeof url !== 'string' || !url.trim()) return null;
 
-  // Already a data URL
   if (url.startsWith('data:image/')) {
     return url;
   }
@@ -75,7 +65,6 @@ async function loadImageDataUrl(url?: string): Promise<string | null> {
         }
       };
       img.onerror = () => resolve(null);
-      // Timeout fallback after 3 seconds
       setTimeout(() => resolve(null), 3000);
       img.src = url;
     } catch {
@@ -89,18 +78,20 @@ export interface GeneratePdfOptions {
   visit: Visit;
   salonConfig?: SalonConfig;
   nextVisitDateStr?: string;
+  language?: AppLanguage;
 }
 
-/**
- * Generates and downloads a clean, professional PDF service sheet
- * with pet details, performed services, before & after photos, and return recommendations.
- */
 export async function generatePetReportPdf({
   pet,
   visit,
   salonConfig,
-  nextVisitDateStr
+  nextVisitDateStr,
+  language
 }: GeneratePdfOptions): Promise<{ doc: jsPDF; filename: string; blob: Blob }> {
+  const lang = resolveAppLanguage(language || salonConfig?.language);
+  const t = getTranslations(lang);
+  const locale = getLocaleForLanguage(lang);
+
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -112,31 +103,26 @@ export async function generatePetReportPdf({
   const margin = 14;
   const contentWidth = pageWidth - margin * 2;
 
-  // Colors
-  const purplePrimary: [number, number, number] = [46, 0, 78]; // #2e004e
-  const purpleMedium: [number, number, number] = [75, 8, 120]; // #4b0878
-  const goldAccent: [number, number, number] = [249, 185, 0]; // #f9b900
-  const textDark: [number, number, number] = [26, 26, 38]; // #1a1a26
+  const purplePrimary: [number, number, number] = [46, 0, 78];
+  const purpleMedium: [number, number, number] = [75, 8, 120];
+  const goldAccent: [number, number, number] = [249, 185, 0];
+  const textDark: [number, number, number] = [26, 26, 38];
   const textMuted: [number, number, number] = [100, 95, 110];
   const bgLight: [number, number, number] = [250, 248, 253];
   const borderLight: [number, number, number] = [225, 218, 230];
 
-  // 1. Preload images
   const [logoData, beforeData, afterData] = await Promise.all([
     loadImageDataUrl(salonConfig?.logoUrl),
     loadImageDataUrl(visit.photos?.beforeUrl),
     loadImageDataUrl(visit.photos?.afterUrl)
   ]);
 
-  // Header Background Banner
   doc.setFillColor(...purplePrimary);
   doc.rect(0, 0, pageWidth, 42, 'F');
 
-  // Gold accent strip
   doc.setFillColor(...goldAccent);
   doc.rect(0, 42, pageWidth, 2.5, 'F');
 
-  // Salon Logo or Icon
   let headerTextLeft = margin;
   if (logoData) {
     try {
@@ -147,8 +133,7 @@ export async function generatePetReportPdf({
     }
   }
 
-  // Salon Name & Contact (Lado izquierdo)
-  const salonName = salonConfig?.name || 'Peluquería Canina Luna';
+  const salonName = salonConfig?.name || 'AgendaCan';
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(15);
@@ -159,40 +144,34 @@ export async function generatePetReportPdf({
   doc.setTextColor(230, 225, 240);
 
   let leftY = 18.5;
-  // Dirección del negocio
   const addressText = [salonConfig?.address, salonConfig?.city].filter(Boolean).join(', ');
   if (addressText) {
     doc.text(addressText, headerTextLeft, leftY);
     leftY += 4.5;
   }
 
-  // 1. Número de contacto del negocio (Ajustes -> Configuración del negocio)
   const businessPhone = salonConfig?.phone
     ? `${salonConfig.phonePrefix ? salonConfig.phonePrefix + ' ' : ''}${salonConfig.phone}`
     : '';
   if (businessPhone) {
-    doc.text(`Tel. negocio: ${businessPhone}`, headerTextLeft, leftY);
+    doc.text(`${t.common.phone}: ${businessPhone}`, headerTextLeft, leftY);
     leftY += 4.5;
   }
 
-  // 2. Persona a cargo del servicio
   const serviceResponsible = visit.serviceResponsible || pet.serviceResponsible;
   if (serviceResponsible) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(255, 222, 161);
-    doc.text(`A cargo del servicio: ${serviceResponsible}`, headerTextLeft, leftY);
+    doc.text(`${t.pdf.stylistLabel} ${serviceResponsible}`, headerTextLeft, leftY);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(230, 225, 240);
   }
 
-  // Document Badge on top right (Lado derecho)
-  // 1. Fecha de entrega
-  // 2. Hora de entrega (Formato 12 horas AM / PM)
   const rawDeliveryDate = visit.deliveryDate || pet.deliveryDate;
-  const displayDeliveryDate = formatDeliveryDate(rawDeliveryDate) || visit.date || 'Hoy';
+  const displayDeliveryDate = formatDeliveryDate(rawDeliveryDate, lang) || formatDisplayDate(visit.date, lang) || t.common.today;
   const displayDeliveryTime = visit.deliveryTime || pet.deliveryTime;
 
-  const headerBadgeW = 62;
+  const headerBadgeW = 64;
   const headerBadgeH = displayDeliveryTime ? 26 : 20;
   const headerBadgeX = pageWidth - margin - headerBadgeW;
   const headerBadgeY = 8;
@@ -203,139 +182,125 @@ export async function generatePetReportPdf({
 
   doc.setTextColor(...purplePrimary);
   doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.text('FICHA DE ENTREGA', headerBadgeCenterX, headerBadgeY + 6.5, { align: 'center' });
+  doc.setFontSize(9);
+  doc.text(t.petProfile.deliverySection.toUpperCase().slice(0, 24), headerBadgeCenterX, headerBadgeY + 6.5, { align: 'center' });
 
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...textMuted);
-  doc.text(`Fecha: ${displayDeliveryDate}`, headerBadgeCenterX, headerBadgeY + 12.5, { align: 'center' });
+  doc.text(`${t.common.date}: ${displayDeliveryDate}`, headerBadgeCenterX, headerBadgeY + 12.5, { align: 'center' });
 
   if (displayDeliveryTime) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(7.5);
     doc.setTextColor(...purpleMedium);
-    doc.text(`Hora de entrega: ${displayDeliveryTime}`, headerBadgeCenterX, headerBadgeY + 18.5, { align: 'center' });
+    doc.text(`${t.common.time}: ${displayDeliveryTime}`, headerBadgeCenterX, headerBadgeY + 18.5, { align: 'center' });
   }
 
   let curY = 49;
 
-  // Section 1: Pet & Tutor Info Card (with Session Mood Traffic Light)
   const petDisplayName = cleanPetDisplayName(pet.name);
   doc.setFillColor(...bgLight);
   doc.setDrawColor(...borderLight);
   doc.roundedRect(margin, curY, contentWidth, 40, 3, 3, 'FD');
 
-  // Title of card
   doc.setTextColor(...purpleMedium);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text('DATOS DE LA MASCOTA Y DEL TUTOR', margin + 5, curY + 6.5);
+  doc.text(t.pdf.reportTitle.toUpperCase(), margin + 5, curY + 6.5);
 
-  // Line separator
   doc.setDrawColor(...borderLight);
   doc.line(margin + 5, curY + 8.5, margin + contentWidth - 5, curY + 8.5);
 
-  // Left col: Pet (Requirement #2: ONLY real name, NO technical identifiers like #pet-5959)
   doc.setFontSize(8.5);
   doc.setTextColor(...textMuted);
-  doc.text('Mascota:', margin + 5, curY + 14);
+  doc.text(`${t.common.pet}:`, margin + 5, curY + 14);
   doc.setTextColor(...textDark);
   doc.setFont('helvetica', 'bold');
-  doc.text(petDisplayName, margin + 24, curY + 14);
+  doc.text(petDisplayName, margin + 26, curY + 14);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...textMuted);
-  doc.text('Raza:', margin + 5, curY + 20);
+  doc.text(t.pdf.breedLabel, margin + 5, curY + 20);
   doc.setTextColor(...textDark);
-  doc.text(pet.breed || 'Mestizo', margin + 24, curY + 20);
+  doc.text(pet.breed || '-', margin + 26, curY + 20);
 
   doc.setTextColor(...textMuted);
-  doc.text('Edad / Sexo:', margin + 5, curY + 26);
+  doc.text(`${t.petProfile.ageLabel}:`, margin + 5, curY + 26);
   doc.setTextColor(...textDark);
-  doc.text(`${pet.age || '1 año'} • ${pet.gender || 'Macho'}`, margin + 24, curY + 26);
+  doc.text(`${pet.age || '-'} • ${translateGenderLabel(pet.gender, lang)}`, margin + 26, curY + 26);
 
   doc.setTextColor(...textMuted);
-  doc.text('Peso:', margin + 5, curY + 32);
+  doc.text(`${t.petProfile.weightLabel}:`, margin + 5, curY + 32);
   doc.setTextColor(...textDark);
   doc.setFont('helvetica', 'bold');
-  doc.text(`${pet.weightKg || 10} kg`, margin + 24, curY + 32);
+  doc.text(`${pet.weightKg || 10} kg`, margin + 26, curY + 32);
 
-  // Right col: Tutor & Session Mood (Requirement #1: Semáforo del comportamiento de la sesión)
   const midX = margin + contentWidth / 2 + 3;
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...textMuted);
-  doc.text('Tutor:', midX, curY + 14);
+  doc.text(t.pdf.tutorLabel, midX, curY + 14);
   doc.setTextColor(...textDark);
   doc.setFont('helvetica', 'bold');
-  doc.text(pet.tutor.name || 'Cliente', midX + 16, curY + 14);
+  doc.text(pet.tutor.name || '-', midX + 20, curY + 14);
 
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...textMuted);
-  doc.text('Teléfono:', midX, curY + 20);
+  doc.text(`${t.common.phone}:`, midX, curY + 20);
   doc.setTextColor(...textDark);
-  doc.text(pet.tutor.phone || 'No registrado', midX + 16, curY + 20);
+  doc.text(pet.tutor.phone || t.common.noData, midX + 20, curY + 20);
 
-  // SEMÁFORO DE COMPORTAMIENTO EN ESTA SESIÓN (Requirement #1)
   doc.setTextColor(...textMuted);
-  doc.text('Comportamiento:', midX, curY + 26);
+  doc.text(t.pdf.behaviorLabel, midX, curY + 26);
 
-  const sessionMood = visit.mood;
-  let moodLabel = 'Sin registrar';
+  const sessionMood = visit.mood || pet.habitualMood;
+  const moodLabel = sessionMood ? translateMoodLabel(sessionMood, lang) : t.common.noData;
   let dotColor: [number, number, number] = [150, 150, 160];
   let badgeBg: [number, number, number] = [240, 240, 245];
   let badgeTextColor: [number, number, number] = [90, 90, 100];
 
   if (sessionMood === 'tranquilo') {
-    moodLabel = 'Tranquilo';
-    dotColor = [22, 163, 74]; // Verde
+    dotColor = [22, 163, 74];
     badgeBg = [220, 252, 231];
     badgeTextColor = [21, 128, 61];
   } else if (sessionMood === 'inquieto') {
-    moodLabel = 'Inquieto';
-    dotColor = [217, 119, 6]; // Amarillo / Ámbar
+    dotColor = [217, 119, 6];
     badgeBg = [254, 243, 199];
     badgeTextColor = [180, 83, 9];
   } else if (sessionMood === 'dificil') {
-    moodLabel = 'Difícil';
-    dotColor = [220, 38, 38]; // Rojo
+    dotColor = [220, 38, 38];
     badgeBg = [254, 226, 226];
     badgeTextColor = [185, 28, 28];
   }
 
-  // Draw pill badge for traffic light
-  const badgeX = midX + 27;
+  const badgeX = midX + 29;
   const badgeY = curY + 22.2;
-  const badgeWidth = 27;
+  const badgeWidth = 28;
   const badgeHeight = 5.4;
   doc.setFillColor(...badgeBg);
   doc.setDrawColor(...dotColor);
   doc.roundedRect(badgeX, badgeY, badgeWidth, badgeHeight, 1.4, 1.4, 'FD');
 
-  // Traffic light circle
   doc.setFillColor(...dotColor);
   doc.circle(badgeX + 3.5, badgeY + badgeHeight / 2, 1.5, 'F');
 
-  // Badge text
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.5);
   doc.setTextColor(...badgeTextColor);
   doc.text(moodLabel, badgeX + 7.2, badgeY + 3.9);
 
-  // Salud / Piel si existe
   if (pet.healthAllergies && pet.healthAllergies !== 'Sin afecciones registradas.') {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8.5);
     doc.setTextColor(...textMuted);
-    doc.text('Piel / Salud:', midX, curY + 33);
+    doc.text(t.pdf.allergiesLabel, midX, curY + 33);
     doc.setTextColor(186, 26, 26);
     doc.setFont('helvetica', 'bold');
-    doc.text(pet.healthAllergies.slice(0, 38), midX + 20, curY + 33);
+    doc.text(pet.healthAllergies.slice(0, 34), midX + 28, curY + 33);
   }
 
   curY += 45;
 
-  // Section 2: Services Performed & Price
   doc.setFillColor(...bgLight);
   doc.setDrawColor(...borderLight);
   doc.roundedRect(margin, curY, contentWidth, 32, 3, 3, 'FD');
@@ -343,7 +308,7 @@ export async function generatePetReportPdf({
   doc.setTextColor(...purpleMedium);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text('SERVICIO REALIZADO E IMPORTE', margin + 5, curY + 6.5);
+  doc.text(t.pdf.servicePerformed.toUpperCase(), margin + 5, curY + 6.5);
 
   doc.setDrawColor(...borderLight);
   doc.line(margin + 5, curY + 8.5, margin + contentWidth - 5, curY + 8.5);
@@ -351,14 +316,13 @@ export async function generatePetReportPdf({
   doc.setFontSize(8.5);
   doc.setFont('helvetica', 'normal');
   doc.setTextColor(...textMuted);
-  doc.text('Servicio(s):', margin + 5, curY + 15);
+  doc.text(`${t.common.service}:`, margin + 5, curY + 15);
 
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(...textDark);
-  const fullServiceText = visit.serviceName || 'Baño + corte';
+  const fullServiceText = visit.serviceName || t.common.service;
   doc.text(fullServiceText, margin + 25, curY + 15);
 
-  // Price box
   const currency = visit.currency || salonConfig?.currency || 'USD';
   const priceFormatted = formatPrice(visit.price, currency, { includeCode: true });
   doc.setFillColor(...purplePrimary);
@@ -368,19 +332,17 @@ export async function generatePetReportPdf({
   doc.setFontSize(10);
   doc.text(priceFormatted, pageWidth - margin - 27.5, curY + 19, { align: 'center' });
 
-  // Session Notes
   if (visit.notes || pet.handlingObservations) {
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...textMuted);
-    doc.text('Notas sesión:', margin + 5, curY + 23);
+    doc.text(`${t.pdf.sessionNotesTitle}:`, margin + 5, curY + 23);
     doc.setTextColor(...textDark);
-    const obsText = visit.notes || pet.handlingObservations || 'Sin observaciones adicionales.';
-    doc.text(obsText.slice(0, 75), margin + 26, curY + 23);
+    const obsText = visit.notes || pet.handlingObservations || '';
+    doc.text(obsText.slice(0, 72), margin + 32, curY + 23);
   }
 
   curY += 37;
 
-  // Section 3: Before & After Photos (Requirement #3: Corregir posicionamiento y márgenes de etiquetas)
   doc.setFillColor(...bgLight);
   doc.setDrawColor(...borderLight);
   const photoCardHeight = 98;
@@ -389,7 +351,7 @@ export async function generatePetReportPdf({
   doc.setTextColor(...purpleMedium);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(10);
-  doc.text('REGISTRO FOTOGRÁFICO DEL SERVICIO', margin + 5, curY + 6.5);
+  doc.text(t.petProfile.servicePhotos.toUpperCase(), margin + 5, curY + 6.5);
 
   doc.setDrawColor(...borderLight);
   doc.line(margin + 5, curY + 8.5, margin + contentWidth - 5, curY + 8.5);
@@ -398,7 +360,6 @@ export async function generatePetReportPdf({
   const photoHeight = 72;
   const photoY = curY + 13;
 
-  // Left Photo: Antes
   const beforeX = margin + 5;
   doc.setFillColor(242, 238, 247);
   doc.setDrawColor(...borderLight);
@@ -411,26 +372,24 @@ export async function generatePetReportPdf({
       doc.setTextColor(...textMuted);
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(8.5);
-      doc.text('Fotografía no disponible', beforeX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
+      doc.text(t.common.noData, beforeX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
     }
   } else {
     doc.setTextColor(...textMuted);
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8.5);
-    doc.text('Sin fotografía de antes registrada', beforeX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
+    doc.text(t.common.noData, beforeX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
   }
 
-  // Label "ANTES DEL SERVICIO" (Requirement #3: margen interior adecuado, sin desbordamiento)
-  const beforeLabelWidth = 42;
+  const beforeLabelWidth = 44;
   const beforeLabelHeight = 6.4;
   doc.setFillColor(...purplePrimary);
   doc.roundedRect(beforeX + 3, photoY + 3, beforeLabelWidth, beforeLabelHeight, 1.4, 1.4, 'F');
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
-  doc.text('ANTES DEL SERVICIO', beforeX + 3 + beforeLabelWidth / 2, photoY + 3 + beforeLabelHeight / 2 + 1, { align: 'center' });
+  doc.text(t.pdf.beforePhotoLabel, beforeX + 3 + beforeLabelWidth / 2, photoY + 3 + beforeLabelHeight / 2 + 1, { align: 'center' });
 
-  // Right Photo: Después
   const afterX = margin + 5 + photoWidth + 6;
   doc.setFillColor(242, 238, 247);
   doc.setDrawColor(...borderLight);
@@ -443,38 +402,29 @@ export async function generatePetReportPdf({
       doc.setTextColor(...textMuted);
       doc.setFont('helvetica', 'italic');
       doc.setFontSize(8.5);
-      doc.text('Fotografía no disponible', afterX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
+      doc.text(t.common.noData, afterX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
     }
   } else {
     doc.setTextColor(...textMuted);
     doc.setFont('helvetica', 'italic');
     doc.setFontSize(8.5);
-    doc.text('Sin fotografía de después registrada', afterX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
+    doc.text(t.common.noData, afterX + photoWidth / 2, photoY + photoHeight / 2, { align: 'center' });
   }
 
-  // Label "DESPUÉS DEL SERVICIO" (Requirement #3: ancho suficiente, centrado, con margen interior adecuado)
-  const afterLabelWidth = 46;
+  const afterLabelWidth = 48;
   const afterLabelHeight = 6.4;
   doc.setFillColor(...goldAccent);
   doc.roundedRect(afterX + 3, photoY + 3, afterLabelWidth, afterLabelHeight, 1.4, 1.4, 'F');
   doc.setTextColor(38, 25, 0);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(7.2);
-  doc.text('DESPUÉS DEL SERVICIO', afterX + 3 + afterLabelWidth / 2, photoY + 3 + afterLabelHeight / 2 + 1, { align: 'center' });
-
-  // Photo card footer text
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(7.5);
-  doc.setTextColor(...textMuted);
-  doc.text('Fotografías reales tomadas durante la sesión de peluquería en nuestras instalaciones.', margin + 5, curY + photoCardHeight - 4);
+  doc.text(t.pdf.afterPhotoLabel, afterX + 3 + afterLabelWidth / 2, photoY + 3 + afterLabelHeight / 2 + 1, { align: 'center' });
 
   curY += photoCardHeight + 5;
 
-  // Section 4: Return Recommendation & Groomer Care Recommendations (Requirement #4 & #5)
   const intervalWeeks = visit.nextRecommendedWeeks || pet.recommendedIntervalWeeks || 4;
   const customRecommendations = (visit.careRecommendations || pet.careRecommendations || '').trim();
 
-  // Split custom recommendations into lines if present
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(8);
   const recLines = customRecommendations
@@ -483,18 +433,17 @@ export async function generatePetReportPdf({
 
   const recBoxHeight = Math.max(26, 16 + (recLines.length > 0 ? recLines.length * 4.2 : 5) + (nextVisitDateStr ? 6 : 0));
 
-  doc.setFillColor(255, 250, 235); // soft gold/amber bg
+  doc.setFillColor(255, 250, 235);
   doc.setDrawColor(245, 200, 100);
   doc.roundedRect(margin, curY, contentWidth, recBoxHeight, 3, 3, 'FD');
 
   doc.setTextColor(130, 80, 0);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(9.5);
-  doc.text('RECOMENDACIONES DE CUIDADO Y PRÓXIMA VISITA', margin + 5, curY + 6);
+  doc.text(t.pdf.careRecommendationsTitle.toUpperCase(), margin + 5, curY + 6);
 
   let currentTextY = curY + 12;
 
-  // Requirement #5: Show real groomer recommendations, NOT generic fixed text
   if (recLines.length > 0) {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
@@ -505,36 +454,34 @@ export async function generatePetReportPdf({
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(...textDark);
-    const defaultAdvice = 'Para conservar la salud del manto y prevenir nudos o dermatitis sugerimos cepillado frecuente y seguir las pautas de higiene.';
-    doc.text(defaultAdvice, margin + 5, currentTextY);
+    doc.text(t.petProfile.returnRecommendationAdvice, margin + 5, currentTextY);
     currentTextY += 5.5;
   }
 
-  // Next recommended appointment calculation
   if (nextVisitDateStr) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(...purplePrimary);
-    doc.text(`Próxima visita sugerida: ${nextVisitDateStr} (en ${intervalWeeks} semanas)`, margin + 5, currentTextY);
+    doc.text(
+      `${t.pdf.nextRecommendedTitle} ${formatDisplayDate(nextVisitDateStr, lang) || nextVisitDateStr} (${intervalWeeks} ${t.common.weeks})`,
+      margin + 5,
+      currentTextY
+    );
   }
 
-  // Footer Disclaimer
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(7.5);
   doc.setTextColor(...textMuted);
-  const footerText = `¡Gracias por confiar en ${salonName}! Ficha oficial generada el ${new Date().toLocaleDateString('es-ES')}.`;
+  const footerText = `${salonName} • ${t.pdf.generatedOn} ${new Date().toLocaleDateString(locale)} • ${t.pdf.footerNote}`;
   doc.text(footerText, pageWidth / 2, pageHeight - 8, { align: 'center' });
 
   const safePetName = petDisplayName.replace(/[^a-zA-Z0-9_-]/g, '_');
-  const filename = `Ficha_${safePetName}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  const filename = `${safePetName}_${new Date().toISOString().slice(0, 10)}.pdf`;
   const blob = doc.output('blob');
 
   return { doc, filename, blob };
 }
 
-/**
- * Generates and immediately downloads the PDF file on the user's device.
- */
 export async function downloadPetReportPdf(options: GeneratePdfOptions): Promise<string> {
   const { doc, filename } = await generatePetReportPdf(options);
   doc.save(filename);

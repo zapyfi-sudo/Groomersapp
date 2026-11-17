@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from 'react';
 import { Pet, Appointment } from '../types';
 import { groupAndSortPetsByDate } from '../utils/petSorting';
-import { AppLanguage } from '../utils/translations';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { AppLanguage, translateMoodLabel, translateSizeLabel } from '../utils/i18n/helpers';
 import { isClientDirectoryPet } from '../utils/syncHelpers';
 
 interface PetListViewProps {
@@ -18,9 +19,11 @@ export const PetListView: React.FC<PetListViewProps> = ({
   appointments = [],
   selectedPetId,
   onSelectPet,
-  onAddNewPet,
-  currentLanguage
+  onAddNewPet
 }) => {
+  const { t, lang } = useTranslation();
+  const cv = t.clientsView;
+  const ct = t.common;
   const [searchTerm, setSearchTerm] = useState('');
 
   // Etapa 6: Only show genuine client records (manually added, in-service, or completed visits)
@@ -30,8 +33,8 @@ export const PetListView: React.FC<PetListViewProps> = ({
 
   // Automatically group and sort pets by their most recent agenda date & time
   const dateGroups = useMemo(() => {
-    return groupAndSortPetsByDate(activeDirectoryPets, appointments, currentLanguage);
-  }, [activeDirectoryPets, appointments, currentLanguage]);
+    return groupAndSortPetsByDate(activeDirectoryPets, appointments, lang);
+  }, [activeDirectoryPets, appointments, lang]);
 
   // Filter groups according to search query, keeping matches under their corresponding date separator
   const filteredGroups = useMemo(() => {
@@ -62,8 +65,10 @@ export const PetListView: React.FC<PetListViewProps> = ({
       {/* Header & New Pet Button */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-xl font-bold text-[#1a1a26]">Directorio de Mascotas</h2>
-          <p className="text-xs text-[#4c4451]">{activeDirectoryPets.length} fichas activas registradas</p>
+          <h2 className="text-xl font-bold text-[#1a1a26]">{cv.petDirectory}</h2>
+          <p className="text-xs text-[#4c4451]">
+            {activeDirectoryPets.length} {activeDirectoryPets.length === 1 ? cv.activePetRecordsSingular : cv.activePetRecordsPlural}
+          </p>
         </div>
         <button
           type="button"
@@ -71,7 +76,7 @@ export const PetListView: React.FC<PetListViewProps> = ({
           className="py-2 px-3 rounded-xl bg-[#f9b900] text-[#261900] text-xs font-bold shadow-sm hover:bg-[#ffdea1] active:scale-95 transition-all flex items-center gap-1 cursor-pointer"
         >
           <span className="material-symbols-outlined text-sm">add</span>
-          Nueva Mascota
+          {cv.newPet}
         </button>
       </div>
 
@@ -80,7 +85,7 @@ export const PetListView: React.FC<PetListViewProps> = ({
         <span className="material-symbols-outlined text-[#7e7482] text-lg mr-2">search</span>
         <input
           type="text"
-          placeholder="Buscar por nombre, raza, tutor o ID..."
+          placeholder={cv.searchPetsPlaceholder}
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           className="w-full bg-transparent text-sm text-[#1a1a26] outline-none"
@@ -111,7 +116,7 @@ export const PetListView: React.FC<PetListViewProps> = ({
                 </h3>
               </div>
               <span className="text-[11px] font-semibold text-[#7e7482] bg-[#f5f2ff] px-2 py-0.5 rounded-full border border-[#cfc2d2]/30">
-                {group.pets.length} {group.pets.length === 1 ? 'mascota' : 'mascotas'}
+                {group.pets.length} {group.pets.length === 1 ? cv.petsCountBadgeSingular : cv.petsCountBadgePlural}
               </span>
             </div>
 
@@ -139,7 +144,7 @@ export const PetListView: React.FC<PetListViewProps> = ({
                         />
                         {pet.isVip && (
                           <span className="absolute bottom-0 right-0 bg-[#f9b900] text-[#261900] text-[8px] font-bold px-1 rounded-tl">
-                            VIP
+                            {ct.vip}
                           </span>
                         )}
                       </div>
@@ -161,18 +166,18 @@ export const PetListView: React.FC<PetListViewProps> = ({
                                 : 'bg-rose-100 text-rose-800'
                             }`}
                           >
-                            {pet.habitualMood}
+                            {translateMoodLabel(pet.habitualMood, lang)}
                           </span>
                         </div>
 
                         <p className="text-xs text-[#4c4451] truncate mt-0.5">
-                          {pet.breed} • {pet.size ? `${pet.size === 'pequeno' ? 'Pequeño' : pet.size === 'mediano' ? 'Mediano' : pet.size === 'grande' ? 'Grande' : pet.size} • ` : ''}{pet.age} • {pet.weightKg} kg
+                          {pet.breed} • {pet.size ? `${translateSizeLabel(pet.size, lang)} • ` : ''}{pet.age} • {pet.weightKg} kg
                         </p>
 
                         <div className="flex items-center justify-between mt-1 text-xs text-[#7e7482]">
-                          <span>Tutor: <strong className="text-[#1a1a26]">{pet.tutor.name}</strong></span>
+                          <span>{cv.tutorPrefix} <strong className="text-[#1a1a26]">{pet.tutor.name}</strong></span>
                           <span className="text-[#4b0878] font-bold flex items-center gap-0.5">
-                            Ver Ficha
+                            {cv.viewProfile}
                             <span className="material-symbols-outlined text-xs">arrow_forward_ios</span>
                           </span>
                         </div>
@@ -198,14 +203,18 @@ export const PetListView: React.FC<PetListViewProps> = ({
             <span className="material-symbols-outlined text-4xl text-[#7e7482]">pets</span>
             <h4 className="text-sm font-bold text-[#1a1a26] mt-2">
               {activeDirectoryPets.length === 0 && !searchTerm
-                ? 'No hay clientes registrados todavía'
-                : 'No se encontraron mascotas'}
+                ? cv.noPetsRegistered
+                : cv.noPetsFound}
             </h4>
-            <p className="text-xs text-[#7e7482] mt-1 max-w-md mx-auto">
-              {activeDirectoryPets.length === 0 && !searchTerm
-                ? 'Las fichas se crean automáticamente cuando comienzas o finalizas un servicio, o al agregar una mascota manualmente.'
-                : 'Prueba con otro término de búsqueda.'}
-            </p>
+            {searchTerm && (
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                className="mt-3 text-xs font-bold text-[#4b0878] hover:underline cursor-pointer"
+              >
+                {cv.clearSearch}
+              </button>
+            )}
           </div>
         )}
       </div>

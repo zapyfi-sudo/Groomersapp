@@ -71,6 +71,8 @@ export function generateStableBusinessId(name?: string): string {
 export interface CompactPublicPayload {
   bid: string;
   slug?: string;
+  rslug?: string;
+  lang?: string;
   name: string;
   logo?: string;
   country?: string;
@@ -148,6 +150,8 @@ export function encodePublicProfileToken(
     const payload: CompactPublicPayload = {
       bid: businessId,
       slug: extractSlugOnly(config.bookingSlug) || slugify(config.name),
+      rslug: extractSlugOnly(config.reviewSlug) || undefined,
+      lang: config.language,
       name: config.name || 'Peluquería Canina',
       logo: config.logoUrl,
       country: config.country,
@@ -212,6 +216,7 @@ export function decodePublicProfileToken(token: string): {
       logoUrl: p.logo || '',
       country: p.country,
       city: p.city,
+      language: p.lang,
       address: p.addr || '',
       phone: p.phone || '',
       phonePrefix: p.pref || '+593',
@@ -227,6 +232,7 @@ export function decodePublicProfileToken(token: string): {
       hasDoubleShift: Boolean(p.mOpen && p.aOpen),
       simultaneousCapacity: p.cap || 2,
       bookingSlug: p.slug || slugify(p.name),
+      reviewSlug: p.rslug || undefined,
       services: (p.srv || []).map((s) => ({
         id: s.id,
         name: s.name,
@@ -296,7 +302,7 @@ export function buildPublicReviewUrl(
   slug?: string,
   config?: SalonConfig
 ): string {
-  const extracted = extractSlugOnly(slug || config?.bookingSlug);
+  const extracted = extractSlugOnly(slug || config?.reviewSlug || config?.bookingSlug);
   const safeSlug = extracted || slugify(config?.name || businessId || 'calificar', 'calificar');
   const base = (origin || 'https://groomers-app.vercel.app').replace(/\/+$/, '');
   return `${base}/calificar/${safeSlug}`;

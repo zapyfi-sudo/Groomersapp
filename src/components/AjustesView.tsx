@@ -16,10 +16,10 @@ import { MedicationManager } from './MedicationManager';
 import { StaffShiftScheduleManager } from './StaffShiftScheduleManager';
 import { VentasView } from './VentasView';
 import { COUNTRIES, CURRENCIES } from '../utils/countries';
-import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { AppLanguage, LANGUAGE_OPTIONS } from '../utils/translations';
 import { compressImage } from '../utils/storage';
-import { slugify, cleanSlugInput, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl, buildPublicReviewUrl } from '../utils/slugUtils';
-import { syncBusinessToServer, updateReviewRequestStateInFirestore, getApiUrl } from '../utils/api';
+import { slugify, cleanSlugInput, extractSlugOnly, buildPublicReviewUrl } from '../utils/slugUtils';
+import { syncBusinessToServer, updateReviewRequestStateInFirestore } from '../utils/api';
 import { persistActiveConfig } from '../utils/saasDb';
 import { checkSlugAvailabilityInFirestore, uploadImageToStorage } from '../utils/firebase';
 import { normalizePhoneForWhatsApp, openWhatsAppUrl } from '../utils/phoneUtils';
@@ -28,6 +28,8 @@ import { getAppointmentTimestamp } from '../utils/petSorting';
 import { TimeSelectPicker } from './TimeSelectPicker';
 import { timeTo12H, timeTo24H } from '../utils/scheduleUtils';
 import { normalizeAndMergeReviews, calculateReviewStats } from '../utils/syncHelpers';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { getDayLetters, formatTemplate } from '../utils/i18n/helpers';
 
 interface AjustesViewProps {
   config: SalonConfig;
@@ -39,8 +41,8 @@ interface AjustesViewProps {
   initialSection?: 'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas' | null;
   onAddNewReview?: (review: ClientReview) => void;
   onRefreshReviews?: () => Promise<void> | void;
-  currentLanguage: AppLanguage;
-  onUpdateLanguage: (lang: AppLanguage) => void;
+  currentLanguage?: AppLanguage;
+  onUpdateLanguage?: (lang: AppLanguage) => void;
   activeAccount?: UserAccount | null;
   onOpenAccountModal?: () => void;
 }
@@ -59,6 +61,10 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   activeAccount,
   onOpenAccountModal
 }) => {
+  const { t, lang, setLanguage } = useTranslation();
+  const st = t.settings;
+  const ct = t.common;
+
   // Navigation: null shows the simplified vertical menu; or 'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas'
   const [selectedSection, setSelectedSection] = useState<'negocio' | 'calificaciones' | 'clientes' | 'enlace' | 'ventas' | null>(initialSection);
 
@@ -86,8 +92,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [businessName, setBusinessName] = useState<string>(config.name || 'Groomer Aida');
   const [selectedCountry, setSelectedCountry] = useState<string>(config.country || '');
   const [selectedCity, setSelectedCity] = useState<string>(config.city || '');
-  const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(currentLanguage);
+  const [selectedLanguage, setSelectedLanguage] = useState<AppLanguage>(currentLanguage || lang);
   const [selectedCurrency, setSelectedCurrency] = useState<string>(config.currency || 'USD');
+
+  useEffect(() => {
+    setSelectedLanguage(currentLanguage || lang);
+  }, [currentLanguage, lang]);
 
   // Contact & Location
   const [phonePrefix, setPhonePrefix] = useState<string>(config.phonePrefix || '+54');
@@ -154,6 +164,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         config.appointmentIntervalMinutes !== undefined ? config.appointmentIntervalMinutes : 30
       );
       if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
+      setReviewSlug(
+        extractSlugOnly(config.reviewSlug) ||
+          extractSlugOnly(config.bookingSlug) ||
+          slugify(config.name || 'calificar', 'calificar')
+      );
     } else if (isTimestampOrLocationUpdate) {
       if (config.name !== undefined && config.name !== prevSnap?.name) setBusinessName(config.name);
       if (config.logoUrl !== undefined) setLogoUrl(config.logoUrl);
@@ -180,6 +195,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       if (config.medicationProducts !== undefined) setMedicationProducts(config.medicationProducts);
       if (config.appointmentIntervalMinutes !== undefined) setAppointmentIntervalMinutes(config.appointmentIntervalMinutes);
       if (config.bookingSlug) setCustomSlug(extractSlugOnly(config.bookingSlug));
+      if (config.reviewSlug !== undefined) setReviewSlug(extractSlugOnly(config.reviewSlug));
     }
 
     syncedSnapshotRef.current = {
@@ -302,20 +318,46 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const [isSavingSlug, setIsSavingSlug] = useState<boolean>(false);
   const [slugSaveError, setSlugSaveError] = useState<string | null>(null);
 
+  // Custom review link slug state (isolated from bookingSlug once customized, falls back cleanly)
+  const [reviewSlug, setReviewSlug] = useState<string>(() => {
+    return (
+      extractSlugOnly(config.reviewSlug) ||
+      extractSlugOnly(config.bookingSlug) ||
+      slugify(config.name || 'calificar', 'calificar')
+    );
+  });
+
+  useEffect(() => {
+    if (config.reviewSlug) {
+      setReviewSlug(extractSlugOnly(config.reviewSlug));
+    }
+  }, [config.reviewSlug]);
+
+  const activeReviewSlug = useMemo(() => {
+    return (
+      extractSlugOnly(config.reviewSlug) ||
+      cleanSlugInput(reviewSlug) ||
+      extractSlugOnly(config.bookingSlug) ||
+      slugify(businessName || 'calificar', 'calificar')
+    );
+  }, [config.reviewSlug, reviewSlug, config.bookingSlug, businessName]);
+
+  const [isSavingReviewSlug, setIsSavingReviewSlug] = useState<boolean>(false);
+  const [reviewSlugSaveError, setReviewSlugSaveError] = useState<string | null>(null);
+
   const [isCopied, setIsCopied] = useState<boolean>(false);
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savedToast, setSavedToast] = useState<string | null>(null);
 
-  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
-
+  const dayLettersMap = getDayLetters(lang);
   const daysList = [
-    { label: 'L', key: 'L' },
-    { label: 'M', key: 'M' },
-    { label: 'X', key: 'X' },
-    { label: 'J', key: 'J' },
-    { label: 'V', key: 'V' },
-    { label: 'S', key: 'S' },
-    { label: 'D', key: 'D' }
+    { label: dayLettersMap.L, key: 'L' },
+    { label: dayLettersMap.M, key: 'M' },
+    { label: dayLettersMap.X, key: 'X' },
+    { label: dayLettersMap.J, key: 'J' },
+    { label: dayLettersMap.V, key: 'V' },
+    { label: dayLettersMap.S, key: 'S' },
+    { label: dayLettersMap.D, key: 'D' }
   ];
 
   const toggleDay = (key: string) => {
@@ -335,7 +377,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        setSavedToast('El archivo supera el tamaño máximo de 5 MB.');
+        setSavedToast(t.managers.errMaxFileSize);
         setTimeout(() => setSavedToast(null), 3500);
         return;
       }
@@ -349,11 +391,17 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
           cleanSlugInput(customSlug) ||
           extractSlugOnly(config.bookingSlug) ||
           slugify(businessName || config.name || persistentBizId, persistentBizId);
+        const safeReviewSlug =
+          cleanSlugInput(reviewSlug) ||
+          extractSlugOnly(config.reviewSlug) ||
+          safeSlug;
 
         const updatedConfig: SalonConfig = {
           ...config,
           id: persistentBizId,
           bookingSlug: safeSlug,
+          reviewSlug: safeReviewSlug,
+          language: selectedLanguage,
           name: businessName.trim() || config.name,
           logoUrl: compressed,
           country: selectedCountry,
@@ -405,11 +453,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         // 3. Sync to Cloud Firestore and Server in background
         syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments).catch(() => {});
 
-        setSavedToast('Logo guardado y actualizado con éxito.');
+        setSavedToast(st.changesSavedSuccess);
         setTimeout(() => setSavedToast(null), 3000);
       } catch (err) {
         console.warn('Error compressing logo:', err);
-        setSavedToast('Error al procesar la imagen del logo.');
+        setSavedToast(t.managers.errImageProcess);
         setTimeout(() => setSavedToast(null), 3000);
       }
     }
@@ -429,7 +477,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   const handleCopyLink = () => {
     navigator.clipboard.writeText(realBookingUrl);
     setIsCopied(true);
-    setSavedToast(t.linkCopied || '¡Enlace de reservas copiado al portapapeles!');
+    setSavedToast(st.linkCopied);
     setTimeout(() => {
       setIsCopied(false);
       setSavedToast(null);
@@ -439,20 +487,116 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   // Dedicated review URL for collecting customer ratings
   const realReviewUrl = useMemo(() => {
     const origin = typeof window !== 'undefined' ? window.location.origin : 'https://groomers-app.vercel.app';
-    const slug = extractSlugOnly(config.bookingSlug) || cleanSlugInput(customSlug) || slugify(businessName || 'calificar', 'calificar');
-    return buildPublicReviewUrl(origin, config.id || 'biz_main', slug, config);
-  }, [config.bookingSlug, config.id, customSlug, businessName]);
+    return buildPublicReviewUrl(origin, config.id || 'biz_main', activeReviewSlug, config);
+  }, [config, activeReviewSlug]);
 
   const [isReviewLinkCopied, setIsReviewLinkCopied] = useState<boolean>(false);
 
   const handleCopyReviewLink = () => {
     navigator.clipboard.writeText(realReviewUrl);
     setIsReviewLinkCopied(true);
-    setSavedToast('¡Enlace para calificar copiado al portapapeles!');
+    setSavedToast(st.reviewLinkCopied);
     setTimeout(() => {
       setIsReviewLinkCopied(false);
       setSavedToast(null);
     }, 2500);
+  };
+
+  // Save custom review slug safely (without changing bookingSlug or losing existing reviews)
+  const handleSaveReviewSlug = async (e?: React.FormEvent | React.MouseEvent) => {
+    if (e) e.preventDefault();
+    setReviewSlugSaveError(null);
+    setIsSavingReviewSlug(true);
+
+    const persistentBizId = activeAccount?.businessId || config.id || 'biz_main';
+    const targetReviewSlug = cleanSlugInput(reviewSlug);
+
+    if (!targetReviewSlug) {
+      setReviewSlugSaveError(st.reviewSlugInvalidError);
+      setIsSavingReviewSlug(false);
+      return;
+    }
+
+    try {
+      const checkPromise = checkSlugAvailabilityInFirestore(targetReviewSlug, persistentBizId);
+      const checkTimeout = new Promise<{ available: boolean; conflictBusinessName?: string }>((resolve) =>
+        setTimeout(() => resolve({ available: true }), 2000)
+      );
+      const check = await Promise.race([checkPromise, checkTimeout]);
+
+      if (!check.available) {
+        setReviewSlugSaveError(st.reviewSlugUnavailableError);
+        setIsSavingReviewSlug(false);
+        return;
+      }
+
+      const safeBookingSlug =
+        cleanSlugInput(customSlug) ||
+        extractSlugOnly(config.bookingSlug) ||
+        slugify(businessName || config.name || persistentBizId, persistentBizId);
+
+      const updatedConfig: SalonConfig = {
+        ...config,
+        id: persistentBizId,
+        name: businessName.trim() || config.name,
+        logoUrl: logoUrl || config.logoUrl || '',
+        country: selectedCountry,
+        city: selectedCity.trim(),
+        address: address.trim(),
+        bookingSlug: safeBookingSlug,
+        reviewSlug: targetReviewSlug,
+        language: selectedLanguage,
+        services: servicesList,
+        medicationProducts: medicationProducts,
+        updatedAt: new Date().toISOString()
+      };
+
+      await persistActiveConfig(updatedConfig);
+      onUpdateConfig(updatedConfig);
+      setReviewSlug(targetReviewSlug);
+
+      if (typeof window !== 'undefined') {
+        try {
+          const cachedPublicData = {
+            businessId: persistentBizId,
+            config: updatedConfig,
+            services: updatedConfig.services || [],
+            appointments: appointments || []
+          };
+          const serialized = JSON.stringify(cachedPublicData);
+          localStorage.setItem(`agendacan_public_biz_${persistentBizId}`, serialized);
+          localStorage.setItem(`agendacan_public_biz_${targetReviewSlug}`, serialized);
+          if (safeBookingSlug) {
+            localStorage.setItem(`agendacan_public_biz_${safeBookingSlug}`, serialized);
+          }
+        } catch {}
+      }
+
+      try {
+        const syncPromise = syncBusinessToServer(
+          persistentBizId,
+          updatedConfig,
+          undefined,
+          appointments
+        );
+        await Promise.race([
+          syncPromise,
+          new Promise((resolve) => setTimeout(resolve, 2500))
+        ]);
+      } catch (syncErr) {
+        console.warn('[REVIEW SLUG BACKGROUND SYNC NOTICE]', syncErr);
+      }
+
+      setSavedToast(st.reviewSlugSavedSuccess);
+      setTimeout(() => setSavedToast(null), 3500);
+    } catch (err) {
+      console.error('[REVIEW SLUG SAVE ERROR]', err);
+      const msg = err instanceof Error ? err.message : st.reviewSlugInvalidError;
+      setReviewSlugSaveError(msg);
+      setTimeout(() => setReviewSlugSaveError(null), 5000);
+    } finally {
+      setIsSavingReviewSlug(false);
+    }
   };
 
   // WhatsApp review request to a completed client visit
@@ -464,17 +608,18 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     rawPhone: string;
   }) => {
     const tutorFirstName = item.tutorName.trim().split(' ')[0] || item.tutorName.trim();
-    const petPart = item.petName?.trim() ? ` para el cuidado de ${item.petName.trim()}` : '';
-
-    const message = `Hola, ${tutorFirstName} 👋\n\n¡Gracias por confiar en nosotros${petPart}! 🐶\n\nNos gustaría conocer tu opinión sobre tu experiencia con nuestro negocio.\n¿Podrías dedicarnos un momento para dejarnos una calificación?\n\nTu opinión nos ayuda a mejorar y a seguir ofreciendo un mejor servicio.\n\nPuedes calificarnos aquí:\n${realReviewUrl}\n\n¡Muchas gracias por tu confianza! ❤️`;
+    const message = formatTemplate(st.reviewRequestWhatsAppMsg, {
+      tutorName: tutorFirstName,
+      petName: item.petName?.trim() || ct.pet,
+      salonName: config.name,
+      url: realReviewUrl
+    });
 
     const normalizedDigits = normalizePhoneForWhatsApp(item.phone || item.rawPhone, config);
     const waUrl = `https://wa.me/${normalizedDigits}?text=${encodeURIComponent(message)}`;
 
-    // Open WhatsApp safely
     openWhatsAppUrl(waUrl);
 
-    // Update request state in config & database to 'iniciada'
     const currentRequests = { ...(config.reviewRequests || {}) };
     currentRequests[item.id] = {
       state: 'iniciada',
@@ -495,7 +640,10 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
   // General share review link via WhatsApp (to anyone)
   const handleShareGeneralReviewWhatsApp = () => {
-    const message = `¡Hola! 👋\n\nNos encantaría conocer tu opinión sobre nuestro servicio en ${config.name}.\n\nPuedes dejarnos tu calificación y comentarios aquí:\n${realReviewUrl}\n\n¡Muchas gracias por tu apoyo! ❤️`;
+    const message = formatTemplate(st.reviewWhatsAppInvite, {
+      salonName: config.name,
+      url: realReviewUrl
+    });
     const waUrl = `https://wa.me/?text=${encodeURIComponent(message)}`;
     openWhatsAppUrl(waUrl);
   };
@@ -552,19 +700,19 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
   // Export to Excel / CSV function
   const handleExportExcel = () => {
     const headers = [
-      'ID Cita',
-      'Fecha',
-      'Horario',
-      'Mascota',
-      'Raza',
-      'Tutor Responsable',
-      'Teléfono WhatsApp',
-      'Servicio',
-      'Estilista a Cargo',
-      'Precio',
-      'Moneda',
-      'Estado Cobro',
-      'Observaciones'
+      'ID',
+      t.sales.dateCol,
+      st.colVisits,
+      st.csvColPet,
+      st.csvColBreed,
+      st.csvColTutor,
+      st.csvColWhatsapp,
+      t.sales.serviceCol,
+      t.sales.stylistCol,
+      st.csvColLastAmount,
+      st.csvColCurrency,
+      st.csvColPayment,
+      st.csvColNotes
     ];
 
     const rows = filteredAppointments.map((apt) => [
@@ -579,7 +727,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       `"${apt.groomer || ''}"`,
       apt.price || 0,
       `"${apt.currency || selectedCurrency}"`,
-      `"${apt.paymentStatusLabel || 'Cobrado'}"`,
+      `"${apt.paymentStatusLabel || st.csvFallbackPaid}"`,
       `"${(apt.notes || '').replace(/"/g, '""')}"`
     ]);
 
@@ -591,12 +739,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.setAttribute('href', url);
-    link.setAttribute('download', `AgendaCan_Clientes_${new Date().toISOString().slice(0, 10)}.csv`);
+    link.setAttribute('download', `AgendaCan_${st.csvFilePrefix}_${new Date().toISOString().slice(0, 10)}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
 
-    setSavedToast('¡Planilla de clientes descargada exitosamente!');
+    setSavedToast(st.exportSuccessToast);
     setTimeout(() => setSavedToast(null), 3000);
   };
 
@@ -609,7 +757,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     const targetSlug = cleanSlugInput(customSlug);
 
     if (!targetSlug) {
-      setSlugSaveError('Por favor ingresa un slug válido (ejemplo: luna).');
+      setSlugSaveError(st.linkInvalidError);
       setIsSavingSlug(false);
       return;
     }
@@ -623,12 +771,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       const check = await Promise.race([checkPromise, checkTimeout]);
 
       if (!check.available) {
-        setSlugSaveError(
-          `El slug "${targetSlug}" ya está registrado por ${check.conflictBusinessName || 'otro negocio'}. Elige uno diferente.`
-        );
+        setSlugSaveError(st.linkUnavailableError);
         setIsSavingSlug(false);
         return;
       }
+
+      const safeReviewSlug =
+        cleanSlugInput(reviewSlug) ||
+        extractSlugOnly(config.reviewSlug) ||
+        targetSlug;
 
       const updatedConfig: SalonConfig = {
         ...config,
@@ -639,6 +790,8 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         city: selectedCity.trim(),
         address: address.trim(),
         bookingSlug: targetSlug,
+        reviewSlug: safeReviewSlug,
+        language: selectedLanguage,
         services: servicesList,
         medicationProducts: medicationProducts,
         updatedAt: new Date().toISOString()
@@ -679,11 +832,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         console.warn('[SLUG BACKGROUND SYNC NOTICE]', syncErr);
       }
 
-      setSavedToast('¡Enlace personalizado guardado correctamente!');
+      setSavedToast(st.linkSavedSuccess);
       setTimeout(() => setSavedToast(null), 3500);
     } catch (err) {
       console.error('[SLUG SAVE ERROR]', err);
-      const msg = err instanceof Error ? err.message : 'Error al guardar el enlace. Por favor intenta de nuevo.';
+      const msg = err instanceof Error ? err.message : st.linkInvalidError;
       setSlugSaveError(msg);
       setTimeout(() => setSlugSaveError(null), 5000);
     } finally {
@@ -698,11 +851,17 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       cleanSlugInput(customSlug) ||
       extractSlugOnly(config.bookingSlug) ||
       slugify(businessName || config.name || persistentBizId, persistentBizId);
+    const safeReviewSlug =
+      cleanSlugInput(reviewSlug) ||
+      extractSlugOnly(config.reviewSlug) ||
+      safeSlug;
 
     const updatedConfig: SalonConfig = {
       ...config,
       id: persistentBizId,
       bookingSlug: safeSlug,
+      reviewSlug: safeReviewSlug,
+      language: selectedLanguage,
       name: businessName.trim() || config.name,
       logoUrl: logoUrl || config.logoUrl || '',
       country: selectedCountry,
@@ -748,44 +907,46 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
     const persistentBizId = activeAccount?.businessId || config.id || 'biz_main';
 
-    // 1. Validaciones de campos obligatorios (Requisito #10)
+    // 1. Required fields validation
     if (!businessName || !businessName.trim()) {
-      setSavedToast('El nombre del negocio es obligatorio.');
+      setSavedToast(t.auth.errEmptyBusinessName);
       setIsSaving(false);
       setTimeout(() => setSavedToast(null), 4000);
       return;
     }
 
     if (!phoneNumber || !phoneNumber.trim()) {
-      setSavedToast('El número de WhatsApp o teléfono es obligatorio.');
+      setSavedToast(t.modals.errMissingPhone);
       setIsSaving(false);
       setTimeout(() => setSavedToast(null), 4000);
       return;
     }
 
     if (!address || !address.trim()) {
-      setSavedToast('La dirección del salón es obligatoria.');
+      setSavedToast(st.addressLabel);
       setIsSaving(false);
       setTimeout(() => setSavedToast(null), 4000);
       return;
     }
 
-    // Validar servicios: verificar que todos tengan nombre asignado (Requisitos #3, #4, #5)
     const invalidService = servicesList.find((s) => !s.name || !s.name.trim());
     if (invalidService) {
-      setSavedToast('Todos los servicios deben tener un nombre asignado.');
+      setSavedToast(t.managers.errServiceName);
       setIsSaving(false);
       setTimeout(() => setSavedToast(null), 4000);
       return;
     }
 
-    // Preservar estrictamente el slug existente: cambiar el nombre comercial NO debe alterar el enlace
+    // Preserve existing bookingSlug & reviewSlug cleanly
     const safeSlug =
       cleanSlugInput(customSlug) ||
       extractSlugOnly(config.bookingSlug) ||
       slugify(businessName || config.name || persistentBizId, persistentBizId);
+    const safeReviewSlug =
+      cleanSlugInput(reviewSlug) ||
+      extractSlugOnly(config.reviewSlug) ||
+      safeSlug;
 
-    // Normalizar servicios con businessId e IDs únicos garantizados
     const normalizedServices: SalonService[] = servicesList.map((svc, idx) => ({
       ...svc,
       id: svc.id || `svc-${Date.now()}-${idx}`,
@@ -800,7 +961,6 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       active: svc.active !== false
     }));
 
-    // Normalizar medicamentos
     const normalizedMedications: MedicationProduct[] = medicationProducts.map((med, idx) => ({
       ...med,
       id: med.id || `med-${Date.now()}-${idx}`,
@@ -814,6 +974,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
       ...config,
       id: persistentBizId,
       bookingSlug: safeSlug,
+      reviewSlug: safeReviewSlug,
       name: businessName.trim(),
       logoUrl: logoUrl || '',
       country: selectedCountry,
@@ -849,10 +1010,8 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
     };
 
     try {
-      // 1. Immediately persist full configuration to local database (IndexedDB + local sync mirror)
       await persistActiveConfig(updatedConfig);
 
-      // Cache locally for public booking page instant resolution
       if (typeof window !== 'undefined') {
         try {
           const cachedPublicData = {
@@ -866,31 +1025,31 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
           if (safeSlug) {
             localStorage.setItem(`agendacan_public_biz_${safeSlug}`, serialized);
           }
+          if (safeReviewSlug) {
+            localStorage.setItem(`agendacan_public_biz_${safeReviewSlug}`, serialized);
+          }
         } catch {}
       }
 
-      // 2. Synchronize to Server API and Cloud Firestore
       const remoteSuccess = await syncBusinessToServer(persistentBizId, updatedConfig, undefined, appointments);
       if (!remoteSuccess) {
         console.warn('[SAVE NOTICE] Server/cloud sync returned false, but local database persistence succeeded.');
       }
 
-      // 3. Update React parent application state
       onUpdateConfig(updatedConfig);
       setCustomSlug(safeSlug);
+      setReviewSlug(safeReviewSlug);
 
+      setLanguage(selectedLanguage);
       if (selectedLanguage !== currentLanguage) {
-        onUpdateLanguage(selectedLanguage);
+        onUpdateLanguage?.(selectedLanguage);
       }
 
-      setSavedToast('Cambios guardados correctamente.');
+      setSavedToast(st.changesSavedSuccess);
       setTimeout(() => setSavedToast(null), 3500);
     } catch (err) {
       console.error('[SAVE ALL ERROR]', err);
-      const errorMsg =
-        err instanceof Error
-          ? err.message
-          : 'Error al guardar la configuración. Por favor intenta nuevamente.';
+      const errorMsg = err instanceof Error ? err.message : t.common.errorOccurred;
       setSavedToast(errorMsg);
       setTimeout(() => setSavedToast(null), 4000);
     } finally {
@@ -908,16 +1067,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         </div>
       )}
 
-      {/* VISTA 1: PANTALLA PRINCIPAL DE AJUSTES CON LAS 4 OPCIONES */}
+      {/* VISTA 1: PANTALLA PRINCIPAL DE AJUSTES */}
       {selectedSection === null && (
         <div className="space-y-6 animate-in fade-in duration-200">
           <div className="pb-2 border-b border-[#cfc2d2]/40">
             <div className="flex items-center gap-1.5 text-[#7a5900] text-xs font-bold uppercase tracking-wider mb-1">
               <span className="material-symbols-outlined text-base text-[#f9b900]">tune</span>
-              <span>{t.settingsCenter}</span>
+              <span>{st.settingsCenter}</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-black text-[#1a1a26] tracking-tight">
-              {t.settingsTitle}
+              {st.settingsTitle}
             </h1>
           </div>
 
@@ -931,9 +1090,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="w-14 h-14 rounded-2xl bg-[#f5f2ff] text-[#2e004e] group-hover:bg-[#2e004e] group-hover:text-[#f9b900] flex items-center justify-center font-bold shrink-0 transition-colors shadow-xs">
                   <span className="material-symbols-outlined text-2xl">storefront</span>
                 </div>
-                <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
-                  {t.businessConfig}
-                </h2>
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
+                    {st.businessConfigTitle}
+                  </h2>
+                  <span className="text-xs text-[#7e7482] block truncate">{st.businessConfigDesc}</span>
+                </div>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-[#f5f2ff] group-hover:bg-[#2e004e] group-hover:text-white flex items-center justify-center text-[#2e004e] shrink-0 transition-all shadow-xs group-hover:translate-x-1">
                 <span className="material-symbols-outlined text-xl">arrow_forward</span>
@@ -949,9 +1111,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="w-14 h-14 rounded-2xl bg-[#fff8e1] text-[#7a5900] group-hover:bg-[#f9b900] group-hover:text-[#261900] flex items-center justify-center font-bold shrink-0 transition-colors shadow-xs">
                   <span className="text-2xl">★</span>
                 </div>
-                <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
-                  {t.ratings}
-                </h2>
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
+                    {st.ratingsTitle}
+                  </h2>
+                  <span className="text-xs text-[#7e7482] block truncate">{st.ratingsDesc}</span>
+                </div>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-[#f5f2ff] group-hover:bg-[#2e004e] group-hover:text-white flex items-center justify-center text-[#2e004e] shrink-0 transition-all shadow-xs group-hover:translate-x-1">
                 <span className="material-symbols-outlined text-xl">arrow_forward</span>
@@ -967,16 +1132,19 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="w-14 h-14 rounded-2xl bg-[#e8f5e9] text-emerald-800 group-hover:bg-emerald-700 group-hover:text-white flex items-center justify-center font-bold shrink-0 transition-colors shadow-xs">
                   <span className="material-symbols-outlined text-2xl">table_view</span>
                 </div>
-                <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
-                  {t.myClients}
-                </h2>
+                <div className="min-w-0">
+                  <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
+                    {st.myClientsTitle}
+                  </h2>
+                  <span className="text-xs text-[#7e7482] block truncate">{st.myClientsDesc}</span>
+                </div>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-[#f5f2ff] group-hover:bg-[#2e004e] group-hover:text-white flex items-center justify-center text-[#2e004e] shrink-0 transition-all shadow-xs group-hover:translate-x-1">
                 <span className="material-symbols-outlined text-xl">arrow_forward</span>
               </div>
             </div>
 
-            {/* 4. NUEVO MÓDULO: Ventas e Ingresos (Mejora 3) */}
+            {/* 4. Ventas */}
             <div
               onClick={() => setSelectedSection('ventas')}
               className="bg-white hover:bg-[#fcf8ff] rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 hover:border-[#2e004e] transition-all cursor-pointer flex items-center justify-between gap-4 group active:scale-[0.99]"
@@ -988,16 +1156,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors whitespace-nowrap">
-                      Ventas e Ingresos
+                      {st.salesTitle}
                     </h2>
                     {todayRevenue > 0 && (
                       <span className="px-2.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-black text-[11px] shadow-xs">
-                        {formatPrice(todayRevenue, config.currency, { includeCode: true })} Hoy
+                        {formatPrice(todayRevenue, config.currency, { includeCode: true })} {ct.today}
                       </span>
                     )}
                   </div>
                   <span className="text-xs text-[#7e7482] block truncate">
-                    Reporte financiero, ingresos por servicios, ticket promedio y desglose
+                    {st.salesDesc}
                   </span>
                 </div>
               </div>
@@ -1006,7 +1174,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               </div>
             </div>
 
-            {/* 5. SEPARATE OPTION: Comparte tu agenda para redes */}
+            {/* 5. Enlace para clientes */}
             <div
               onClick={() => setSelectedSection('enlace')}
               className="bg-gradient-to-r from-white to-[#f5f2ff] hover:to-[#efeafd] rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 hover:border-[#2e004e] transition-all cursor-pointer flex items-center justify-between gap-4 group active:scale-[0.99]"
@@ -1022,11 +1190,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                     }}
                   />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h2 className="text-base sm:text-lg font-black text-[#1a1a26] group-hover:text-[#2e004e] transition-colors">
-                    {t.shareAgendaSocial}
+                    {st.shareAgendaTitle}
                   </h2>
-                  <span className="text-xs text-[#7e7482]">Portal online 24/7 para que tus clientes agenden directo</span>
+                  <span className="text-xs text-[#7e7482] block truncate">{st.shareAgendaDesc}</span>
                 </div>
               </div>
               <div className="w-10 h-10 rounded-2xl bg-[#2e004e] text-white flex items-center justify-center shrink-0 transition-all shadow-xs group-hover:translate-x-1">
@@ -1034,7 +1202,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               </div>
             </div>
 
-            {/* 6. GESTIÓN DE CUENTA SAAS Y PERSISTENCIA PERMANENTE */}
+            {/* 6. Account management */}
             <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="flex items-center gap-4 min-w-0">
                 <div className="w-14 h-14 rounded-2xl bg-[#f5f0fb] text-[#2e004e] flex items-center justify-center font-bold shrink-0 shadow-xs">
@@ -1046,11 +1214,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       {activeAccount?.name || config.name}
                     </h2>
                     <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wide">
-                      Base de Datos Conectada
+                      {t.auth.currentAccountBadge}
                     </span>
                   </div>
                   <span className="text-xs text-[#7e7482] block truncate">
-                    {activeAccount?.email || 'Cuenta SaaS Persistente'} • ID: {config.id || 'biz_main'}
+                    {activeAccount?.email || st.settingsCenter} • ID: {config.id || 'biz_main'}
                   </span>
                 </div>
               </div>
@@ -1062,7 +1230,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   className="px-4 py-2.5 rounded-xl bg-[#2e004e] text-white hover:bg-[#4b0878] text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs active:scale-95"
                 >
                   <span className="material-symbols-outlined text-base">manage_accounts</span>
-                  Gestionar cuentas
+                  {t.nav.manageAccounts}
                 </button>
               </div>
             </div>
@@ -1070,7 +1238,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
         </div>
       )}
 
-      {/* VISTA VENTAS (Mejora 3) */}
+      {/* VISTA VENTAS */}
       {selectedSection === 'ventas' && (
         <VentasView
           sales={sales}
@@ -1092,16 +1260,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 className="py-2 px-3.5 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-black text-xs shadow-xs border border-[#cfc2d2]/40 flex items-center gap-1.5 transition-all cursor-pointer active:scale-95"
               >
                 <span className="material-symbols-outlined text-base">arrow_back</span>
-                <span>{t.backToSettings}</span>
+                <span>{st.backToSettings}</span>
               </button>
 
               <div className="text-xs text-[#7e7482]">
-                <span>{t.settingsTitle} &gt; </span>
+                <span>{st.settingsTitle} &gt; </span>
                 <strong className="text-[#1a1a26]">
-                  {selectedSection === 'negocio' && t.businessConfig}
-                  {selectedSection === 'calificaciones' && t.ratings}
-                  {selectedSection === 'clientes' && t.myClients}
-                  {selectedSection === 'enlace' && t.shareAgendaSocial}
+                  {selectedSection === 'negocio' && st.businessConfigTitle}
+                  {selectedSection === 'calificaciones' && st.ratingsTitle}
+                  {selectedSection === 'clientes' && st.myClientsTitle}
+                  {selectedSection === 'enlace' && st.shareAgendaTitle}
                 </strong>
               </div>
             </div>
@@ -1114,21 +1282,21 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2 text-xs font-bold text-[#f9b900] tracking-wider uppercase">
                     <span className="material-symbols-outlined text-base">public</span>
-                    <span>Enlace público de reservas</span>
+                    <span>{st.shareLinkBadge}</span>
                   </div>
                   <span className="px-3 py-1 rounded-full bg-emerald-400 text-[#1a1a26] text-xs font-black">
-                    Activo 24/7
+                    {st.online247}
                   </span>
                 </div>
 
                 <div>
-                  <h2 className="text-2xl font-black text-white">Tu enlace para clientes</h2>
+                  <h2 className="text-2xl font-black text-white">{st.shareLinkTitle}</h2>
                   <p className="text-sm text-[#e3e0f1] mt-1.5 leading-relaxed">
-                    Personaliza el enlace que compartirás con tus clientes en Instagram, TikTok, WhatsApp y Facebook.
+                    {st.shareLinkSubtitle}
                   </p>
                 </div>
 
-                {/* Presentación & Vista previa con el logo del negocio */}
+                {/* Preview Card with Business Logo */}
                 <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/20 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-4">
                   <div className="flex items-center gap-3.5 min-w-0">
                     <div className="w-16 h-16 rounded-2xl bg-white p-2 flex items-center justify-center shadow-md shrink-0 overflow-hidden border border-white/30">
@@ -1145,14 +1313,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       <div className="flex items-center gap-2">
                         <h3 className="font-black text-lg text-white truncate">{businessName}</h3>
                         <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-[#1a1a26] text-[10px] font-black uppercase">
-                          Online 24/7
+                          {st.online247}
                         </span>
                       </div>
                       <p className="text-xs text-[#e3e0f1] truncate mt-0.5">
-                        {address || 'Agenda online para reservas'}
-                      </p>
-                      <p className="text-[11px] text-[#ffdea1] font-semibold mt-1">
-                        Logo visible para tus clientes al compartir tu agenda
+                        {[selectedCity?.trim(), selectedCountry?.trim()].filter(Boolean).join(', ') || address || st.shareAgendaDesc}
                       </p>
                     </div>
                   </div>
@@ -1163,19 +1328,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                     className="px-3.5 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
-                    <span>Probar vista previa</span>
+                    <span>{st.testClientFlow}</span>
                   </button>
                 </div>
 
-                {/* Custom Slug Editor Box (Responsive & Mobile-optimized) */}
+                {/* Custom Slug Editor Box */}
                 <div className="bg-black/30 rounded-2xl p-4 sm:p-5 border border-white/10 space-y-3.5">
                   <div>
                     <label className="text-xs font-bold text-[#ffdea1] uppercase tracking-wider block mb-1">
-                      Personaliza el enlace que compartirás con tus clientes:
+                      {st.customSlugLabel}
                     </label>
-                    <p className="text-xs text-[#e3e0f1]/90">
-                      Escribe únicamente la palabra o identificador de tu negocio (ejemplo: <span className="font-mono text-[#f9b900] font-bold">pelo</span>).
-                    </p>
                   </div>
 
                   <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
@@ -1203,12 +1365,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       {isSavingSlug ? (
                         <>
                           <span className="w-3.5 h-3.5 border-2 border-[#261900] border-t-transparent rounded-full animate-spin"></span>
-                          <span>Guardando...</span>
+                          <span>{st.savingLink}</span>
                         </>
                       ) : (
                         <>
                           <span className="material-symbols-outlined text-sm font-bold">save</span>
-                          <span>Guardar slug</span>
+                          <span>{st.saveLinkBtn}</span>
                         </>
                       )}
                     </button>
@@ -1217,7 +1379,6 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   {/* Live preview banner of full URL */}
                   <div className="flex items-center gap-2 text-xs bg-white/5 rounded-xl px-3 py-2 border border-white/10 font-mono break-all text-[#e3e0f1]">
                     <span className="material-symbols-outlined text-sm text-[#f9b900] shrink-0">link</span>
-                    <span className="text-white/60 select-none">Enlace:</span>
                     <span className="text-white font-bold truncate">{realBookingUrl}</span>
                   </div>
 
@@ -1227,16 +1388,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       <span>{slugSaveError}</span>
                     </div>
                   )}
-
-                  <p className="text-[11px] text-[#f2daff]/80">
-                    Este slug se asocia de forma permanente al identificador único de tu negocio.
-                  </p>
                 </div>
 
                 {/* Live booking link card */}
                 <div className="bg-black/40 rounded-2xl p-4 border border-white/10 space-y-3">
                   <span className="text-xs font-bold text-white/80 uppercase tracking-wider block">
-                    Tu enlace de reservas
+                    {st.directLinkForClients}
                   </span>
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                     <div className="flex items-center gap-2 min-w-0 text-xs sm:text-sm font-mono text-white/95">
@@ -1249,22 +1406,20 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         type="button"
                         onClick={handleCopyLink}
                         className="px-3.5 py-2.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                        title="Copiar enlace al portapapeles"
                       >
                         <span className="material-symbols-outlined text-sm font-bold">
                           {isCopied ? 'check' : 'content_copy'}
                         </span>
-                        <span>{isCopied ? '¡Copiado!' : 'Copiar enlace'}</span>
+                        <span>{isCopied ? ct.copied : st.copyLink}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={onPreviewClientFlow}
                         className="px-3.5 py-2.5 bg-white text-[#2e004e] hover:bg-[#ffdea1] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                        title="Probar flujo completo de reservas como cliente"
                       >
                         <span className="material-symbols-outlined text-sm font-bold text-[#2e004e]">visibility</span>
-                        <span>Probar flujo</span>
+                        <span>{st.testClientFlow}</span>
                       </button>
 
                       <a
@@ -1272,10 +1427,9 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-3 py-2.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
-                        title="Abrir en pestaña nueva"
                       >
                         <span className="material-symbols-outlined text-sm text-[#f9b900]">open_in_new</span>
-                        <span>Abrir enlace</span>
+                        <span>{st.openPublicLink}</span>
                       </a>
                     </div>
                   </div>
@@ -1285,14 +1439,17 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="pt-1">
                   <a
                     href={`https://wa.me/?text=${encodeURIComponent(
-                      `🐶✨ ¡Haz tu cita online acá! Reserva el turno de tu mascota en ${businessName} en menos de 2 minutos:\n👉 ${realBookingUrl}`
+                      formatTemplate(st.bookingWhatsAppInvite, {
+                        salonName: businessName,
+                        url: realBookingUrl
+                      })
                     )}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="w-full py-3.5 px-5 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                   >
                     <span className="material-symbols-outlined text-lg">chat</span>
-                    <span>Compartir directo por WhatsApp</span>
+                    <span>{st.shareDirectWhatsApp}</span>
                   </a>
                 </div>
               </div>
@@ -1312,18 +1469,18 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         <span className="material-symbols-outlined text-xl">storefront</span>
                       </div>
                       <div>
-                        <h2 className="text-base font-extrabold text-[#1a1a26]">{t.businessInfo}</h2>
-                        <p className="text-xs text-[#7e7482]">Identidad visible en la agenda y portal online</p>
+                        <h2 className="text-base font-extrabold text-[#1a1a26]">{st.businessInfo}</h2>
+                        <p className="text-xs text-[#7e7482]">{st.businessConfigDesc}</p>
                       </div>
                     </div>
 
-                    {/* Logo con recomendación clara de 400x400 y máx 5MB */}
+                    {/* Logo */}
                     <div className="bg-[#f5f2ff] rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4 border border-[#cfc2d2]/30">
                       <div className="w-16 h-16 rounded-2xl bg-white p-1.5 flex items-center justify-center shadow-xs border border-[#cfc2d2]/30 shrink-0 overflow-hidden">
                         {logoUrl ? (
                           <img
                             src={logoUrl}
-                            alt="Logo del negocio"
+                            alt={st.businessLogo}
                             className="w-full h-full object-contain rounded-xl"
                           />
                         ) : (
@@ -1332,15 +1489,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       </div>
 
                       <div className="flex-1 min-w-0">
-                        <span className="text-xs font-bold text-[#1a1a26] block">{t.businessLogo}</span>
+                        <span className="text-xs font-bold text-[#1a1a26] block">{st.businessLogo}</span>
                         <p className="text-[11px] text-[#7e7482] mt-0.5 leading-relaxed">
-                          {t.logoRecommendation} (Máx. 5 MB)
+                          {st.logoRecommendation}
                         </p>
 
                         <div className="flex items-center gap-2 mt-2">
                           <label className="py-1.5 px-3 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-bold flex items-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all">
                             <span className="material-symbols-outlined text-sm">photo_camera</span>
-                            <span>Subir logo</span>
+                            <span>{logoUrl ? st.changeLogo : st.uploadLogo}</span>
                             <input
                               type="file"
                               accept="image/*"
@@ -1355,16 +1512,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                               onClick={() => setLogoUrl('')}
                               className="py-1.5 px-2.5 rounded-xl text-xs font-bold text-[#7e7482] hover:text-[#ba1a1a] hover:bg-white transition-colors"
                             >
-                              Quitar
+                              {ct.delete}
                             </button>
                           )}
                         </div>
                       </div>
                     </div>
 
-                    {/* Nombre Comercial */}
+                    {/* Business Name */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.businessName} *</label>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{st.businessName} *</label>
                       <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
                         <span className="material-symbols-outlined text-[#4b0878] text-base mr-2">storefront</span>
                         <input
@@ -1377,16 +1534,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       </div>
                     </div>
 
-                    {/* País */}
+                    {/* Country */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.country}</label>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{st.country}</label>
                       <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
                         <select
                           value={selectedCountry}
                           onChange={(e) => handleCountryChange(e.target.value)}
                           className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
                         >
-                          <option value="">Selecciona un país</option>
+                          <option value="">-- {st.country} --</option>
                           {COUNTRIES.map((c) => (
                             <option key={c.code} value={c.name}>
                               {c.name}
@@ -1399,47 +1556,50 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       </div>
                     </div>
 
-                    {/* Ciudad */}
+                    {/* City */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">Ciudad</label>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{st.cityLabel}</label>
                       <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30 focus-within:border-[#4b0878] focus-within:ring-2 focus-within:ring-[#4b0878]/20 transition-all">
                         <input
                           type="text"
                           value={selectedCity}
                           onChange={(e) => setSelectedCity(e.target.value)}
-                          placeholder="Escribe el nombre de tu ciudad"
+                          placeholder={st.cityPlaceholder}
                           className="w-full bg-transparent text-xs font-semibold text-[#1a1a26] outline-none placeholder:text-[#7e7482]/60"
                         />
                       </div>
                     </div>
 
-                    {/* Idioma - 4 opciones globales */}
+                    {/* Language - 4 global options */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.languageLabel}</label>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{st.languageLabel}</label>
                       <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
                         <select
                           value={selectedLanguage}
                           onChange={(e) => {
                             const newLang = e.target.value as AppLanguage;
                             setSelectedLanguage(newLang);
-                            onUpdateLanguage(newLang);
+                            setLanguage(newLang);
+                            onUpdateLanguage?.(newLang);
                           }}
                           className="w-full bg-transparent text-xs font-bold text-[#1a1a26] outline-none cursor-pointer appearance-none"
                         >
-                          <option value="es-LA">Español (Latinoamérica)</option>
-                          <option value="es-ES">Español (España)</option>
-                          <option value="en">English</option>
-                          <option value="pt">Português</option>
+                          {LANGUAGE_OPTIONS.map((opt) => (
+                            <option key={opt.code} value={opt.code}>
+                              {opt.label}
+                            </option>
+                          ))}
                         </select>
                         <span className="material-symbols-outlined text-[#7e7482] text-sm pointer-events-none absolute right-3">
                           expand_more
                         </span>
                       </div>
+                      <span className="text-[11px] text-[#7e7482] mt-1 block">{st.languageImmediateHint}</span>
                     </div>
 
-                    {/* Selector explícito de Moneda */}
+                    {/* Currency selector */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.currencyLabel}</label>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{st.currencyLabel}</label>
                       <div className="relative flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30">
                         <select
                           value={selectedCurrency}
@@ -1456,11 +1616,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           expand_more
                         </span>
                       </div>
+                      <span className="text-[11px] text-[#7e7482] mt-1 block">{st.currencyHint}</span>
                     </div>
 
-                    {/* Teléfono con código de país expandido */}
+                    {/* Phone */}
                     <div>
-                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{t.whatsappPhone}</label>
+                      <label className="text-xs font-bold text-[#4c4451] block mb-1">{st.whatsappPhone}</label>
                       <div className="flex gap-2">
                         <div className="w-28 relative flex items-center bg-[#f5f2ff] rounded-xl px-2 py-2 border border-[#cfc2d2]/30">
                           <select
@@ -1485,16 +1646,16 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                             value={phoneNumber}
                             onChange={(e) => setPhoneNumber(e.target.value)}
                             className="w-full bg-transparent text-xs font-semibold text-[#1a1a26] outline-none"
-                            placeholder="Ej: 11 5489 3210"
+                            placeholder="11 5489 3210"
                           />
                         </div>
                       </div>
                     </div>
 
-                    {/* Dirección del negocio */}
+                    {/* Business address */}
                     <div>
                       <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                        {t.addressLabel || 'Dirección del negocio'}
+                        {st.addressLabel}
                       </label>
                       <div className="flex items-center bg-[#f5f2ff] rounded-xl px-3.5 py-2.5 border border-[#cfc2d2]/30 focus-within:border-[#4b0878] focus-within:ring-2 focus-within:ring-[#4b0878]/20 transition-all">
                         <span className="material-symbols-outlined text-[#7e7482] text-base mr-2">pin_drop</span>
@@ -1503,13 +1664,13 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           value={address}
                           onChange={(e) => setAddress(e.target.value)}
                           className="w-full bg-transparent text-sm font-semibold text-[#1a1a26] outline-none"
-                          placeholder="Escribe la dirección de tu negocio"
+                          placeholder={st.addressPlaceholder}
                         />
                       </div>
                     </div>
                   </div>
 
-                  {/* Card 3: Horarios de atención */}
+                  {/* Card 3: Business Hours */}
                   <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 space-y-4">
                     <div className="flex items-center justify-between pb-2 border-b border-[#efecfd]">
                       <div className="flex items-center gap-2.5">
@@ -1517,22 +1678,21 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           <span className="material-symbols-outlined text-xl">schedule</span>
                         </div>
                         <div>
-                          <h2 className="text-base font-extrabold text-[#1a1a26]">{t.businessHours}</h2>
-                          <p className="text-xs text-[#7e7482]">Define los días y franjas habituales de apertura</p>
+                          <h2 className="text-base font-extrabold text-[#1a1a26]">{st.businessHours}</h2>
                         </div>
                       </div>
                     </div>
 
-                    {/* Días row */}
+                    {/* Days row */}
                     <div>
                       <div className="flex items-center justify-between text-xs text-[#7e7482] mb-1.5">
-                        <span>Días de atención en la semana:</span>
+                        <span>{st.activeDaysLabel}:</span>
                         <button
                           type="button"
                           onClick={handleSelectWeekdays}
                           className="text-[#4b0878] font-bold hover:underline cursor-pointer"
                         >
-                          Seleccionar L-V
+                          {dayLettersMap.L}-{dayLettersMap.V}
                         </button>
                       </div>
 
@@ -1559,11 +1719,11 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
                     {/* Shifts pickers */}
                     <div className="space-y-4 pt-1">
-                      {/* Turnos de la mañana */}
+                      {/* Morning shift */}
                       <div className="bg-[#f5f2ff] rounded-2xl p-4 space-y-3 border border-[#cfc2d2]/30">
                         <div className="flex items-center justify-between text-xs font-bold">
                           <span className="flex items-center gap-1.5 text-[#7a5900]">
-                            <span>☀️</span> {t.morningShift}
+                            <span>☀️</span> {st.morningShift}
                           </span>
                           <span className="text-[11px] font-extrabold text-[#2e004e] bg-white px-2.5 py-0.5 rounded-lg border border-[#cfc2d2]/40">
                             {timeTo12H(morningOpen)} - {timeTo12H(morningClose)}
@@ -1571,14 +1731,14 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                           <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
-                            <span className="text-[11px] font-bold text-[#7e7482] block">Desde:</span>
+                            <span className="text-[11px] font-bold text-[#7e7482] block">{t.managers.startLabel}:</span>
                             <TimeSelectPicker
                               value={morningOpen}
                               onChange={(_, v24) => setMorningOpen(v24)}
                             />
                           </div>
                           <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
-                            <span className="text-[11px] font-bold text-[#7e7482] block">Hasta:</span>
+                            <span className="text-[11px] font-bold text-[#7e7482] block">{t.managers.endLabel}:</span>
                             <TimeSelectPicker
                               value={morningClose}
                               onChange={(_, v24) => setMorningClose(v24)}
@@ -1591,10 +1751,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       <div className="flex items-center justify-between py-1 px-1">
                         <div>
                           <span className="text-xs font-bold text-[#1a1a26] flex items-center gap-1.5">
-                            <span>🍔</span> {t.lunchBreak}
-                          </span>
-                          <span className="text-[11px] text-[#7e7482] block">
-                            {hasDoubleShift ? 'Pausa activa durante el mediodía' : 'Jornada continua (sin pausa de almuerzo)'}
+                            <span>🍔</span> {st.doubleShiftLabel}
                           </span>
                         </div>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -1608,30 +1765,27 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </label>
                       </div>
 
-                      {/* Pausa para el almuerzo configurable */}
+                      {/* Lunch pause */}
                       {hasDoubleShift && (
                         <div className="bg-[#fff9ed] rounded-2xl p-4 space-y-3 border border-[#f9b900]/30 animate-in fade-in duration-200">
                           <div className="flex items-center justify-between text-xs font-bold">
                             <span className="flex items-center gap-1.5 text-[#b27b00]">
-                              <span>🍔</span> Pausa para el almuerzo
+                              <span>🍔</span> {st.lunchBreak}
                             </span>
                             <span className="text-[11px] font-extrabold text-[#7a5900] bg-white px-2.5 py-0.5 rounded-lg border border-[#f9b900]/40">
                               {timeTo12H(lunchStart)} - {timeTo12H(lunchEnd)}
                             </span>
                           </div>
-                          <p className="text-[11px] text-[#7e7482]">
-                            Intervalo de descanso en el que no se ofrecerán citas a los clientes.
-                          </p>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
-                              <span className="text-[11px] font-bold text-[#7e7482] block">Desde:</span>
+                              <span className="text-[11px] font-bold text-[#7e7482] block">{t.managers.startLabel}:</span>
                               <TimeSelectPicker
                                 value={lunchStart}
                                 onChange={(_, v24) => setLunchStart(v24)}
                               />
                             </div>
                             <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
-                              <span className="text-[11px] font-bold text-[#7e7482] block">Hasta:</span>
+                              <span className="text-[11px] font-bold text-[#7e7482] block">{t.managers.endLabel}:</span>
                               <TimeSelectPicker
                                 value={lunchEnd}
                                 onChange={(_, v24) => setLunchEnd(v24)}
@@ -1641,12 +1795,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </div>
                       )}
 
-                      {/* Turnos de la tarde */}
+                      {/* Afternoon shift */}
                       {hasDoubleShift && (
                         <div className="bg-[#f5f2ff] rounded-2xl p-4 space-y-3 border border-[#cfc2d2]/30 animate-in fade-in duration-200">
                           <div className="flex items-center justify-between text-xs font-bold">
                             <span className="flex items-center gap-1.5 text-[#4b0878]">
-                              <span>🌙</span> {t.afternoonShift}
+                              <span>🌙</span> {st.afternoonShift}
                             </span>
                             <span className="text-[11px] font-extrabold text-[#2e004e] bg-white px-2.5 py-0.5 rounded-lg border border-[#cfc2d2]/40">
                               {timeTo12H(afternoonOpen)} - {timeTo12H(afternoonClose)}
@@ -1654,14 +1808,14 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           </div>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                             <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
-                              <span className="text-[11px] font-bold text-[#7e7482] block">Desde:</span>
+                              <span className="text-[11px] font-bold text-[#7e7482] block">{t.managers.startLabel}:</span>
                               <TimeSelectPicker
                                 value={afternoonOpen}
                                 onChange={(_, v24) => setAfternoonOpen(v24)}
                               />
                             </div>
                             <div className="bg-white rounded-xl p-2.5 border border-[#cfc2d2]/30 space-y-1">
-                              <span className="text-[11px] font-bold text-[#7e7482] block">Hasta:</span>
+                              <span className="text-[11px] font-bold text-[#7e7482] block">{t.managers.endLabel}:</span>
                               <TimeSelectPicker
                                 value={afternoonClose}
                                 onChange={(_, v24) => setAfternoonClose(v24)}
@@ -1671,37 +1825,34 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </div>
                       )}
 
-                      {/* Personalizar intervalos de citas (Mejora 2) */}
+                      {/* Appointment interval */}
                       <div className="pt-3 border-t border-[#efecfd] space-y-2">
                         <div className="flex items-center justify-between">
                           <label className="text-xs font-black text-[#1a1a26] flex items-center gap-1.5">
                             <span className="material-symbols-outlined text-base text-[#4b0878]">schedule</span>
-                            <span>Personalizar intervalos de citas</span>
+                            <span>{st.slotIntervalLabel}</span>
                           </label>
                           <span className="text-[11px] font-black text-[#2e004e] bg-[#f5f2ff] px-2 py-0.5 rounded-lg border border-[#cfc2d2]/40">
                             {appointmentIntervalMinutes === -1
-                              ? 'Según servicio'
+                              ? st.intervalByService
                               : `${appointmentIntervalMinutes} min`}
                           </span>
                         </div>
-                        <p className="text-[11px] text-[#7e7482]">
-                          Elige cada cuánto tiempo quieres ofrecer un nuevo horario de inicio para las citas de tus clientes.
-                        </p>
                         <select
                           value={appointmentIntervalMinutes}
                           onChange={(e) => setAppointmentIntervalMinutes(Number(e.target.value))}
                           className="w-full bg-[#f5f2ff] hover:bg-[#efeafd] border border-[#cfc2d2]/40 rounded-xl px-3 py-2 text-xs font-extrabold text-[#1a1a26] outline-none cursor-pointer transition-colors"
                         >
-                          <option value={15}>Cada 15 minutos</option>
-                          <option value={30}>Cada 30 minutos</option>
-                          <option value={60}>Cada 60 minutos</option>
+                          <option value={15}>15 min</option>
+                          <option value={30}>30 min</option>
+                          <option value={60}>60 min</option>
                         </select>
                       </div>
                     </div>
                   </div>
                 </div>
 
-                {/* Columna Derecha: Capacidad, Personal, Turnos */}
+                {/* Right Column: Capacity, Staff, Shifts */}
                 <div className="lg:col-span-5 space-y-5">
                   <div className="bg-white rounded-3xl p-5 sm:p-6 shadow-sm border border-[#cfc2d2]/40 space-y-4">
                     <div className="flex items-center justify-between pb-2 border-b border-[#efecfd]">
@@ -1711,26 +1862,26 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </div>
                         <div>
                           <h2 className="text-base font-extrabold text-[#1a1a26]">
-                            {t.simultaneousStaffCapacity}
+                            {st.simultaneousStaffCapacity}
                           </h2>
                           <p className="text-xs text-[#7e7482]">
-                            Control de servicios simultáneos en agenda
+                            {st.maxSimultaneousAppointments}
                           </p>
                         </div>
                       </div>
                       <span className="px-2.5 py-0.5 rounded-full bg-[#f2daff] text-[#2e004e] font-black text-xs">
-                        {simultaneousCapacity} a la vez
+                        {simultaneousCapacity}
                       </span>
                     </div>
 
-                    {/* Toggle de atención simultánea */}
+                    {/* Simultaneous toggle */}
                     <div className="p-3.5 bg-[#f5f2ff] rounded-2xl border border-[#cfc2d2]/30 flex items-center justify-between gap-3">
                       <div>
                         <span className="text-xs font-bold text-[#1a1a26] block">
-                          Atención simultánea
+                          {st.simultaneousStaffCapacity}
                         </span>
                         <span className="text-[11px] text-[#7e7482] block leading-tight">
-                          Permite agendar turnos concurrentes si hay estilistas libres
+                          {st.maxSimultaneousAppointments}
                         </span>
                       </div>
                       <label className="relative inline-flex items-center cursor-pointer shrink-0">
@@ -1752,22 +1903,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                       </label>
                     </div>
 
-                    {/* Selector de puestos simultáneos */}
+                    {/* Simultaneous capacity stepper */}
                     <div className="space-y-2.5">
-                      <div className="flex items-center justify-between text-xs font-bold text-[#4c4451]">
-                        <span>Capacidad máxima en paralelo:</span>
-                        <span className="text-[#2e004e] font-black">
-                          {allowSimultaneousStaff ? `${simultaneousCapacity} mascotas a la vez` : '1 mascota'}
-                        </span>
-                      </div>
-
                       <div className="bg-[#f5f2ff] rounded-2xl p-3 border border-[#cfc2d2]/30 flex items-center justify-between">
                         <div>
                           <span className="text-xs font-bold text-[#1a1a26] block">
-                            Puestos simultáneos: {simultaneousCapacity}
-                          </span>
-                          <span className="text-[11px] text-[#7e7482]">
-                            Límite de turnos a la misma hora en la agenda
+                            {st.maxSimultaneousAppointments}: {simultaneousCapacity}
                           </span>
                         </div>
 
@@ -1800,88 +1941,88 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         </div>
                       </div>
 
-                      {/* Turnos de Trabajo del Personal */}
+                      {/* Staff shift schedule */}
                       <StaffShiftScheduleManager
                         schedule={staffScheduleConfig}
                         onChangeSchedule={setStaffScheduleConfig}
                       />
 
-                      {/* Personal / Estilistas */}
+                      {/* Staff members */}
                       <div className="pt-2 space-y-2">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-[#4c4451]">
-                            Personal ({staffList.length})
+                            {st.staffManagerTitle} ({staffList.length})
                           </span>
                           <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-                            {staffList.filter((s) => s.active).length} activos
+                            {staffList.filter((s) => s.active).length} {ct.active}
                           </span>
                         </div>
 
                         <div className="space-y-2">
-                          {staffList.map((st) => (
+                          {staffList.map((stMember) => (
                             <div
-                              key={st.id}
+                              key={stMember.id}
                               className="bg-[#f5f2ff] rounded-2xl p-3 flex flex-col gap-2 border border-[#cfc2d2]/30 text-xs"
                             >
                               <div className="flex items-center justify-between gap-2">
                                 <div className="flex items-center gap-2 min-w-0">
                                   <button
                                     type="button"
-                                    onClick={() => toggleStaffActive(st.id)}
+                                    onClick={() => toggleStaffActive(stMember.id)}
                                     className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold transition-colors cursor-pointer ${
-                                      st.active ? 'bg-[#2e004e] text-white' : 'bg-[#cfc2d2] text-white'
+                                      stMember.active ? 'bg-[#2e004e] text-white' : 'bg-[#cfc2d2] text-white'
                                     }`}
                                   >
                                     <span className="material-symbols-outlined text-xs">
-                                      {st.active ? 'check' : 'remove'}
+                                      {stMember.active ? 'check' : 'remove'}
                                     </span>
                                   </button>
                                   <div className="min-w-0">
-                                    <span className="font-bold text-[#1a1a26] truncate block">{st.name}</span>
-                                    <span className="text-[10px] text-[#7e7482] truncate block">{st.role}</span>
+                                    <span className="font-bold text-[#1a1a26] truncate block">{stMember.name}</span>
+                                    <span className="text-[10px] text-[#7e7482] truncate block">{stMember.role}</span>
                                   </div>
                                 </div>
 
                                 <button
                                   type="button"
-                                  onClick={() => handleRemoveStaff(st.id)}
+                                  onClick={() => handleRemoveStaff(stMember.id)}
                                   className="w-7 h-7 rounded-lg text-[#7e7482] hover:text-[#ba1a1a] hover:bg-white flex items-center justify-center transition-colors cursor-pointer"
-                                  title="Eliminar"
+                                  title={ct.delete}
                                 >
                                   <span className="material-symbols-outlined text-sm">delete</span>
                                 </button>
                               </div>
 
                               <div className="flex items-center justify-between pt-1 border-t border-[#cfc2d2]/20 text-[11px]">
-                                <span className="text-[#7e7482] font-semibold">Turno asignado:</span>
+                                <span className="text-[#7e7482] font-semibold">{st.staffManagerTitle}:</span>
                                 <select
-                                  value={st.shiftAvailability || 'todo_el_dia'}
+                                  value={stMember.shiftAvailability || 'todo_el_dia'}
                                   onChange={(e) =>
                                     handleUpdateStaffShift(
-                                      st.id,
+                                      stMember.id,
                                       e.target.value as 'todo_el_dia' | 'solo_manana' | 'solo_tarde'
                                     )
                                   }
                                   className="bg-white rounded-lg px-2 py-1 font-bold text-[#2e004e] border border-[#cfc2d2]/40 outline-none cursor-pointer"
                                 >
-                                  <option value="todo_el_dia">☀️🌙 Todo el día</option>
-                                  <option value="solo_manana">☀️ Solo mañana</option>
-                                  <option value="solo_tarde">🌙 Solo en la tarde</option>
+                                  <option value="todo_el_dia">☀️🌙 {st.shiftAllDay}</option>
+                                  <option value="solo_manana">☀️ {st.shiftMorningOnly}</option>
+                                  <option value="solo_tarde">🌙 {st.shiftAfternoonOnly}</option>
                                 </select>
                               </div>
                             </div>
                           ))}
                         </div>
 
-                        {/* Agregar miembro del personal */}
+                        {/* Add staff member */}
                         <div className="bg-[#fcf8ff] rounded-2xl p-3 border border-[#cfc2d2]/40 space-y-2 mt-2">
                           <span className="text-[11px] font-bold text-[#2e004e] block">
-                            + Añadir nuevo miembro al personal
+                            {st.addStaffBtn}
                           </span>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <input
                               type="text"
-                              placeholder="Nombre del estilista"
+                              placeholder={st.staffNamePlaceholder}
                               value={newStaffName}
                               onChange={(e) => setNewStaffName(e.target.value)}
                               className="bg-white text-xs px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
@@ -1891,15 +2032,14 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                               onChange={(e) => setNewStaffRole(e.target.value)}
                               className="bg-white text-xs px-2 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none cursor-pointer"
                             >
-                              <option value="Estilista de corte">Corte y Estética</option>
-                              <option value="Especialista en baño">Baño y Deslanado</option>
-                              <option value="Asistente general">Asistente y Secado</option>
+                              <option value="Estilista de corte">{st.staffRoleStylist}</option>
+                              <option value="Especialista en baño">{st.staffRoleBather}</option>
+                              <option value="Asistente general">{st.staffRoleAssistant}</option>
                             </select>
                           </div>
 
                           <div className="flex items-center justify-between gap-2 pt-1">
                             <div className="flex items-center gap-1.5 text-[11px] text-[#7e7482]">
-                              <span>Turno:</span>
                               <select
                                 value={newStaffShift}
                                 onChange={(e) =>
@@ -1909,9 +2049,9 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                                 }
                                 className="bg-white text-xs px-2 py-1 rounded-lg border border-[#cfc2d2]/30 outline-none cursor-pointer"
                               >
-                                <option value="todo_el_dia">Todo el día</option>
-                                <option value="solo_manana">Solo mañana</option>
-                                <option value="solo_tarde">Solo en la tarde</option>
+                                <option value="todo_el_dia">{st.shiftAllDay}</option>
+                                <option value="solo_manana">{st.shiftMorningOnly}</option>
+                                <option value="solo_tarde">{st.shiftAfternoonOnly}</option>
                               </select>
                             </div>
 
@@ -1920,7 +2060,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                               onClick={handleAddStaff}
                               className="px-3 py-2 bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer shrink-0"
                             >
-                              + Añadir personal
+                              {st.addStaffBtn}
                             </button>
                           </div>
                         </div>
@@ -1930,7 +2070,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 </div>
               </div>
 
-              {/* SECCIÓN SERVICIOS: Integrada directamente */}
+              {/* SERVICES */}
               <ServiceManager
                 services={servicesList}
                 onChangeServices={handleServicesChange}
@@ -1938,7 +2078,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 businessId={config.id || activeAccount?.businessId || 'biz_main'}
               />
 
-              {/* SECCIÓN MEDICAMENTOS: Integrada directamente */}
+              {/* MEDICATIONS */}
               <MedicationManager
                 enabled={hasMedicationProductsEnabled}
                 onToggleEnabled={(enabled) => {
@@ -1951,7 +2091,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 currency={selectedCurrency}
               />
 
-              {/* Botón Guardar Todos los Cambios */}
+              {/* Save All Changes Button */}
               <div className="pt-2">
                 <button
                   type="button"
@@ -1962,7 +2102,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   <span className={`material-symbols-outlined font-black ${isSaving ? 'animate-spin' : ''}`}>
                     {isSaving ? 'progress_activity' : 'check_circle'}
                   </span>
-                  <span>{isSaving ? 'Guardando cambios...' : t.saveAllChanges}</span>
+                  <span>{isSaving ? st.savingChanges : st.saveAllChanges}</span>
                 </button>
               </div>
             </div>
@@ -2035,13 +2175,13 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                 <div className="bg-gradient-to-br from-[#2e004e] via-[#3b0361] to-[#4b0878] text-white rounded-3xl p-6 sm:p-8 shadow-md flex flex-col sm:flex-row sm:items-center sm:justify-between gap-6">
                   <div className="space-y-2">
                     <span className="text-xs font-bold text-[#f9b900] uppercase tracking-wider block">
-                      Reputación y opiniones del negocio
+                      {st.ratingsTitle}
                     </span>
                     <h2 className="text-2xl sm:text-3xl font-black text-white">
-                      Calificación del negocio
+                      {st.ratingsSectionTitle}
                     </h2>
                     <p className="text-xs sm:text-sm text-[#e3e0f1] max-w-xl">
-                      Gestiona las opiniones de tus clientes, comparte tu enlace público y solicita calificaciones fácilmente por WhatsApp tras cada visita completada.
+                      {st.ratingsSectionSubtitle}
                     </p>
                   </div>
 
@@ -2061,13 +2201,15 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                     </div>
                     <div className="border-l border-white/20 pl-4 text-left">
                       <span className="text-xs font-bold block text-white">
-                        {totalReviews > 0 ? `${avgRating} de 5 estrellas` : 'Sin reseñas'}
+                        {totalReviews > 0 ? `${avgRating} ${st.outOf5}` : st.noReviewsYet}
                       </span>
                       <span className="text-[11px] text-[#e3e0f1] block">
-                        {totalReviews === 1 ? '1 reseña recibida' : `${totalReviews} reseñas recibidas`}
+                        {totalReviews === 1
+                          ? st.ratingsTotalReviewsSingular
+                          : formatTemplate(st.ratingsTotalReviewsPlural, { count: totalReviews })}
                       </span>
                       <span className="text-[10px] text-emerald-300 font-bold block mt-0.5">
-                        {totalReviews > 0 ? '✓ Calificaciones reales' : 'Comparte tu enlace'}
+                        {totalReviews > 0 ? st.ratingsRealVerified : st.ratingsShareHint}
                       </span>
                     </div>
                   </div>
@@ -2081,29 +2223,27 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                         ★
                       </span>
                       <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
-                        Resumen de calificaciones
+                        {st.ratingsSummaryTitle}
                       </h3>
                     </div>
                     <span className="text-xs font-bold text-[#7e7482]">
-                      {totalReviews === 1 ? '1 reseña en total' : `${totalReviews} reseñas en total`}
+                      {totalReviews} {totalReviews === 1 ? st.ratingsReviewWordSingular : st.ratingsReviewWordPlural}
                     </span>
                   </div>
 
                   {totalReviews === 0 ? (
-                    /* Estado vacío */
                     <div className="text-center py-8 px-4 space-y-3">
                       <div className="w-16 h-16 rounded-full bg-[#f5f2ff] text-[#2e004e] flex items-center justify-center mx-auto text-3xl shadow-2xs">
                         <span className="material-symbols-outlined text-3xl">star_half</span>
                       </div>
                       <h4 className="text-base font-black text-[#1a1a26]">
-                        Aún no tienes calificaciones
+                        {st.ratingsNoReviewsHeadline}
                       </h4>
                       <p className="text-xs sm:text-sm text-[#7e7482] max-w-md mx-auto">
-                        Comparte tu enlace para comenzar a recibir opiniones de tus clientes.
+                        {st.noReviewsYet}
                       </p>
                     </div>
                   ) : (
-                    /* Distribución de estrellas real */
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6 items-center">
                       <div className="text-center p-4 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/30">
                         <span className="text-5xl font-black text-[#2e004e] block leading-none">
@@ -2117,7 +2257,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                           ))}
                         </div>
                         <span className="text-xs font-bold text-[#7e7482]">
-                          Promedio basado en {totalReviews} {totalReviews === 1 ? 'opinión' : 'opiniones'}
+                          {formatTemplate(st.ratingsAverageBasedOn, { count: totalReviews })}
                         </span>
                       </div>
 
@@ -2138,7 +2278,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                                 />
                               </div>
                               <span className="text-[11px] text-[#7e7482] w-24 text-right">
-                                {count} {count === 1 ? 'reseña' : 'reseñas'} ({percent}%)
+                                {count} {count === 1 ? st.ratingsReviewWordSingular : st.ratingsReviewWordPlural} ({percent}%)
                               </span>
                             </div>
                           );
@@ -2148,92 +2288,255 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   )}
                 </div>
 
-                {/* SECCIÓN: ENLACE PÚBLICO PARA RECIBIR CALIFICACIONES (REQUISITO 3 y 9) */}
-                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-lg text-[#2e004e]">link</span>
-                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
-                        Enlace para recibir calificaciones
-                      </h3>
+                {/* SECCIÓN: ENLACE PÚBLICO PARA RECIBIR CALIFICACIONES (FEATURE A: PARIDAD CON ENLACE PARA CLIENTES) */}
+                <div className="bg-[#2e004e] text-white rounded-3xl p-6 sm:p-8 shadow-xl relative overflow-hidden space-y-6">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 text-xs font-bold text-[#f9b900] tracking-wider uppercase">
+                      <span className="material-symbols-outlined text-base">reviews</span>
+                      <span>{st.reviewLinkBadge}</span>
                     </div>
-                    <p className="text-xs text-[#7e7482]">
-                      Comparte este enlace con tus clientes para que puedan calificar tu negocio y dejar sus comentarios.
+                    <span className="px-3 py-1 rounded-full bg-emerald-400 text-[#1a1a26] text-xs font-black">
+                      {st.reviewLinkActiveStatus}
+                    </span>
+                  </div>
+
+                  <div>
+                    <h2 className="text-2xl font-black text-white">{st.reviewLinkTitle}</h2>
+                    <p className="text-sm text-[#e3e0f1] mt-1.5 leading-relaxed">
+                      {st.reviewLinkSubtitle}
                     </p>
                   </div>
 
-                  <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 bg-[#fcf8ff] p-2.5 rounded-2xl border border-[#cfc2d2]/40">
-                    <input
-                      type="text"
-                      readOnly
-                      value={realReviewUrl}
-                      className="bg-transparent text-xs text-[#2e004e] font-mono px-3 py-2 flex-1 outline-none truncate"
-                    />
-                    <div className="flex items-center gap-2">
+                  {/* Business Preview Sub-Card */}
+                  <div className="bg-white/10 backdrop-blur-xs rounded-2xl p-4 border border-white/20 flex flex-col sm:flex-row items-center sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="w-16 h-16 rounded-2xl bg-white p-2 flex items-center justify-center shadow-md shrink-0 overflow-hidden border border-white/30">
+                        <img
+                          src={logoUrl || config.logoUrl || HOTLINK_IMAGES.logo}
+                          alt={businessName}
+                          className="w-full h-full object-contain rounded-xl"
+                          onError={(e) => {
+                            (e.target as HTMLImageElement).src = HOTLINK_IMAGES.logo;
+                          }}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="font-black text-lg text-white truncate">{businessName}</h3>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-400 text-[#1a1a26] text-[10px] font-black uppercase">
+                            {st.online247}
+                          </span>
+                        </div>
+                        <p className="text-xs text-[#e3e0f1] truncate mt-0.5">
+                          {[selectedCity?.trim(), selectedCountry?.trim()].filter(Boolean).join(', ') || address || st.reviewLinkSubtitle}
+                        </p>
+                      </div>
+                    </div>
+
+                    {onPreviewReviewFlow && (
                       <button
                         type="button"
-                        onClick={handleCopyReviewLink}
-                        className="flex-1 sm:flex-none px-4 py-2 bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                        onClick={onPreviewReviewFlow}
+                        className="px-3.5 py-2 bg-white/20 hover:bg-white/30 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shrink-0 active:scale-95 cursor-pointer"
                       >
-                        <span className="material-symbols-outlined text-sm">
-                          {isReviewLinkCopied ? 'check' : 'content_copy'}
+                        <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
+                        <span>{st.testReviewFlow}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Custom Review Slug Editor */}
+                  <div className="bg-black/30 rounded-2xl p-4 sm:p-5 border border-white/10 space-y-3.5">
+                    <div>
+                      <label className="text-xs font-bold text-[#ffdea1] uppercase tracking-wider block mb-1">
+                        {st.reviewSlugLabel}
+                      </label>
+                    </div>
+
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+                      <div className="flex-1 flex items-center bg-white/10 rounded-xl px-3.5 py-2.5 border border-white/20 focus-within:border-[#f9b900] focus-within:ring-1 focus-within:ring-[#f9b900] transition-all">
+                        <span className="text-xs sm:text-sm text-[#ffdea1]/90 font-mono font-bold select-none shrink-0 pr-1.5 border-r border-white/20 mr-2">
+                          /calificar/
                         </span>
-                        <span>{isReviewLinkCopied ? '¡Copiado!' : 'Copiar enlace'}</span>
-                      </button>
+                        <input
+                          type="text"
+                          value={reviewSlug}
+                          onChange={(e) => setReviewSlug(cleanSlugInput(e.target.value))}
+                          placeholder={st.reviewSlugPlaceholder}
+                          className="w-full bg-transparent text-white font-mono font-bold text-sm outline-none px-1 placeholder:text-white/40"
+                          autoComplete="off"
+                          spellCheck={false}
+                        />
+                      </div>
 
                       <button
                         type="button"
-                        onClick={handleShareGeneralReviewWhatsApp}
-                        className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl active:scale-95 transition-all cursor-pointer flex items-center justify-center gap-1 shadow-xs"
-                        title="Compartir por WhatsApp"
+                        onClick={handleSaveReviewSlug}
+                        disabled={isSavingReviewSlug}
+                        className="px-5 py-3 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer shrink-0 disabled:opacity-60 flex items-center justify-center gap-1.5"
                       >
-                        <span className="material-symbols-outlined text-sm">chat</span>
-                        <span className="hidden sm:inline">WhatsApp</span>
+                        {isSavingReviewSlug ? (
+                          <>
+                            <span className="w-3.5 h-3.5 border-2 border-[#261900] border-t-transparent rounded-full animate-spin"></span>
+                            <span>{st.savingLink}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-sm font-bold">save</span>
+                            <span>{st.saveLinkBtn}</span>
+                          </>
+                        )}
                       </button>
+                    </div>
 
-                      {onPreviewReviewFlow ? (
+                    {/* Live Preview URL */}
+                    <div className="flex items-center gap-2 text-xs bg-white/5 rounded-xl px-3 py-2 border border-white/10 font-mono break-all text-[#e3e0f1]">
+                      <span className="material-symbols-outlined text-sm text-[#f9b900] shrink-0">link</span>
+                      <span className="text-white font-bold truncate">{realReviewUrl}</span>
+                    </div>
+
+                    {reviewSlugSaveError && (
+                      <div className="p-3 bg-rose-500/20 border border-rose-400/40 rounded-xl text-rose-200 text-xs font-bold flex items-center gap-2 animate-in fade-in duration-200">
+                        <span className="material-symbols-outlined text-sm shrink-0">error</span>
+                        <span>{reviewSlugSaveError}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Live Review Link Card & Share Actions */}
+                  <div className="bg-black/40 rounded-2xl p-4 border border-white/10 space-y-3">
+                    <span className="text-xs font-bold text-white/80 uppercase tracking-wider block">
+                      {st.reviewLinkBadge}
+                    </span>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="flex items-center gap-2 min-w-0 text-xs sm:text-sm font-mono text-white/95">
+                        <span className="material-symbols-outlined text-lg text-[#f9b900] shrink-0">link</span>
+                        <span className="truncate">{realReviewUrl}</span>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2 shrink-0">
                         <button
                           type="button"
-                          onClick={onPreviewReviewFlow}
-                          className="px-3 py-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/60 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1 shadow-xs cursor-pointer"
-                          title="Abrir vista previa del formulario de calificaciones"
+                          onClick={handleCopyReviewLink}
+                          className="px-3.5 py-2.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                         >
-                          <span className="material-symbols-outlined text-sm">visibility</span>
-                          <span className="hidden sm:inline">Probar enlace</span>
+                          <span className="material-symbols-outlined text-sm font-bold">
+                            {isReviewLinkCopied ? 'check' : 'content_copy'}
+                          </span>
+                          <span>{isReviewLinkCopied ? ct.copied : st.copyReviewLink}</span>
                         </button>
-                      ) : (
+
+                        {onPreviewReviewFlow && (
+                          <button
+                            type="button"
+                            onClick={onPreviewReviewFlow}
+                            className="px-3.5 py-2.5 bg-white text-[#2e004e] hover:bg-[#ffdea1] text-xs font-black rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
+                          >
+                            <span className="material-symbols-outlined text-sm font-bold text-[#2e004e]">visibility</span>
+                            <span>{st.testReviewFlow}</span>
+                          </button>
+                        )}
+
                         <a
                           href={realReviewUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="px-3 py-2 bg-white hover:bg-gray-50 text-[#2e004e] border border-[#cfc2d2]/60 text-xs font-bold rounded-xl active:scale-95 transition-all flex items-center justify-center gap-1 shadow-xs"
-                          title="Abrir formulario para probarlo"
+                          className="px-3 py-2.5 bg-white/20 hover:bg-white/30 text-white text-xs font-bold rounded-xl shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer"
                         >
-                          <span className="material-symbols-outlined text-sm">open_in_new</span>
-                          <span className="hidden sm:inline">Probar enlace</span>
+                          <span className="material-symbols-outlined text-sm text-[#f9b900]">open_in_new</span>
+                          <span>{st.openReviewLink}</span>
                         </a>
-                      )}
+                      </div>
                     </div>
+                  </div>
+
+                  {/* Full-width WhatsApp Direct Share Button */}
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={handleShareGeneralReviewWhatsApp}
+                      className="w-full py-3.5 px-5 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-lg">chat</span>
+                      <span>{st.shareReviewWhatsApp}</span>
+                    </button>
                   </div>
                 </div>
 
-                {/* SECCIÓN B: LISTA DE RESEÑAS RECIBIDAS (ORDENADAS DE RECIENTE A ANTIGUA) */}
+                {/* SECCIÓN: SOLICITAR CALIFICACIÓN A CLIENTES ATENDIDOS */}
+                {eligibleClients.length > 0 && (
+                  <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
+                    <div className="pb-3 border-b border-[#cfc2d2]/30">
+                      <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
+                        {st.reviewRequestsTitle}
+                      </h3>
+                      <p className="text-xs text-[#7e7482]">{st.reviewRequestsSubtitle}</p>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {eligibleClients.slice(0, 12).map((client) => (
+                        <div
+                          key={client.id}
+                          className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-2xl bg-[#fcf8ff] border border-[#cfc2d2]/30"
+                        >
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs sm:text-sm font-black text-[#1a1a26]">
+                                {client.tutorName}
+                              </span>
+                              <span className="text-[11px] text-[#7e7482] font-semibold">
+                                ({client.petName})
+                              </span>
+                              <span
+                                className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase ${
+                                  client.state === 'calificado'
+                                    ? 'bg-emerald-100 text-emerald-800'
+                                    : client.state === 'iniciada'
+                                    ? 'bg-blue-100 text-blue-800'
+                                    : 'bg-amber-100 text-amber-800'
+                                }`}
+                              >
+                                {client.state === 'calificado'
+                                  ? st.statusRated
+                                  : client.state === 'iniciada'
+                                  ? st.statusInviteSent
+                                  : st.statusPendingInvite}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-[#7e7482]">{client.lastVisitDate}</span>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => handleRequestReviewViaWhatsApp(client)}
+                            className="px-3.5 py-2 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                          >
+                            <span className="material-symbols-outlined text-sm">chat</span>
+                            <span>{st.requestReviewWhatsAppBtn}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* SECCIÓN B: LISTA DE RESEÑAS RECIBIDAS */}
                 <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-sm border border-[#cfc2d2]/40 space-y-4">
                   <div className="flex items-center justify-between pb-3 border-b border-[#cfc2d2]/30">
                     <div className="flex items-center gap-2">
                       <span className="material-symbols-outlined text-lg text-[#2e004e]">reviews</span>
                       <h3 className="text-base sm:text-lg font-black text-[#1a1a26]">
-                        Lista de reseñas recibidas
+                        {st.receivedReviewsTitle}
                       </h3>
                     </div>
                     <span className="text-xs text-[#7e7482]">
-                      {totalReviews === 1 ? '1 opinión' : `${totalReviews} opiniones`}
+                      {totalReviews} {totalReviews === 1 ? st.ratingsOpinionWordSingular : st.ratingsOpinionWordPlural}
                     </span>
                   </div>
 
                   {totalReviews === 0 ? (
                     <div className="text-center py-8 text-xs text-[#7e7482]">
-                      No hay comentarios ni reseñas todavía.
+                      {st.ratingsReceivedListEmpty}
                     </div>
                   ) : (
                     <div className="space-y-3">
@@ -2276,7 +2579,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
 
                           {rev.serviceName && (
                             <div className="flex items-center text-[10px] text-[#7e7482] pt-1">
-                              <span>Servicio: <strong>{rev.serviceName}</strong></span>
+                              <span>{st.ratingsServicePrefix} <strong>{rev.serviceName}</strong></span>
                             </div>
                           )}
                         </div>
@@ -2293,9 +2596,9 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
             <div className="space-y-5">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 pb-2 border-b border-[#cfc2d2]/40">
                 <div>
-                  <h2 className="text-xl font-black text-[#1a1a26]">{t.myClients}</h2>
+                  <h2 className="text-xl font-black text-[#1a1a26]">{st.myClientsDbTitle}</h2>
                   <p className="text-xs text-[#7e7482]">
-                    Directorio y registro completo de visitas de tus clientes
+                    {st.myClientsDbSubtitle}
                   </p>
                 </div>
 
@@ -2305,7 +2608,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   className="py-2.5 px-4 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold shadow-xs flex items-center justify-center gap-2 cursor-pointer transition-all self-start sm:self-auto"
                 >
                   <span className="material-symbols-outlined text-base">download</span>
-                  <span>Descargar Excel / CSV</span>
+                  <span>{st.exportCsvBtn}</span>
                 </button>
               </div>
 
@@ -2316,7 +2619,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                   type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Buscar por cliente, mascota o servicio..."
+                  placeholder={st.searchClientsPlaceholder}
                   className="w-full bg-transparent text-xs font-medium outline-none"
                 />
               </div>
@@ -2324,7 +2627,7 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
               {/* Table / List */}
               {filteredAppointments.length === 0 ? (
                 <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-gray-300 text-xs text-[#7e7482]">
-                  No se encontraron registros de clientes o visitas.
+                  {ct.noData}
                 </div>
               ) : (
                 <div className="bg-white rounded-2xl border border-[#cfc2d2]/40 overflow-hidden shadow-xs">
@@ -2332,12 +2635,12 @@ export const AjustesView: React.FC<AjustesViewProps> = ({
                     <table className="w-full text-left text-xs">
                       <thead className="bg-[#f5f2ff] text-[#4b0878] font-bold border-b border-[#cfc2d2]/30">
                         <tr>
-                          <th className="p-3">Mascota</th>
-                          <th className="p-3">Tutor</th>
-                          <th className="p-3">Teléfono</th>
-                          <th className="p-3">Servicio</th>
-                          <th className="p-3">Precio</th>
-                          <th className="p-3">Fecha</th>
+                          <th className="p-3">{st.colPet}</th>
+                          <th className="p-3">{st.colTutor}</th>
+                          <th className="p-3">{st.colWhatsapp}</th>
+                          <th className="p-3">{t.sales.serviceCol}</th>
+                          <th className="p-3">{t.sales.amountCol}</th>
+                          <th className="p-3">{t.sales.dateCol}</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-[#efecfd]">

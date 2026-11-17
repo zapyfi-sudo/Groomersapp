@@ -3,6 +3,7 @@ import { SalonConfig, SalonService } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
 import { AddServiceModal } from './AddServiceModal';
 import { formatPrice } from '../utils/priceUtils';
+import { useTranslation } from '../utils/i18n/I18nContext';
 
 interface SalonSetupViewProps {
   config: SalonConfig;
@@ -15,6 +16,10 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
   onUpdateConfig,
   onContinueToPet
 }) => {
+  const { t } = useTranslation();
+  const st = t.setup;
+  const ct = t.common;
+
   const [businessName, setBusinessName] = useState(config.name);
   const [logoUrl, setLogoUrl] = useState(config.logoUrl);
   const [phone, setPhone] = useState(config.phone);
@@ -105,12 +110,12 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
           {/* Badge step indicator */}
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#4b0878] text-[#f2daff] text-[10px] font-bold uppercase tracking-wider mb-2.5">
             <span className="w-1.5 h-1.5 rounded-full bg-[#f9b900] animate-pulse"></span>
-            Paso 1 de 2 • Configuración inicial
+            {st.stepBadge}
           </div>
 
           {/* Main Welcome Title */}
           <h1 className="text-2xl font-bold text-white tracking-tight">
-            Bienvenido a AgendaCan{' '}
+            {st.heroWelcome}{' '}
             <span className="inline-block transform hover:rotate-12 transition-transform cursor-default">
               🐶
             </span>
@@ -118,7 +123,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
 
           {/* Subtitle */}
           <p className="text-sm text-[#e3e0f1] max-w-xs mt-2 leading-relaxed">
-            Vamos a preparar tu agenda para que puedas empezar a recibir reservas hoy mismo.
+            {st.heroSubtitle}
           </p>
 
           {/* Warm Yellow Subtle Divider Highlight */}
@@ -135,23 +140,23 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
               <span className="material-symbols-outlined text-[#4b0878] text-xl">
                 storefront
               </span>
-              <h2 className="text-lg font-bold text-[#1a1a26]">Tu Peluquería</h2>
+              <h2 className="text-lg font-bold text-[#1a1a26]">{st.yourSalonTitle}</h2>
             </div>
             <span className="text-[11px] text-[#4c4451] bg-[#efecfd] px-2 py-0.5 rounded-full font-semibold">
-              Requerido
+              {ct.required}
             </span>
           </div>
 
           {/* Input 1: Nombre del negocio */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-[#1a1a26]" htmlFor="business-name">
-              Nombre del negocio
+              {st.businessNameLabel}
             </label>
             <div className="relative flex items-center">
               <input
                 className="w-full bg-[#f5f2ff] text-[#1a1a26] placeholder:text-[#7e7482] text-sm px-3.5 py-3 rounded-lg shadow-xs outline-none focus:bg-white focus:ring-2 focus:ring-[#2e004e] transition-all border border-[#cfc2d2]/20 font-medium"
                 id="business-name"
-                placeholder="ej. Peluquería Canina Luna"
+                placeholder={st.businessNamePlaceholder}
                 type="text"
                 value={businessName}
                 onChange={(e) => setBusinessName(e.target.value)}
@@ -162,7 +167,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
 
           {/* Input 2: Logo del negocio */}
           <div className="space-y-1.5">
-            <span className="block text-xs font-bold text-[#1a1a26]">Logo de tu salón</span>
+            <span className="block text-xs font-bold text-[#1a1a26]">{st.salonLogoLabel}</span>
             <label
               htmlFor="logo-file-input"
               className="bg-[#f5f2ff] hover:bg-[#e9e6f7] rounded-xl p-4 flex flex-col items-center justify-center text-center cursor-pointer transition-colors border border-dashed border-[#cfc2d2]"
@@ -170,11 +175,11 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
               <div className="w-12 h-12 rounded-full bg-[#e3e0f1] flex items-center justify-center text-[#4b0878] mb-2">
                 <span className="material-symbols-outlined text-2xl">add_photo_alternate</span>
               </div>
-              <p className="text-xs font-bold text-[#1a1a26]">Arrastra una imagen o selecciónala</p>
-              <p className="text-[11px] text-[#4c4451] mt-0.5">PNG, JPG hasta 5MB</p>
+              <p className="text-xs font-bold text-[#1a1a26]">{st.dragOrSelectImg}</p>
+              <p className="text-[11px] text-[#4c4451] mt-0.5">{st.imgFormatHint}</p>
               <span className="mt-3 px-3 py-1.5 bg-[#4b0878] text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 shadow-sm active:scale-95 transition-all">
                 <span className="material-symbols-outlined text-sm">upload</span>
-                Subir archivo
+                {st.uploadFileBtn}
               </span>
               <input
                 id="logo-file-input"
@@ -189,7 +194,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
           {/* Input 3: WhatsApp con prefijo */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-[#1a1a26]" htmlFor="whatsapp-number">
-              WhatsApp comercial
+              {st.commercialWhatsApp}
             </label>
             <div className="flex items-center bg-[#f5f2ff] rounded-lg p-1 shadow-xs border border-[#cfc2d2]/20">
               <div className="flex items-center gap-1 px-2.5 py-2 text-[#2e004e] text-xs font-bold bg-white rounded-md shadow-xs">
@@ -207,14 +212,14 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
               />
             </div>
             <p className="text-[11px] text-[#4c4451] px-1 leading-snug">
-              Tus clientes recibirán recordatorios automáticos a través de este canal.
+              {st.whatsappHint}
             </p>
           </div>
 
           {/* Input 4: Dirección */}
           <div className="space-y-1.5">
             <label className="block text-xs font-bold text-[#1a1a26]" htmlFor="business-address">
-              Dirección del local
+              {st.salonAddressLabel}
             </label>
             <div className="relative flex items-center bg-[#f5f2ff] rounded-lg px-3 py-2.5 shadow-xs border border-[#cfc2d2]/20">
               <span className="material-symbols-outlined text-[#7e7482] mr-2 text-lg">
@@ -223,7 +228,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
               <input
                 className="w-full bg-transparent text-[#1a1a26] placeholder:text-[#7e7482] text-sm outline-none font-medium"
                 id="business-address"
-                placeholder="ej. Av. Corrientes 1420, CABA"
+                placeholder={st.salonAddressPlaceholder}
                 type="text"
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
@@ -235,7 +240,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
           {/* Input 5: Horarios de atención */}
           <div className="space-y-2 pt-1">
             <label className="block text-xs font-bold text-[#1a1a26]">
-              Horario de atención habitual
+              {st.usualHoursLabel}
             </label>
             <div className="bg-[#f5f2ff] rounded-xl p-3.5 space-y-3 border border-[#cfc2d2]/20">
               <div className="flex items-center justify-between">
@@ -246,12 +251,12 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                   {workingDays}
                 </span>
                 <span className="text-[10px] text-[#684c00] bg-[#ffdea1] px-2 py-0.5 rounded-full font-bold">
-                  Abierto
+                  {st.openBadge}
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <span className="text-[10px] text-[#4c4451] font-semibold">Apertura</span>
+                  <span className="text-[10px] text-[#4c4451] font-semibold">{t.settings.openTimeLabel}</span>
                   <div className="bg-white rounded-lg px-3 py-2 text-[#1a1a26] text-xs font-semibold flex items-center justify-between shadow-xs border border-[#cfc2d2]/30">
                     <input
                       type="text"
@@ -265,7 +270,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <span className="text-[10px] text-[#4c4451] font-semibold">Cierre</span>
+                  <span className="text-[10px] text-[#4c4451] font-semibold">{t.settings.closeTimeLabel}</span>
                   <div className="bg-white rounded-lg px-3 py-2 text-[#1a1a26] text-xs font-semibold flex items-center justify-between shadow-xs border border-[#cfc2d2]/30">
                     <input
                       type="text"
@@ -286,11 +291,11 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
           <div className="space-y-1.5 pt-1">
             <div className="flex items-center justify-between">
               <label className="block text-xs font-bold text-[#1a1a26]" htmlFor="currency-select">
-                Moneda principal de cobro
+                {st.mainCurrencyLabel}
               </label>
               <span className="text-[11px] text-[#2e004e] font-semibold flex items-center gap-1">
                 <span className="material-symbols-outlined text-xs">payments</span>
-                Precios en tus reservas
+                {st.pricesInBookingsHint}
               </span>
             </div>
             <div className="relative flex items-center bg-[#f5f2ff] rounded-lg p-1 shadow-xs border border-[#cfc2d2]/20">
@@ -328,9 +333,9 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                 <span className="material-symbols-outlined text-[#4b0878] text-lg">
                   content_cut
                 </span>
-                <h2 className="text-base font-bold text-[#1a1a26]">Mis servicios</h2>
+                <h2 className="text-base font-bold text-[#1a1a26]">{st.myServicesTitle}</h2>
               </div>
-              <p className="text-xs text-[#4c4451] mt-0.5">Define tu carta base para reservas</p>
+              <p className="text-xs text-[#4c4451] mt-0.5">{st.defineBaseMenuDesc}</p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -348,7 +353,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                 className="px-2.5 py-1.5 bg-[#e9e6f7] text-[#2e004e] rounded-lg text-xs font-bold flex items-center gap-1 hover:bg-[#e3e0f1] active:scale-95 transition-all cursor-pointer"
               >
                 <span className="material-symbols-outlined text-sm">add</span>
-                Agregar
+                {st.addBtn}
               </button>
             </div>
           </div>
@@ -377,7 +382,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                     </div>
                     <p className="text-xs text-[#4c4451] flex items-center gap-1 mt-0.5">
                       <span className="material-symbols-outlined text-xs">schedule</span>
-                      {svc.durationMin} min
+                      {svc.durationMin} {ct.minShort}
                     </p>
                   </div>
                 </div>
@@ -395,7 +400,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                     type="button"
                     onClick={() => handleRemoveService(svc.id)}
                     className="w-7 h-7 rounded-full flex items-center justify-center text-[#7e7482] hover:text-[#ba1a1a] hover:bg-white transition-colors"
-                    title="Eliminar servicio"
+                    title={st.deleteServiceTooltip}
                   >
                     <span className="material-symbols-outlined text-base">delete</span>
                   </button>
@@ -408,7 +413,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
           <div className="p-2.5 rounded-lg bg-[#e9e6f7] flex items-center gap-2">
             <span className="material-symbols-outlined text-[#f9b900] text-lg">lightbulb</span>
             <p className="text-xs text-[#4c4451]">
-              Podrás editar precios, añadir fotos de cortes y más servicios luego en tu panel.
+              {st.setupTip}
             </p>
           </div>
         </div>
@@ -419,7 +424,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
             <span className="material-symbols-outlined text-base">verified</span>
           </div>
           <p className="text-xs text-[#1a1a26] leading-snug">
-            Tu enlace de reservas directo listo en menos de 2 minutos para compartir en redes.
+            {st.readyLinkGuarantee}
           </p>
         </div>
 
@@ -439,16 +444,16 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
                 <span className="material-symbols-outlined animate-spin text-xl">
                   progress_activity
                 </span>
-                <span>Generando salón...</span>
+                <span>{st.creatingSalon}</span>
               </>
             ) : isSuccess ? (
               <>
                 <span className="material-symbols-outlined text-xl">check_circle</span>
-                <span>¡Agenda lista! Abriendo...</span>
+                <span>{st.agendaReadyOpening}</span>
               </>
             ) : (
               <>
-                <span>Crear mi agenda</span>
+                <span>{st.createMyAgenda}</span>
                 <span className="material-symbols-outlined text-xl font-bold">arrow_forward</span>
               </>
             )}
@@ -456,7 +461,7 @@ export const SalonSetupView: React.FC<SalonSetupViewProps> = ({
 
           <div className="flex items-center justify-center gap-2 mt-3 text-[#4c4451]">
             <span className="material-symbols-outlined text-xs">lock</span>
-            <span className="text-xs">Configuración rápida y 100% segura</span>
+            <span className="text-xs">{st.fastSecureNote}</span>
           </div>
         </div>
       </form>

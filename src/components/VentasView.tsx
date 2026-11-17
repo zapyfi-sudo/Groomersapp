@@ -2,6 +2,8 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SaleRecord, SalonConfig, Appointment } from '../types';
 import { parseSpanishOrIsoDate } from '../utils/storage';
 import { formatPrice } from '../utils/priceUtils';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { formatTemplate, getLocaleForLanguage } from '../utils/i18n/helpers';
 
 interface VentasViewProps {
   sales: SaleRecord[];
@@ -147,6 +149,10 @@ export const VentasView: React.FC<VentasViewProps> = ({
   salonConfig,
   onBack
 }) => {
+  const { t, lang } = useTranslation();
+  const st = t.sales;
+  const ct = t.common;
+
   const [selectedPeriod, setSelectedPeriod] = useState<PeriodOption>('7_dias');
   const [customStartDate, setCustomStartDate] = useState<string>(() => {
     const d = new Date();
@@ -362,13 +368,14 @@ export const VentasView: React.FC<VentasViewProps> = ({
       }
     }
 
+    const dateLocale = getLocaleForLanguage(lang);
     const entries = periodDaysList.map((dayKey) => {
       const parsedDate = parseAnyRecordDate(dayKey);
-      const dayLabel = parsedDate.toLocaleDateString('es-ES', {
+      const dayLabel = parsedDate.toLocaleDateString(dateLocale, {
         day: 'numeric',
         month: 'short'
       });
-      const fullDateLabel = parsedDate.toLocaleDateString('es-ES', {
+      const fullDateLabel = parsedDate.toLocaleDateString(dateLocale, {
         weekday: 'long',
         day: 'numeric',
         month: 'long',
@@ -387,7 +394,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
 
     const maxAmount = Math.max(...entries.map((e) => e.amount), 1);
     return { entries, maxAmount };
-  }, [periodDaysList, salesInPeriod, todayKey]);
+  }, [periodDaysList, salesInPeriod, todayKey, lang]);
 
   // KPI: Total Revenue of the selected period (derived directly from daily entries to guarantee 100% exact match!)
   const totalRevenue = useMemo(() => {
@@ -403,7 +410,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
   const serviceStats = useMemo(() => {
     const stats: Record<string, { count: number; total: number }> = {};
     for (const s of salesInPeriod) {
-      const name = s.serviceName || 'Servicio de peluquería';
+      const name = s.serviceName || ct.service;
       const amt = Number(s.amount) || Number(s.servicePrice) || 0;
       if (!stats[name]) {
         stats[name] = { count: 0, total: 0 };
@@ -420,7 +427,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
 
     list.sort((a, b) => b.total - a.total);
     return list;
-  }, [salesInPeriod]);
+  }, [salesInPeriod, ct.service]);
 
   const maxServiceAmount = useMemo(() => {
     if (serviceStats.length === 0) return 1;
@@ -485,12 +492,12 @@ export const VentasView: React.FC<VentasViewProps> = ({
 
   const periodTitle =
     selectedPeriod === '7_dias'
-      ? 'Últimos 7 días'
+      ? st.last7Days
       : selectedPeriod === '14_dias'
-      ? 'Últimos 14 días'
+      ? st.last14Days
       : selectedPeriod === '30_dias'
-      ? 'Últimos 30 días'
-      : 'Período personalizado';
+      ? st.last30Days
+      : st.customPeriod;
 
   const activePoint = useMemo(() => {
     if (!svgGeometry?.points || svgGeometry.points.length === 0) return null;
@@ -530,21 +537,21 @@ export const VentasView: React.FC<VentasViewProps> = ({
               type="button"
               onClick={onBack}
               className="w-10 h-10 rounded-2xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] border border-[#cfc2d2]/40 flex items-center justify-center transition-all cursor-pointer shadow-xs active:scale-95"
-              title="Volver a Ajustes"
+              title={t.settings.backToSettings}
             >
               <span className="material-symbols-outlined text-xl">arrow_back</span>
             </button>
             <div>
               <div className="flex items-center gap-2">
                 <span className="px-2.5 py-0.5 rounded-full bg-[#f2daff] text-[#2e004e] font-black text-[11px] uppercase tracking-wider">
-                  Módulo Financiero
+                  {st.moduleBadge}
                 </span>
                 <span className="text-xs text-[#7e7482] font-semibold">
                   {salonConfig.name} • {businessCurrency}
                 </span>
               </div>
               <h1 className="text-2xl sm:text-3xl font-black text-[#1a1a26] tracking-tight">
-                Ventas e ingresos
+                {st.revenueHeaderTitle}
               </h1>
             </div>
           </div>
@@ -557,9 +564,9 @@ export const VentasView: React.FC<VentasViewProps> = ({
           </div>
           <div className="text-xs text-[#2e004e] leading-relaxed">
             <span className="font-extrabold block text-sm mb-0.5">
-              Sincronización automática de ingresos
+              {st.autoSyncTitle}
             </span>
-            Cada servicio iniciado en Agenda mediante <strong className="font-black text-[#1a1a26]">«Comenzar servicio»</strong> se contabiliza inmediatamente aquí con su precio real ({businessCurrency}). El ingreso se registra una sola vez de forma persistente e inmutable.
+            {formatTemplate(st.autoSyncDesc, { currency: businessCurrency })}
           </div>
         </div>
       </div>
@@ -569,7 +576,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
         <div className="flex items-center justify-between pb-2 border-b border-[#efecfd]">
           <span className="text-xs font-black text-[#1a1a26] uppercase tracking-wider flex items-center gap-1.5">
             <span className="material-symbols-outlined text-base text-[#4b0878]">calendar_month</span>
-            <span>Período de consulta</span>
+            <span>{st.periodSelectorTitle}</span>
           </span>
           <span className="text-xs text-[#7e7482] font-semibold">
             {periodTitle}
@@ -587,7 +594,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                 : 'bg-[#f5f2ff] hover:bg-[#efeafd] text-[#1a1a26]'
             }`}
           >
-            Últimos 7 días
+            {st.last7Days}
           </button>
 
           <button
@@ -599,7 +606,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                 : 'bg-[#f5f2ff] hover:bg-[#efeafd] text-[#1a1a26]'
             }`}
           >
-            Últimos 14 días
+            {st.last14Days}
           </button>
 
           <button
@@ -611,7 +618,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                 : 'bg-[#f5f2ff] hover:bg-[#efeafd] text-[#1a1a26]'
             }`}
           >
-            Últimos 30 días
+            {st.last30Days}
           </button>
 
           <button
@@ -623,7 +630,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                 : 'bg-[#f5f2ff] hover:bg-[#efeafd] text-[#1a1a26]'
             }`}
           >
-            Personalizado
+            {st.customPeriod}
           </button>
         </div>
 
@@ -633,7 +640,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               <div className="flex items-center gap-2">
                 <label className="text-xs font-black text-[#1a1a26] whitespace-nowrap">
-                  Fecha inicial:
+                  {st.startDateLabel}
                 </label>
                 <input
                   type="date"
@@ -645,7 +652,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
 
               <div className="flex items-center gap-2">
                 <label className="text-xs font-black text-[#1a1a26] whitespace-nowrap">
-                  Fecha final:
+                  {st.endDateLabel}
                 </label>
                 <input
                   type="date"
@@ -660,13 +667,13 @@ export const VentasView: React.FC<VentasViewProps> = ({
               <div className="bg-red-50 border border-red-200 text-red-700 px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-2">
                 <span className="material-symbols-outlined text-base">error</span>
                 <span>
-                  La fecha inicial no puede ser posterior a la fecha final. Por favor verifica el rango.
+                  {st.invalidDateRange}
                 </span>
               </div>
             )}
 
             <p className="text-[11px] text-[#7e7482]">
-              Puedes seleccionar cualquier intervalo histórico de meses o años anteriores. El total y la gráfica se calcularán exclusivamente para las fechas seleccionadas.
+              {st.customRangeHint}
             </p>
           </div>
         )}
@@ -676,10 +683,10 @@ export const VentasView: React.FC<VentasViewProps> = ({
       <div className="bg-white rounded-3xl p-6 sm:p-7 shadow-sm border border-[#cfc2d2]/40 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-xs font-black text-[#7e7482] uppercase tracking-wider">
-            Total {periodTitle}
+            {st.totalPrefix} {periodTitle}
           </span>
           <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-800 font-extrabold text-xs">
-            {totalServicesCount} {totalServicesCount === 1 ? 'servicio contabilizado' : 'servicios contabilizados'}
+            {totalServicesCount} {totalServicesCount === 1 ? st.countedServiceSingular : st.countedServicePlural}
           </span>
         </div>
 
@@ -688,7 +695,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
         </div>
 
         <p className="text-xs text-[#7e7482]">
-          Calculado a partir de los servicios reales iniciados desde Agenda en este período.
+          {st.calculatedFromRealServices}
         </p>
       </div>
 
@@ -698,10 +705,10 @@ export const VentasView: React.FC<VentasViewProps> = ({
           <div>
             <h2 className="text-base sm:text-lg font-black text-[#1a1a26] flex items-center gap-2">
               <span className="material-symbols-outlined text-xl text-[#2e004e]">trending_up</span>
-              <span>Evolución diaria de ingresos</span>
+              <span>{st.dailyEvolutionTitle}</span>
             </h2>
             <p className="text-xs text-[#7e7482] mt-0.5">
-              Evolución cronológica día a día ({periodTitle})
+              {formatTemplate(st.dailyEvolutionSubtitle, { period: periodTitle })}
             </p>
           </div>
 
@@ -710,7 +717,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
               <span className="text-[#f9b900] font-black">{formatMoney(activePoint.amount)}</span>
               <span className="text-white/60">•</span>
               <span className="text-white/90">{activePoint.dayLabel}</span>
-              <span className="text-white/60">({activePoint.count} {activePoint.count === 1 ? 'servicio' : 'servicios'})</span>
+              <span className="text-white/60">({activePoint.count} {activePoint.count === 1 ? st.serviceSingular : st.servicePlural})</span>
             </div>
           )}
         </div>
@@ -879,7 +886,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                         fontWeight={pt.isToday || isHovered || isActive ? '900' : '600'}
                         fill={pt.isToday ? '#2e004e' : isHovered || isActive ? '#1a1a26' : '#7e7482'}
                       >
-                        {pt.isToday ? 'Hoy' : pt.dayLabel}
+                        {pt.isToday ? ct.today : pt.dayLabel}
                       </text>
                     )}
                   </g>
@@ -891,7 +898,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
           {/* Empty state overlay if zero total in the whole period */}
           {totalRevenue === 0 && (
             <div className="text-center py-2 text-xs text-[#7e7482] font-medium">
-              Sin ingresos registrados en este período. Al pulsar «Comenzar servicio» en Agenda, la curva reflejará inmediatamente el importe.
+              {st.noChartRevenue}
             </div>
           )}
         </div>
@@ -903,10 +910,10 @@ export const VentasView: React.FC<VentasViewProps> = ({
           <div>
             <h2 className="text-base sm:text-lg font-black text-[#1a1a26] flex items-center gap-2">
               <span className="material-symbols-outlined text-xl text-[#2e004e]">bar_chart</span>
-              <span>Ingresos por servicio</span>
+              <span>{st.revenueByServiceTitle}</span>
             </h2>
             <p className="text-xs text-[#7e7482] mt-0.5">
-              Servicios con ingresos generados durante {periodTitle.toLowerCase()}
+              {formatTemplate(st.revenueByServiceSubtitle, { period: periodTitle.toLowerCase() })}
             </p>
           </div>
 
@@ -922,7 +929,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                     : 'text-[#1a1a26] hover:text-[#2e004e]'
                 }`}
               >
-                Top 5
+                {st.top5}
               </button>
               <button
                 type="button"
@@ -933,7 +940,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                     : 'text-[#1a1a26] hover:text-[#2e004e]'
                 }`}
               >
-                Top 10
+                {st.top10}
               </button>
             </div>
           )}
@@ -942,7 +949,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
         {displayedServices.length === 0 ? (
           <div className="text-center py-10 text-xs text-[#7e7482] space-y-1">
             <span className="material-symbols-outlined text-3xl text-gray-300 block">inventory_2</span>
-            <span>No hay ingresos por servicios en el período seleccionado.</span>
+            <span>{st.noServiceRevenue}</span>
           </div>
         ) : (
           <div className="space-y-4 pt-1">
@@ -961,7 +968,7 @@ export const VentasView: React.FC<VentasViewProps> = ({
                         {service.name}
                       </span>
                       <span className="text-[11px] text-[#7e7482] shrink-0">
-                        ({service.count} {service.count === 1 ? 'atención' : 'atenciones'} • {sharePct}%)
+                        ({service.count} {service.count === 1 ? st.attentionSingular : st.attentionPlural} • {sharePct}%)
                       </span>
                     </div>
 

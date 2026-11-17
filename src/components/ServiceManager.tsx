@@ -4,6 +4,8 @@ import { compressImage } from '../utils/storage';
 import { uploadImageToStorage } from '../utils/firebase';
 import { formatPrice } from '../utils/priceUtils';
 import { PriceInput } from './PriceInput';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { formatTemplate } from '../utils/i18n/helpers';
 
 interface ServiceManagerProps {
   services: SalonService[];
@@ -18,6 +20,11 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
   currency = 'ARS',
   businessId
 }) => {
+  const { t } = useTranslation();
+  const mt = t.managers;
+  const st = t.settings;
+  const ct = t.common;
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingServiceId, setEditingServiceId] = useState<string | null>(null);
 
@@ -97,7 +104,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       e.stopPropagation();
     }
     if (!name.trim()) {
-      setFormError('Por favor ingresa un nombre para el servicio.');
+      setFormError(mt.errServiceName);
       return;
     }
 
@@ -177,7 +184,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const file = e.target.files?.[0];
     if (file) {
       if (file.size > 5 * 1024 * 1024) {
-        setFormError('La imagen supera el tamaño máximo permitido de 5 MB.');
+        setFormError(mt.errMaxFileSize);
         return;
       }
       try {
@@ -199,7 +206,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
         }).catch(() => {});
       } catch (err) {
         console.warn('Error uploading service image:', err);
-        setFormError('Error al procesar la imagen. Intenta con otra foto.');
+        setFormError(mt.errImageProcess);
       }
     }
   };
@@ -214,7 +221,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     const filesArray = Array.from(files);
     const oversized = filesArray.find((f) => f.size > 5 * 1024 * 1024);
     if (oversized) {
-      setFormError(`La imagen "${oversized.name}" supera el tamaño máximo permitido de 5 MB.`);
+      setFormError(formatTemplate(mt.errAdditionalImageMaxSize, { name: oversized.name }));
       return;
     }
 
@@ -250,7 +257,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       }).catch(() => {});
     } catch (err) {
       console.warn('Error uploading additional images:', err);
-      setFormError('Error al procesar las imágenes adicionales.');
+      setFormError(mt.errAdditionalImagesProcess);
     } finally {
       e.target.value = '';
     }
@@ -261,7 +268,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
     if (!file) return;
 
     if (file.size > 5 * 1024 * 1024) {
-      setFormError('La imagen supera el tamaño máximo permitido de 5 MB.');
+      setFormError(mt.errMaxFileSize);
       return;
     }
 
@@ -291,7 +298,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       }).catch(() => {});
     } catch (err) {
       console.warn('Error replacing additional image:', err);
-      setFormError('Error al procesar la imagen.');
+      setFormError(mt.errImageProcess);
     } finally {
       e.target.value = '';
     }
@@ -310,9 +317,9 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
             <span className="material-symbols-outlined text-2xl">content_cut</span>
           </div>
           <div>
-            <h3 className="text-base font-black text-[#1a1a26]">Servicios</h3>
+            <h3 className="text-base font-black text-[#1a1a26]">{st.servicesTitle}</h3>
             <p className="text-xs text-[#7e7482]">
-              Configura los servicios, duraciones y precios que ofreces a tus clientes
+              {mt.subtitleServices}
             </p>
           </div>
         </div>
@@ -323,7 +330,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
           className="py-2.5 px-4 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-black shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer self-start sm:self-auto"
         >
           <span className="material-symbols-outlined text-base text-[#f9b900]">add</span>
-          <span>+ Añadir servicio</span>
+          <span>{st.addService}</span>
         </button>
       </div>
 
@@ -335,14 +342,14 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
               <span className="material-symbols-outlined text-base">
                 {editingServiceId ? 'edit' : 'add_circle'}
               </span>
-              <span>{editingServiceId ? 'Editar servicio' : 'Nuevo servicio'}</span>
+              <span>{editingServiceId ? mt.editServiceTitle : mt.addServiceTitle}</span>
             </h4>
             <button
               type="button"
               onClick={resetForm}
-              className="text-[#7e7482] hover:text-[#1a1a26] text-xs font-bold"
+              className="text-[#7e7482] hover:text-[#1a1a26] text-xs font-bold cursor-pointer"
             >
-              ✕ Cancelar
+              ✕ {ct.cancel}
             </button>
           </div>
 
@@ -356,7 +363,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
             {/* Nombre del servicio */}
             <div>
               <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                Nombre del servicio *
+                {mt.serviceName} *
               </label>
               <input
                 type="text"
@@ -366,7 +373,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   setName(e.target.value);
                   if (formError) setFormError('');
                 }}
-                placeholder="Ej: Baño + Corte de Raza"
+                placeholder={mt.serviceNamePlaceholder}
                 className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
               />
             </div>
@@ -374,20 +381,20 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
             {/* Duración */}
             <div>
               <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                Duración promedio (minutos) *
+                {mt.durationMin} *
               </label>
               <select
                 value={durationMin}
                 onChange={(e) => setDurationMin(Number(e.target.value))}
                 className="w-full bg-white text-xs font-bold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none cursor-pointer"
               >
-                <option value={20}>20 minutos (Corte de uñas / express)</option>
-                <option value={30}>30 minutos</option>
-                <option value={45}>45 minutos (Baño estándar)</option>
-                <option value={60}>60 minutos (1 hora)</option>
-                <option value={75}>75 minutos (Deslanado)</option>
-                <option value={90}>90 minutos (1h 30m - Baño y corte)</option>
-                <option value={120}>120 minutos (2 horas - Razas grandes o spa)</option>
+                <option value={20}>{mt.duration20}</option>
+                <option value={30}>{mt.duration30}</option>
+                <option value={45}>{mt.duration45}</option>
+                <option value={60}>{mt.duration60}</option>
+                <option value={75}>{mt.duration75}</option>
+                <option value={90}>{mt.duration90}</option>
+                <option value={120}>{mt.duration120}</option>
               </select>
             </div>
           </div>
@@ -395,13 +402,13 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
           {/* Descripción */}
           <div>
             <label className="text-xs font-bold text-[#4c4451] block mb-1">
-              Descripción detallada
+              {mt.descriptionLabel}
             </label>
             <textarea
               rows={2}
               value={desc}
               onChange={(e) => setDesc(e.target.value)}
-              placeholder="Detalla lo que incluye el servicio: corte higiénico, limpieza de oídos, champú especial, etc."
+              placeholder={mt.descriptionPlaceholder}
               className="w-full bg-white text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] resize-none"
             />
           </div>
@@ -409,7 +416,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
           {/* Modelo de precios */}
           <div className="space-y-2">
             <label className="text-xs font-bold text-[#4c4451] block">
-              Modelo de precios
+              {mt.pricingTypeLabel}
             </label>
             <div className="flex gap-2">
               <button
@@ -421,7 +428,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
                 }`}
               >
-                Precio único
+                {mt.singlePrice}
               </button>
               <button
                 type="button"
@@ -432,14 +439,14 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
                 }`}
               >
-                Precio según tamaño de la mascota
+                {mt.priceBySize}
               </button>
             </div>
 
             {pricingType === 'unico' ? (
               <div className="pt-1 max-w-xs">
                 <label className="text-[11px] font-bold text-[#7e7482] block mb-1">
-                  Precio ({currency})
+                  {ct.price} ({currency})
                 </label>
                 <PriceInput
                   value={singlePrice}
@@ -452,7 +459,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
                 <div>
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
-                    Pequeño (&lt;8kg)
+                    {mt.sizeSmallRange}
                   </label>
                   <PriceInput
                     value={sizePrices.pequeno}
@@ -465,7 +472,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
-                    Mediano (8-18kg)
+                    {mt.sizeMediumRange}
                   </label>
                   <PriceInput
                     value={sizePrices.mediano}
@@ -478,7 +485,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
-                    Grande (18-30kg)
+                    {mt.sizeLargeRange}
                   </label>
                   <PriceInput
                     value={sizePrices.grande}
@@ -491,7 +498,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                 </div>
                 <div>
                   <label className="text-[10px] font-bold text-[#7e7482] block mb-0.5">
-                    Gigante (&gt;30kg)
+                    {mt.sizeExtraLargeRange}
                   </label>
                   <PriceInput
                     value={sizePrices.extraGrande}
@@ -509,7 +516,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
           {/* 6. Foto o imagen del servicio */}
           <div>
             <label className="text-xs font-bold text-[#4c4451] block mb-1">
-              Foto o imagen del servicio
+              {mt.servicePhotoLabel}
             </label>
             <div className="flex items-center gap-3">
               {imageUrl ? (
@@ -524,7 +531,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
 
               <label className="py-2 px-3 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 cursor-pointer shadow-xs flex items-center gap-1.5 transition-all">
                 <span className="material-symbols-outlined text-sm">photo_camera</span>
-                <span>{imageUrl ? 'Cambiar foto' : 'Subir foto'}</span>
+                <span>{imageUrl ? ct.changePhoto : ct.uploadPhoto}</span>
                 <input
                   type="file"
                   accept="image/*"
@@ -539,13 +546,13 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   onClick={() => setImageUrl('')}
                   className="text-xs text-rose-600 font-bold hover:underline cursor-pointer"
                 >
-                  Quitar foto
+                  {ct.removePhoto}
                 </button>
               )}
             </div>
             {/* Indicación visual formato y tamaño */}
             <p className="text-[11px] text-[#7e7482] mt-1.5 leading-relaxed bg-[#faf8fd] p-2 rounded-xl border border-[#efe9f6]">
-              <span className="font-bold text-[#4b0878]">Formato recomendado:</span> 480 × 600 px (proporción 4:5). <span className="font-bold text-[#4b0878]">Tamaño máximo:</span> 5 MB. Se recomienda utilizar imágenes optimizadas para una carga rápida.
+              {mt.serviceImageFormatHint}
             </p>
           </div>
 
@@ -553,10 +560,10 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
           <div className="pt-3 border-t border-[#efecfd] space-y-2.5">
             <div>
               <label className="text-xs font-black text-[#1a1a26] block">
-                Fotos adicionales
+                {mt.additionalPhotosTitle}
               </label>
               <p className="text-[11px] text-[#7e7482] mt-0.5">
-                Puedes subir hasta 4 fotos adicionales para mostrar más detalles de este servicio a tus clientes.
+                {mt.additionalPhotosDesc}
               </p>
             </div>
 
@@ -570,7 +577,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   >
                     <img
                       src={photoUrl}
-                      alt={`Foto adicional ${index + 1}`}
+                      alt={`${mt.additionalPhotosTitle} ${index + 1}`}
                       className="w-full h-full object-cover"
                     />
 
@@ -583,7 +590,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     <div className="absolute inset-0 bg-black/50 opacity-0 sm:group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 p-1.5">
                       <label
                         className="w-8 h-8 rounded-xl bg-white text-[#2e004e] hover:bg-[#f9b900] flex items-center justify-center shadow-md cursor-pointer transition-transform active:scale-95"
-                        title="Reemplazar foto"
+                        title={mt.replacePhotoTitle}
                       >
                         <span className="material-symbols-outlined text-sm font-bold">cached</span>
                         <input
@@ -597,7 +604,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                         type="button"
                         onClick={() => handleRemoveAdditionalPhoto(index)}
                         className="w-8 h-8 rounded-xl bg-white text-rose-600 hover:bg-rose-50 flex items-center justify-center shadow-md transition-transform active:scale-95 cursor-pointer"
-                        title="Eliminar foto"
+                        title={mt.deletePhotoTitle}
                       >
                         <span className="material-symbols-outlined text-sm font-bold">delete</span>
                       </button>
@@ -607,7 +614,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     <div className="sm:hidden absolute bottom-0 inset-x-0 bg-black/75 flex items-center justify-between px-2 py-1 text-white">
                       <label className="text-[10px] font-bold flex items-center gap-0.5 cursor-pointer">
                         <span className="material-symbols-outlined text-xs">cached</span>
-                        <span>Cambiar</span>
+                        <span>{ct.changePhoto}</span>
                         <input
                           type="file"
                           accept="image/*"
@@ -621,7 +628,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                         className="text-[10px] text-rose-300 font-bold flex items-center gap-0.5 cursor-pointer"
                       >
                         <span className="material-symbols-outlined text-xs">delete</span>
-                        <span>Quitar</span>
+                        <span>{ct.removePhoto}</span>
                       </button>
                     </div>
                   </div>
@@ -634,12 +641,12 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
               {galleryUrls.length >= 4 ? (
                 <div className="p-2.5 bg-amber-50 border border-amber-200/70 rounded-xl text-amber-800 text-xs font-bold flex items-center gap-2">
                   <span className="material-symbols-outlined text-base text-amber-600 shrink-0">info</span>
-                  <span>Has alcanzado el límite de 4 fotos adicionales.</span>
+                  <span>{mt.additionalPhotosLimitReached}</span>
                 </div>
               ) : (
                 <label className="inline-flex items-center gap-1.5 py-2 px-3.5 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 cursor-pointer shadow-xs transition-all active:scale-95">
                   <span className="material-symbols-outlined text-sm">photo_camera</span>
-                  <span>Subir foto</span>
+                  <span>{ct.uploadPhoto}</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -653,7 +660,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
 
             {/* Indicación visual formato y tamaño fotos adicionales */}
             <p className="text-[11px] text-[#7e7482] leading-relaxed bg-[#faf8fd] p-2 rounded-xl border border-[#efe9f6]">
-              <span className="font-bold text-[#4b0878]">Formato recomendado:</span> 480 × 600 px (proporción 4:5). <span className="font-bold text-[#4b0878]">Tamaño máximo:</span> 5 MB por imagen. Puedes subir hasta 4 imágenes adicionales.
+              {mt.serviceImageAdditionalFormatHint}
             </p>
           </div>
 
@@ -663,7 +670,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
               onClick={resetForm}
               className="py-2 px-4 rounded-xl text-xs font-bold text-[#7e7482] hover:bg-gray-100 cursor-pointer"
             >
-              Cancelar
+              {ct.cancel}
             </button>
             <button
               type="button"
@@ -671,7 +678,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
               className="py-2.5 px-5 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-black shadow-sm flex items-center gap-1.5 cursor-pointer"
             >
               <span className="material-symbols-outlined text-sm text-[#f9b900]">check_circle</span>
-              <span>{editingServiceId ? 'Guardar cambios' : 'Crear servicio'}</span>
+              <span>{editingServiceId ? mt.saveChangesBtn : mt.createServiceBtn}</span>
             </button>
           </div>
         </div>
@@ -680,7 +687,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
       {/* Services List */}
       {services.length === 0 ? (
         <div className="py-8 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-xs text-[#7e7482] text-center">
-          No hay servicios configurados. Haz clic en "+ Añadir servicio" para registrar tu primer servicio.
+          {mt.noServicesHint}
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -713,17 +720,17 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                   <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#7e7482] flex-wrap">
                     <span className="flex items-center gap-0.5">
                       <span className="material-symbols-outlined text-xs">schedule</span>
-                      {svc.durationMin} min
+                      {svc.durationMin} {ct.minShort}
                     </span>
                     {svc.pricingType === 'tamano' && (
                       <span className="px-1.5 py-0.2 rounded bg-[#f2daff] text-[#2e004e] font-bold text-[10px]">
-                        Por tamaño
+                        {mt.priceBySize}
                       </span>
                     )}
                     {svc.galleryUrls && svc.galleryUrls.length > 0 && (
                       <span className="px-1.5 py-0.2 rounded bg-amber-50 text-amber-800 border border-amber-200/60 font-bold text-[10px] flex items-center gap-0.5">
                         <span className="material-symbols-outlined text-[11px]">photo_library</span>
-                        +{svc.galleryUrls.length} {svc.galleryUrls.length === 1 ? 'foto' : 'fotos'}
+                        +{svc.galleryUrls.length} {svc.galleryUrls.length === 1 ? mt.onePhoto : mt.manyPhotos}
                       </span>
                     )}
                   </div>
@@ -746,7 +753,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                       : 'bg-gray-200 text-gray-700'
                   }`}
                 >
-                  {svc.active ? '✓ Activo' : 'Pausado'}
+                  {svc.active ? mt.serviceActiveBadge : ct.paused}
                 </button>
 
                 <div className="flex items-center gap-1">
@@ -754,7 +761,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     type="button"
                     onClick={() => handleOpenEdit(svc)}
                     className="p-1 text-[#4b0878] hover:bg-white rounded-lg transition-colors cursor-pointer"
-                    title="Editar servicio"
+                    title={mt.editServiceTitle}
                   >
                     <span className="material-symbols-outlined text-base">edit</span>
                   </button>
@@ -762,7 +769,7 @@ export const ServiceManager: React.FC<ServiceManagerProps> = ({
                     type="button"
                     onClick={() => handleDelete(svc.id)}
                     className="p-1 text-[#ba1a1a] hover:bg-white rounded-lg transition-colors cursor-pointer"
-                    title="Eliminar servicio"
+                    title={ct.delete}
                   >
                     <span className="material-symbols-outlined text-base">delete</span>
                   </button>

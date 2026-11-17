@@ -9,6 +9,7 @@ import {
   translateFirebaseAuthError,
   findBusinessByOwner
 } from '../utils/firebase';
+import { AppLanguage, LANGUAGE_OPTIONS, useTranslation } from '../utils/i18n';
 
 interface LoginScreenProps {
   accountsList: UserAccount[];
@@ -40,6 +41,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   accountsList,
   onLoginSuccess
 }) => {
+  const { lang, t, setLanguage } = useTranslation();
+
   const [mode, setMode] = useState<'select' | 'email' | 'register'>(
     accountsList.length > 0 ? 'email' : 'register'
   );
@@ -84,23 +87,33 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     }
   };
 
-  const handleSelectAccount = async (userId: string) => {
-    setLoading(true);
-    setErrorMsg(null);
-    try {
-      const data = await switchAccount(userId);
-      const acc = accountsList.find((a) => a.id === userId);
-      if (data && acc) {
-        onLoginSuccess(data, acc);
-      } else {
-        setErrorMsg('No se pudo cargar la cuenta seleccionada.');
-      }
-    } catch {
-      setErrorMsg('Error al conectar con la base de datos persistente.');
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Reusable Idioma selector placed cleanly below account header and before auth options
+  const renderLanguageSelector = () => (
+    <div className="bg-[#f7f4fb] border border-[#cfc2d2]/60 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-3">
+      <div className="flex items-center gap-2 min-w-0">
+        <span className="material-symbols-outlined text-lg text-[#4b0878] shrink-0">translate</span>
+        <label
+          htmlFor="login-language-select"
+          className="text-xs font-bold text-[#2e004e] truncate"
+        >
+          {t.auth.languageSelectorLabel}
+        </label>
+      </div>
+      <select
+        id="login-language-select"
+        aria-label={t.auth.languageSelectorLabel}
+        value={lang}
+        onChange={(e) => setLanguage(e.target.value as AppLanguage)}
+        className="px-2.5 py-1.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs font-bold text-[#1a1a26] bg-white cursor-pointer max-w-[65%]"
+      >
+        {LANGUAGE_OPTIONS.map((opt) => (
+          <option key={opt.code} value={opt.code}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 
   // Google Login / Quick Account Recognition
   const handleGoogleAuthAction = async () => {
@@ -151,7 +164,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       setRegisterMethod('google');
       setMode('register');
     } catch (err: any) {
-      setErrorMsg(translateFirebaseAuthError(err));
+      setErrorMsg(translateFirebaseAuthError(err, lang));
     } finally {
       setGoogleLoading(false);
     }
@@ -160,10 +173,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = emailInput.trim().toLowerCase();
-    if (!cleanEmail) return;
+    if (!cleanEmail) {
+      setErrorMsg(t.auth.errEmptyEmail);
+      return;
+    }
 
     if (!loginPassword) {
-      setErrorMsg('Por favor ingresa tu contraseña.');
+      setErrorMsg(t.auth.errPasswordLength);
       return;
     }
 
@@ -175,8 +191,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
       try {
         fbUser = await loginWithEmailPassword(cleanEmail, loginPassword);
       } catch (authErr: any) {
-        // Show authentic Firebase error (e.g. auth/operation-not-allowed, auth/wrong-password)
-        setErrorMsg(translateFirebaseAuthError(authErr));
+        setErrorMsg(translateFirebaseAuthError(authErr, lang));
         setLoading(false);
         return;
       }
@@ -213,13 +228,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         setRegEmail(cleanEmail);
         setRegisterMethod('email');
         setMode('register');
-        setErrorMsg('Cuenta autenticada en Firebase. Por favor ingresa los datos de tu peluquería para comenzar.');
+        setErrorMsg(t.auth.errEmptyBusinessName);
         return;
       }
 
-      setErrorMsg('No se encontró ninguna cuenta registrada con este correo electrónico.');
+      setErrorMsg(t.auth.errInvalidCredentials);
     } catch {
-      setErrorMsg('Error al iniciar sesión.');
+      setErrorMsg(t.auth.errSessionSync);
     } finally {
       setLoading(false);
     }
@@ -230,7 +245,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     setErrorMsg(null);
 
     if (!businessName.trim()) {
-      setErrorMsg('Por favor completa el nombre de la peluquería.');
+      setErrorMsg(t.auth.errEmptyBusinessName);
       return;
     }
 
@@ -246,7 +261,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         try {
           const gUser = await authWithGoogle();
           if (!gUser || !gUser.email) {
-            setErrorMsg('No se pudo completar la autenticación con Google.');
+            setErrorMsg(t.auth.errGoogleGeneric);
             setLoading(false);
             return;
           }
@@ -255,7 +270,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           photoUrl = gUser.photoURL;
           setGoogleUser(gUser);
         } catch (gErr: any) {
-          setErrorMsg(translateFirebaseAuthError(gErr));
+          setErrorMsg(translateFirebaseAuthError(gErr, lang));
           setLoading(false);
           return;
         }
@@ -267,15 +282,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
     } else {
       authProviderType = 'password';
       if (!authEmail || !authEmail.includes('@')) {
-        setErrorMsg('Por favor ingresa un correo electrónico válido.');
+        setErrorMsg(t.auth.errInvalidEmail);
         return;
       }
       if (!regPassword || regPassword.length < 6) {
-        setErrorMsg('La contraseña debe tener al menos 6 caracteres.');
+        setErrorMsg(t.auth.errPasswordLength);
         return;
       }
       if (regPassword !== confirmPassword) {
-        setErrorMsg('Las contraseñas no coinciden.');
+        setErrorMsg(t.auth.errInvalidCredentials);
         return;
       }
 
@@ -288,7 +303,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         );
         authUid = cred.uid;
       } catch (authErr: any) {
-        setErrorMsg(translateFirebaseAuthError(authErr));
+        setErrorMsg(translateFirebaseAuthError(authErr, lang));
         setLoading(false);
         return;
       }
@@ -301,6 +316,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
         businessName: businessName.trim(),
         country,
         currency,
+        language: lang,
         phonePrefix,
         phone: phone.trim(),
         firebaseUid: authUid,
@@ -310,7 +326,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
       onLoginSuccess(res.data, res.account);
     } catch {
-      setErrorMsg('Error al registrar la cuenta en el sistema.');
+      setErrorMsg(t.auth.errAccountCreation);
     } finally {
       setLoading(false);
     }
@@ -326,55 +342,30 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           </div>
           <h1 className="text-xl font-black tracking-tight">AgendaCan SaaS</h1>
           <p className="text-xs text-[#e3e0f1] mt-0.5">
-            Gestión inteligente para peluquerías y spas caninos
+            {t.auth.appTagline}
           </p>
         </div>
 
         {/* Content */}
         <div className="p-6 space-y-4">
           {errorMsg && (
-            <div className="p-3.5 bg-amber-50/90 border border-amber-200 text-amber-950 text-xs rounded-2xl flex flex-col gap-2 shadow-xs">
-              <div className="flex items-start gap-2.5">
-                <span className="material-symbols-outlined text-lg text-amber-600 shrink-0 mt-0.5">warning</span>
-                <span className="flex-1 font-medium leading-relaxed">{errorMsg}</span>
-              </div>
-              {(errorMsg.includes('Firebase Console') || errorMsg.includes('deshabilitado') || errorMsg.includes('Dominio no autorizado')) && (
-                <div className="mt-1 pt-2 border-t border-amber-200 text-[11px] text-amber-900 leading-normal bg-amber-100/60 p-2.5 rounded-xl">
-                  <p className="font-bold text-amber-950 flex items-center gap-1 mb-1.5">
-                    <span className="material-symbols-outlined text-sm">tune</span>
-                    Configuración requerida en Firebase Console:
-                  </p>
-                  {errorMsg.includes('Dominio no autorizado') && (
-                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
-                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
-                      <li>Menú lateral: <strong>Authentication → pestaña Settings (Ajustes)</strong>.</li>
-                      <li>Sección <strong>Authorized domains (Dominios autorizados)</strong> → <strong>Agregar dominio</strong>.</li>
-                      <li>Añade el dominio de tu aplicación: <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">groomers-app.vercel.app</code> (y si estás en desarrollo, añade también <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">{typeof window !== 'undefined' ? window.location.hostname : 'este-dominio'}</code>).</li>
-                    </ol>
-                  )}
-                  {errorMsg.includes('deshabilitado') && (
-                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
-                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
-                      <li>Menú lateral: <strong>Authentication → pestaña Sign-in method (Métodos de acceso)</strong>.</li>
-                      <li>En proveedores de acceso, haz clic en <strong>Correo electrónico/contraseña</strong>.</li>
-                      <li>Activa la casilla <strong>Habilitar</strong> (la primera) y pulsa <strong>Guardar</strong>.</li>
-                      <li>Si deseas habilitar Google, haz clic en <strong>Google</strong>, activa <strong>Habilitar</strong>, selecciona tu correo de soporte y pulsa <strong>Guardar</strong>.</li>
-                    </ol>
-                  )}
-                </div>
-              )}
+            <div className="p-3.5 bg-amber-50/90 border border-amber-200 text-amber-950 text-xs rounded-2xl flex items-start gap-2.5 shadow-xs">
+              <span className="material-symbols-outlined text-lg text-amber-600 shrink-0 mt-0.5">warning</span>
+              <span className="flex-1 font-medium leading-relaxed">{errorMsg}</span>
             </div>
           )}
 
-          {/* Mode 1: Select Stored Account (Only if explicitly enabled or multiple user accounts exist) */}
+          {/* Mode 1: Select Welcome / Actions */}
           {mode === 'select' && (
             <div className="space-y-4">
               <div className="text-center">
-                <h2 className="text-base font-bold text-[#1a1a26]">Bienvenido a Agenda Can</h2>
+                <h2 className="text-base font-bold text-[#1a1a26]">{t.auth.welcomeBackTitle}</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Accede a tu cuenta de peluquería canina
+                  {t.auth.signInPrompt}
                 </p>
               </div>
+
+              {renderLanguageSelector()}
 
               {/* Botón rápido con Google */}
               <button
@@ -384,7 +375,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
               >
                 <GoogleLogo />
-                <span>{googleLoading ? 'Conectando con Google...' : 'Continuar con cuenta de Google (Gmail)'}</span>
+                <span>{googleLoading ? t.auth.connectingGoogle : t.auth.continueWithGoogle}</span>
               </button>
 
               <div className="pt-3 border-t border-[#cfc2d2]/40 flex flex-col gap-2 text-center">
@@ -394,14 +385,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   className="w-full py-2.5 px-4 rounded-xl bg-[#f9b900] text-[#261900] font-bold text-xs shadow-xs hover:bg-[#ffdea1] transition-all flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-base">add_business</span>
-                  Registrar Mi Peluquería / Cuenta Nueva
+                  {t.auth.createBusinessAccountLink}
                 </button>
                 <button
                   type="button"
                   onClick={() => setMode('email')}
-                  className="text-xs font-semibold text-[#4b0878] hover:underline"
+                  className="text-xs font-semibold text-[#4b0878] hover:underline cursor-pointer"
                 >
-                  O ingresar con correo electrónico y contraseña
+                  {t.auth.signInEmailBtn}
                 </button>
               </div>
             </div>
@@ -411,11 +402,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           {mode === 'email' && (
             <form onSubmit={handleEmailLogin} className="space-y-3.5">
               <div className="text-center">
-                <h2 className="text-base font-bold text-[#1a1a26]">Iniciar sesión</h2>
+                <h2 className="text-base font-bold text-[#1a1a26]">{t.auth.signInTitle}</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Ingresa con las credenciales de tu negocio
+                  {t.auth.signInPrompt}
                 </p>
               </div>
+
+              {renderLanguageSelector()}
 
               {/* Botón rápido con Google */}
               <button
@@ -425,23 +418,23 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
               >
                 <GoogleLogo />
-                <span>Continuar con cuenta de Google (Gmail)</span>
+                <span>{googleLoading ? t.auth.connectingGoogle : t.auth.continueWithGoogle}</span>
               </button>
 
               <div className="flex items-center gap-2 my-1">
                 <div className="h-px bg-gray-200 flex-1"></div>
-                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">O con correo</span>
+                <span className="text-[10px] text-gray-400 font-bold uppercase tracking-wider">{t.auth.emailTab}</span>
                 <div className="h-px bg-gray-200 flex-1"></div>
               </div>
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                  Correo Electrónico
+                  {t.auth.emailLabel}
                 </label>
                 <input
                   type="email"
                   required
-                  placeholder="ej. contacto@mipeluqueria.com"
+                  placeholder={t.auth.emailPlaceholder}
                   value={emailInput}
                   onChange={(e) => setEmailInput(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs bg-white"
@@ -450,12 +443,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                  Contraseña (opcional para cuentas locales)
+                  {t.auth.passwordLabel}
                 </label>
                 <div className="relative">
                   <input
                     type={showLoginPassword ? 'text' : 'password'}
-                    placeholder="Contraseña de acceso"
+                    placeholder={t.auth.passwordPlaceholder}
                     value={loginPassword}
                     onChange={(e) => setLoginPassword(e.target.value)}
                     className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs bg-white"
@@ -477,7 +470,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 disabled={loading}
                 className="w-full py-3 px-4 rounded-xl bg-[#2e004e] text-white font-bold text-sm shadow-md hover:bg-[#4b0878] transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
-                {loading ? 'Accediendo...' : 'Entrar a mi cuenta'}
+                {loading ? t.auth.signingIn : t.auth.signInTitle}
               </button>
 
               <div className="pt-2 text-center space-y-1">
@@ -485,17 +478,17 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setMode('select')}
-                    className="text-xs font-semibold text-[#4b0878] hover:underline block w-full"
+                    className="text-xs font-semibold text-[#4b0878] hover:underline block w-full cursor-pointer"
                   >
-                    ← Volver a mis cuentas guardadas
+                    ← {t.auth.orUseSavedAccount}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setMode('register')}
-                  className="text-xs font-semibold text-[#7e7482] hover:text-[#1a1a26] block w-full"
+                  className="text-xs font-semibold text-[#7e7482] hover:text-[#1a1a26] block w-full cursor-pointer"
                 >
-                  ¿No tienes cuenta? Regístrate aquí
+                  {t.auth.newToPlatform} {t.auth.createBusinessAccountLink}
                 </button>
               </div>
             </form>
@@ -504,12 +497,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
           {/* Mode 3: Register New Business */}
           {mode === 'register' && (
             <form onSubmit={handleRegister} className="space-y-3.5">
-              <div className="text-center pb-1">
-                <h2 className="text-base font-bold text-[#1a1a26]">Nueva Cuenta de Negocio</h2>
+              <div className="text-center pb-0.5">
+                <h2 className="text-base font-bold text-[#1a1a26]">{t.auth.newBusinessAccount}</h2>
                 <p className="text-xs text-[#7e7482] mt-0.5">
-                  Elige cómo quieres autenticarte
+                  {t.auth.chooseAuthMethod}
                 </p>
               </div>
+
+              {/* Language selector positioned right below business account header and before auth methods */}
+              {renderLanguageSelector()}
 
               {/* Selector de Método de Registro */}
               <div className="grid grid-cols-2 gap-2 p-1 bg-gray-100 rounded-xl">
@@ -523,7 +519,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   }`}
                 >
                   <GoogleLogo />
-                  <span>Google (Gmail)</span>
+                  <span>{t.auth.googleTab}</span>
                 </button>
                 <button
                   type="button"
@@ -535,7 +531,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   }`}
                 >
                   <span className="material-symbols-outlined text-base">mail</span>
-                  <span>Correo</span>
+                  <span>{t.auth.emailTab}</span>
                 </button>
               </div>
 
@@ -557,7 +553,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                         }}
                         className="text-xs font-bold text-emerald-800 underline shrink-0 cursor-pointer"
                       >
-                        Cambiar
+                        {t.common.edit}
                       </button>
                     </div>
                   ) : (
@@ -568,7 +564,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                       className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer"
                     >
                       <GoogleLogo />
-                      <span>{googleLoading ? 'Conectando...' : 'Continuar con cuenta de Google (Gmail)'}</span>
+                      <span>{googleLoading ? t.auth.connectingGoogle : t.auth.continueWithGoogle}</span>
                     </button>
                   )}
                 </div>
@@ -576,12 +572,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 <div className="space-y-2.5">
                   <div>
                     <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                      Correo Electrónico *
+                      {t.auth.emailLabel}
                     </label>
                     <input
                       type="email"
                       required
-                      placeholder="admin@mipeluqueria.com"
+                      placeholder={t.auth.emailPlaceholder}
                       value={regEmail}
                       onChange={(e) => setRegEmail(e.target.value)}
                       className="w-full px-3 py-2 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
@@ -591,13 +587,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                        Contraseña *
+                        {t.auth.passwordLabel}
                       </label>
                       <div className="relative">
                         <input
                           type={showRegPassword ? 'text' : 'password'}
                           required
-                          placeholder="Mín. 6 car."
+                          placeholder={t.auth.passwordMinHint}
                           value={regPassword}
                           onChange={(e) => setRegPassword(e.target.value)}
                           className="w-full px-3 py-2 pr-8 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
@@ -605,7 +601,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowRegPassword(!showRegPassword)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer"
                         >
                           <span className="material-symbols-outlined text-sm">
                             {showRegPassword ? 'visibility_off' : 'visibility'}
@@ -615,13 +611,13 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                     </div>
                     <div>
                       <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                        Confirmar *
+                        {t.common.confirm} *
                       </label>
                       <div className="relative">
                         <input
                           type={showConfirmPassword ? 'text' : 'password'}
                           required
-                          placeholder="Repite"
+                          placeholder={t.auth.passwordPlaceholder}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           className="w-full px-3 py-2 pr-8 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
@@ -629,7 +625,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                         <button
                           type="button"
                           onClick={() => setShowConfirmPassword(!showConfirmPassword)}
-                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400"
+                          className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 cursor-pointer"
                         >
                           <span className="material-symbols-outlined text-sm">
                             {showConfirmPassword ? 'visibility_off' : 'visibility'}
@@ -643,12 +639,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                  Nombre de la Peluquería *
+                  {t.auth.businessNameLabel}
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="ej. Mi Peluquería Canina"
+                  placeholder={t.auth.businessNamePlaceholder}
                   value={businessName}
                   onChange={(e) => setBusinessName(e.target.value)}
                   className="w-full px-3.5 py-2 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-sm bg-white"
@@ -657,11 +653,11 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                  Nombre del Responsable
+                  {t.auth.ownerNameLabel}
                 </label>
                 <input
                   type="text"
-                  placeholder="ej. Carlos Silva"
+                  placeholder={t.auth.ownerNamePlaceholder}
                   value={ownerName}
                   onChange={(e) => setOwnerName(e.target.value)}
                   className="w-full px-3 py-2 rounded-xl border border-[#cfc2d2] outline-none text-xs bg-white"
@@ -671,7 +667,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                    País
+                    {t.auth.countryLabel}
                   </label>
                   <select
                     value={country}
@@ -687,7 +683,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 </div>
                 <div>
                   <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                    Moneda
+                    {t.auth.currencyLabel}
                   </label>
                   <select
                     value={currency}
@@ -705,7 +701,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
               <div>
                 <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                  WhatsApp
+                  {t.auth.whatsappLabel}
                 </label>
                 <div className="flex gap-2">
                   <span className="px-3 py-2 rounded-xl bg-gray-100 border border-[#cfc2d2] text-xs font-bold flex items-center">
@@ -713,7 +709,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   </span>
                   <input
                     type="tel"
-                    placeholder="99 123 4567"
+                    placeholder={t.auth.whatsappPlaceholder}
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
                     className="flex-1 px-3.5 py-2 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-sm bg-white"
@@ -726,20 +722,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                 disabled={loading || googleLoading}
                 className="w-full py-3 px-4 rounded-xl bg-[#f9b900] text-[#261900] font-black text-sm shadow-md hover:bg-[#ffdea1] transition-all flex items-center justify-center gap-2 cursor-pointer mt-2 active:scale-95 disabled:opacity-60"
               >
-                {loading ? 'Creando cuenta...' : 'Crear Peluquería y Comenzar'}
+                {loading ? t.auth.creatingAccount : t.auth.createSalonBtn}
               </button>
 
-              {accountsList.length > 0 && (
-                <div className="text-center pt-1">
+              <div className="text-center pt-1 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => setMode('email')}
+                  className="text-xs font-semibold text-[#4b0878] hover:underline block w-full cursor-pointer"
+                >
+                  {t.auth.alreadyHaveAccount} {t.auth.signInHere}
+                </button>
+                {accountsList.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setMode('select')}
-                    className="text-xs font-semibold text-[#4b0878] hover:underline"
+                    className="text-xs font-semibold text-[#7e7482] hover:underline block w-full cursor-pointer"
                   >
-                    ← Volver a cuentas existentes
+                    ← {t.auth.orUseSavedAccount}
                   </button>
-                </div>
-              )}
+                )}
+              </div>
             </form>
           )}
         </div>

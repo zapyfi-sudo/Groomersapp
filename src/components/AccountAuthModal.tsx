@@ -8,6 +8,7 @@ import {
   translateFirebaseAuthError,
   logoutFirebaseAuth
 } from '../utils/firebase';
+import { AppLanguage, LANGUAGE_OPTIONS, useTranslation } from '../utils/i18n';
 
 interface AccountAuthModalProps {
   isOpen: boolean;
@@ -47,9 +48,10 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
   onAccountChanged,
   onLoggedOut
 }) => {
+  const { lang, t, setLanguage } = useTranslation();
   const [tab, setTab] = useState<'switch' | 'create'>('switch');
 
-  // Strict account isolation: A user only sees accounts belonging to their verified identity (Section 8.2)
+  // Strict account isolation: A user only sees accounts belonging to their verified identity
   const userVisibleAccounts = React.useMemo(() => {
     if (!activeAccount) return [];
     const currentEmail = (activeAccount.email || '').trim().toLowerCase();
@@ -118,13 +120,12 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
         if (!ownerName && gUser.displayName) {
           setOwnerName(gUser.displayName);
         }
-        setSuccessMsg(`Autenticado correctamente con Google como ${gUser.email}`);
+        setSuccessMsg(`${t.auth.googleAccountConnectedPrefix} ${gUser.email}`);
         setTimeout(() => setSuccessMsg(null), 4000);
       }
     } catch (err: any) {
       console.warn('[GOOGLE AUTH WARN]', err);
-      const friendly = translateFirebaseAuthError(err);
-      setErrorMsg(friendly);
+      setErrorMsg(translateFirebaseAuthError(err, lang));
     } finally {
       setGoogleLoading(false);
     }
@@ -136,9 +137,8 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    // 1. Business Fields Validation
     if (!businessName.trim()) {
-      setErrorMsg('Por favor ingresa el nombre de la peluquería o negocio.');
+      setErrorMsg(t.auth.errEmptyBusinessName);
       return;
     }
 
@@ -147,16 +147,14 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
     let authProviderType: 'google' | 'password' = 'password';
     let photoUrl: string | undefined = undefined;
 
-    // 2. Authentication Flow according to selected method
     if (registerMethod === 'google') {
       authProviderType = 'google';
-      // If user hasn't clicked "Continuar con Google" yet, trigger Google popup
       if (!googleUser) {
         setLoading(true);
         try {
           const gUser = await authWithGoogle();
           if (!gUser || !gUser.email) {
-            setErrorMsg('No se pudo completar la autenticación con Google.');
+            setErrorMsg(t.auth.errGoogleGeneric);
             setLoading(false);
             return;
           }
@@ -169,7 +167,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
           setGoogleUser(gUser);
         } catch (gErr: any) {
           console.warn('[GOOGLE REGISTRATION ERROR]', gErr);
-          setErrorMsg(translateFirebaseAuthError(gErr));
+          setErrorMsg(translateFirebaseAuthError(gErr, lang));
           setLoading(false);
           return;
         }
@@ -179,21 +177,20 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
         photoUrl = googleUser.photoURL;
       }
     } else {
-      // Opción B: Correo electrónico y contraseña
       authProviderType = 'password';
 
       if (!authEmail || !authEmail.includes('@') || !authEmail.includes('.')) {
-        setErrorMsg('Por favor ingresa un correo electrónico de acceso válido.');
+        setErrorMsg(t.auth.errInvalidEmail);
         return;
       }
 
       if (!password || password.length < 6) {
-        setErrorMsg('La contraseña de acceso debe tener al menos 6 caracteres.');
+        setErrorMsg(t.auth.errPasswordLength);
         return;
       }
 
       if (password !== confirmPassword) {
-        setErrorMsg('Las contraseñas no coinciden. Por favor asegúrate de que ambas coincidan exactamente.');
+        setErrorMsg(t.auth.errInvalidCredentials);
         return;
       }
 
@@ -207,13 +204,12 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
         authUid = cred.uid;
       } catch (authErr: any) {
         console.warn('[EMAIL PASSWORD REGISTRATION ERROR]', authErr);
-        setErrorMsg(translateFirebaseAuthError(authErr));
+        setErrorMsg(translateFirebaseAuthError(authErr, lang));
         setLoading(false);
         return;
       }
     }
 
-    // 3. Register Business in persistent storage & Firestore
     try {
       const res = await createNewBusinessAccount({
         name: ownerName.trim() || businessName.trim(),
@@ -221,6 +217,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
         businessName: businessName.trim(),
         country,
         currency,
+        language: lang,
         phonePrefix,
         phone: phone.trim(),
         firebaseUid: authUid,
@@ -232,7 +229,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
       onClose();
     } catch (err: any) {
       console.error('[CREATE BUSINESS ACCOUNT ERROR]', err);
-      setErrorMsg('Error al registrar los datos del negocio. Por favor intenta nuevamente.');
+      setErrorMsg(t.auth.errAccountCreation);
     } finally {
       setLoading(false);
     }
@@ -283,13 +280,14 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
               <span className="material-symbols-outlined text-2xl">account_circle</span>
             </div>
             <div>
-              <h3 className="font-bold text-base leading-tight">Cuentas y Gestión SaaS</h3>
-              <p className="text-xs text-white/70">Gestión de usuarios y negocios caninos</p>
+              <h3 className="font-bold text-base leading-tight">{t.auth.accountCenterTitle}</h3>
+              <p className="text-xs text-white/70">{t.auth.accountSyncCloudInfo}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={onClose}
+            aria-label={t.auth.closeModal}
             className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-white/10 text-white/80 hover:text-white cursor-pointer"
           >
             <span className="material-symbols-outlined text-xl">close</span>
@@ -308,7 +306,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
             }`}
           >
             <span className="material-symbols-outlined text-base">switch_account</span>
-            Mis Cuentas ({accountsList.length})
+            {t.auth.activeBusinessesTab} ({userVisibleAccounts.length})
           </button>
           <button
             type="button"
@@ -320,43 +318,16 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
             }`}
           >
             <span className="material-symbols-outlined text-base">add_business</span>
-            + Crear Nueva Cuenta
+            + {t.auth.addNewBusinessTab}
           </button>
         </div>
 
         {/* Modal Body */}
         <div className="p-5 sm:p-6 overflow-y-auto space-y-4">
           {errorMsg && (
-            <div className="p-3.5 bg-amber-50/90 border border-amber-200 text-amber-950 text-xs rounded-2xl flex flex-col gap-2 shadow-xs animate-in fade-in">
-              <div className="flex items-start gap-2.5">
-                <span className="material-symbols-outlined text-lg text-amber-600 shrink-0 mt-0.5">warning</span>
-                <span className="flex-1 font-medium leading-relaxed">{errorMsg}</span>
-              </div>
-              {(errorMsg.includes('Firebase Console') || errorMsg.includes('deshabilitado') || errorMsg.includes('Dominio no autorizado')) && (
-                <div className="mt-1 pt-2 border-t border-amber-200 text-[11px] text-amber-900 leading-normal bg-amber-100/60 p-2.5 rounded-xl">
-                  <p className="font-bold text-amber-950 flex items-center gap-1 mb-1.5">
-                    <span className="material-symbols-outlined text-sm">tune</span>
-                    Configuración requerida en Firebase Console:
-                  </p>
-                  {errorMsg.includes('Dominio no autorizado') && (
-                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
-                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
-                      <li>Menú lateral: <strong>Authentication → pestaña Settings (Ajustes)</strong>.</li>
-                      <li>Sección <strong>Authorized domains (Dominios autorizados)</strong> → <strong>Agregar dominio</strong>.</li>
-                      <li>Añade el dominio de tu aplicación: <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">groomers-app.vercel.app</code> (y si estás en desarrollo, añade también <code className="bg-amber-200/90 px-1 py-0.5 rounded font-mono font-bold">{typeof window !== 'undefined' ? window.location.hostname : 'este-dominio'}</code>).</li>
-                    </ol>
-                  )}
-                  {errorMsg.includes('deshabilitado') && (
-                    <ol className="list-decimal list-inside space-y-1 ml-1 text-amber-900">
-                      <li>Ingresa a <strong>console.firebase.google.com</strong> → proyecto <strong>third-strength-vh7nb</strong>.</li>
-                      <li>Menú lateral: <strong>Authentication → pestaña Sign-in method (Métodos de acceso)</strong>.</li>
-                      <li>En proveedores de acceso, haz clic en <strong>Correo electrónico/contraseña</strong>.</li>
-                      <li>Activa la casilla <strong>Habilitar</strong> (la primera) y pulsa <strong>Guardar</strong>.</li>
-                      <li>Si deseas habilitar Google, haz clic en <strong>Google</strong>, activa <strong>Habilitar</strong>, selecciona tu correo de soporte y pulsa <strong>Guardar</strong>.</li>
-                    </ol>
-                  )}
-                </div>
-              )}
+            <div className="p-3.5 bg-amber-50/90 border border-amber-200 text-amber-950 text-xs rounded-2xl flex items-start gap-2.5 shadow-xs animate-in fade-in">
+              <span className="material-symbols-outlined text-lg text-amber-600 shrink-0 mt-0.5">warning</span>
+              <span className="flex-1 font-medium leading-relaxed">{errorMsg}</span>
             </div>
           )}
 
@@ -371,84 +342,88 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
           {tab === 'switch' && (
             <div className="space-y-4">
               <p className="text-xs text-[#7e7482]">
-                Cada cuenta almacena su propio catálogo de servicios, clientes, mascotas, citas y configuración de negocio de forma 100% aislada y permanente.
+                {t.auth.accountSyncCloudInfo}
               </p>
 
               <div className="space-y-2.5">
-                {userVisibleAccounts.map((acc) => {
-                  const isActive = activeAccount?.id === acc.id;
-                  const isGoogle = acc.authProvider === 'google';
+                {userVisibleAccounts.length === 0 ? (
+                  <p className="text-xs text-[#7e7482] text-center py-4">{t.auth.noSavedAccounts}</p>
+                ) : (
+                  userVisibleAccounts.map((acc) => {
+                    const isActive = activeAccount?.id === acc.id;
+                    const isGoogle = acc.authProvider === 'google';
 
-                  return (
-                    <div
-                      key={acc.id}
-                      className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
-                        isActive
-                          ? 'border-[#2e004e] bg-[#f5f0fb] ring-2 ring-[#2e004e]/20'
-                          : 'border-[#cfc2d2]/40 bg-white hover:border-[#4b0878]/60 hover:bg-[#faf8fd]'
-                      }`}
-                    >
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-xl bg-[#2e004e] text-white flex items-center justify-center font-bold text-sm shrink-0">
-                          {acc.name ? acc.name.charAt(0).toUpperCase() : 'P'}
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="font-extrabold text-sm text-[#1a1a26] truncate">
-                              {acc.name}
-                            </span>
-                            {isGoogle && (
-                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
-                                <GoogleLogo />
-                                Google
-                              </span>
-                            )}
-                            {isActive && (
-                              <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wide">
-                                Sesión Activa
-                              </span>
-                            )}
+                    return (
+                      <div
+                        key={acc.id}
+                        className={`p-4 rounded-2xl border transition-all flex items-center justify-between gap-3 ${
+                          isActive
+                            ? 'border-[#2e004e] bg-[#f5f0fb] ring-2 ring-[#2e004e]/20'
+                            : 'border-[#cfc2d2]/40 bg-white hover:border-[#4b0878]/60 hover:bg-[#faf8fd]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-10 h-10 rounded-xl bg-[#2e004e] text-white flex items-center justify-center font-bold text-sm shrink-0">
+                            {acc.name ? acc.name.charAt(0).toUpperCase() : 'P'}
                           </div>
-                          <span className="text-xs text-[#7e7482] block truncate">
-                            {acc.email}
-                          </span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="font-extrabold text-sm text-[#1a1a26] truncate">
+                                {acc.name}
+                              </span>
+                              {isGoogle && (
+                                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
+                                  <GoogleLogo />
+                                  Google
+                                </span>
+                              )}
+                              {isActive && (
+                                <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-black uppercase tracking-wide">
+                                  {t.auth.currentAccountBadge}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-xs text-[#7e7482] block truncate">
+                              {acc.email}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          {isActive ? (
+                            <span className="text-xs font-bold text-[#2e004e] flex items-center gap-1">
+                              <span className="material-symbols-outlined text-base text-emerald-600">check_circle</span>
+                              {t.common.active}
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={loading}
+                              onClick={() => handleSwitch(acc.id)}
+                              className="px-3 py-1.5 rounded-xl bg-[#2e004e] text-white text-xs font-bold hover:bg-[#4b0878] transition-all cursor-pointer shadow-xs active:scale-95"
+                            >
+                              {loading ? t.auth.switchingAccount : t.auth.switchAccountBtn}
+                            </button>
+                          )}
                         </div>
                       </div>
-
-                      <div>
-                        {isActive ? (
-                          <span className="text-xs font-bold text-[#2e004e] flex items-center gap-1">
-                            <span className="material-symbols-outlined text-base text-emerald-600">check_circle</span>
-                            En uso
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={loading}
-                            onClick={() => handleSwitch(acc.id)}
-                            className="px-3 py-1.5 rounded-xl bg-[#2e004e] text-white text-xs font-bold hover:bg-[#4b0878] transition-all cursor-pointer shadow-xs active:scale-95"
-                          >
-                            Abrir Cuenta
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                    );
+                  })
+                )}
               </div>
 
               {/* Cerrar Sesión Button */}
-              <div className="pt-4 border-t border-[#cfc2d2]/40 flex items-center justify-between">
+              <div className="pt-4 border-t border-[#cfc2d2]/40 flex items-center justify-between gap-3">
                 <span className="text-xs text-[#7e7482]">
-                  Cerrar sesión guarda tus datos de forma segura sin eliminarlos.
+                  {t.auth.confirmSignOutDesc}
                 </span>
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="px-3.5 py-2 rounded-xl border border-red-200 text-red-700 hover:bg-red-50 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl border border-red-200 text-red-700 hover:bg-red-50 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shrink-0"
                 >
                   <span className="material-symbols-outlined text-base">logout</span>
-                  Cerrar Sesión
+                  {t.auth.signOutCurrent}
                 </button>
               </div>
             </div>
@@ -457,10 +432,32 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
           {/* TAB 2: CREAR NUEVA CUENTA CON GOOGLE O CORREO/CONTRASEÑA */}
           {tab === 'create' && (
             <form onSubmit={handleCreateAccount} className="space-y-4">
+              {/* Language Selector */}
+              <div className="bg-white border border-[#cfc2d2]/60 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="material-symbols-outlined text-lg text-[#4b0878] shrink-0">translate</span>
+                  <label htmlFor="modal-language-select" className="text-xs font-bold text-[#2e004e] truncate">
+                    {t.auth.languageSelectorLabel}
+                  </label>
+                </div>
+                <select
+                  id="modal-language-select"
+                  value={lang}
+                  onChange={(e) => setLanguage(e.target.value as AppLanguage)}
+                  className="px-2.5 py-1.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs font-bold text-[#1a1a26] bg-[#fcf8ff] cursor-pointer max-w-[65%]"
+                >
+                  {LANGUAGE_OPTIONS.map((opt) => (
+                    <option key={opt.code} value={opt.code}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
               {/* Selector de Método de Registro */}
               <div>
                 <span className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-2">
-                  Método de Autenticación *
+                  {t.auth.chooseAuthMethod} *
                 </span>
                 <div className="grid grid-cols-2 gap-2 p-1 bg-white rounded-2xl border border-[#cfc2d2]/60">
                   <button
@@ -473,7 +470,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                     }`}
                   >
                     <GoogleLogo />
-                    <span>Continuar con Google (Gmail)</span>
+                    <span>{t.auth.googleTab}</span>
                   </button>
                   <button
                     type="button"
@@ -485,7 +482,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                     }`}
                   >
                     <span className="material-symbols-outlined text-base">mail</span>
-                    <span>Correo y Contraseña</span>
+                    <span>{t.auth.emailTab}</span>
                   </button>
                 </div>
               </div>
@@ -493,15 +490,6 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
               {/* OPCCIÓN A: CONTINUAR CON GOOGLE */}
               {registerMethod === 'google' && (
                 <div className="space-y-3 p-4 bg-white rounded-2xl border border-[#cfc2d2]/60">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-[#1a1a26]">
-                      Opción A: Registro con cuenta de Google (Gmail)
-                    </span>
-                    <span className="text-[10px] bg-blue-100 text-blue-800 font-bold px-2 py-0.5 rounded-full">
-                      Acceso Rápido y Seguro
-                    </span>
-                  </div>
-
                   {googleUser ? (
                     <div className="p-3.5 bg-emerald-50 rounded-xl border border-emerald-200 flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
@@ -511,7 +499,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                         <div className="min-w-0">
                           <div className="flex items-center gap-1">
                             <span className="text-xs font-black text-emerald-950 truncate">
-                              {googleUser.displayName || 'Usuario de Google / Gmail'}
+                              {googleUser.displayName || t.auth.googleTab}
                             </span>
                             <span className="material-symbols-outlined text-sm text-emerald-600">verified</span>
                           </div>
@@ -528,13 +516,13 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                         }}
                         className="text-xs font-bold text-emerald-800 hover:text-emerald-950 underline shrink-0 cursor-pointer"
                       >
-                        Cambiar
+                        {t.common.edit}
                       </button>
                     </div>
                   ) : (
                     <div>
                       <p className="text-xs text-[#7e7482] mb-3">
-                        Utiliza tu cuenta de Google (Gmail) para registrarte en un clic sin necesidad de recordar contraseñas adicionales.
+                        {t.auth.continueWithGoogleHint}
                       </p>
                       <button
                         type="button"
@@ -543,7 +531,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                         className="w-full py-2.5 px-4 rounded-xl border border-[#cfc2d2] hover:border-[#2e004e] bg-white hover:bg-gray-50 text-[#1a1a26] font-bold text-xs shadow-xs transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-95"
                       >
                         <GoogleLogo />
-                        <span>{googleLoading ? 'Conectando con Google...' : 'Continuar con cuenta de Google (Gmail)'}</span>
+                        <span>{googleLoading ? t.auth.connectingGoogle : t.auth.continueWithGoogle}</span>
                       </button>
                     </div>
                   )}
@@ -553,23 +541,14 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
               {/* OPCIÓN B: CORREO Y CONTRASEÑA */}
               {registerMethod === 'email' && (
                 <div className="space-y-3 p-4 bg-white rounded-2xl border border-[#cfc2d2]/60">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-bold text-[#1a1a26]">
-                      Opción B: Registro con Correo Electrónico
-                    </span>
-                    <span className="text-[10px] bg-purple-100 text-[#2e004e] font-bold px-2 py-0.5 rounded-full">
-                      Credenciales Propias
-                    </span>
-                  </div>
-
                   <div>
                     <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                      Correo Electrónico de Acceso *
+                      {t.auth.emailLabel}
                     </label>
                     <input
                       type="email"
                       required
-                      placeholder="admin@mipeluqueria.com (o tu correo personal)"
+                      placeholder={t.auth.emailPlaceholder}
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] focus:ring-2 focus:ring-[#2e004e]/20 outline-none text-xs bg-white font-medium"
@@ -579,13 +558,13 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                        Contraseña *
+                        {t.auth.passwordLabel}
                       </label>
                       <div className="relative">
                         <input
                           type={showPassword ? 'text' : 'password'}
                           required
-                          placeholder="Mínimo 6 caracteres"
+                          placeholder={t.auth.passwordMinHint}
                           value={password}
                           onChange={(e) => setPassword(e.target.value)}
                           className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] focus:ring-2 focus:ring-[#2e004e]/20 outline-none text-xs bg-white font-medium"
@@ -604,13 +583,13 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
 
                     <div>
                       <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                        Confirmar Contraseña *
+                        {t.common.confirm} *
                       </label>
                       <div className="relative">
                         <input
                           type={showConfirmPassword ? 'text' : 'password'}
                           required
-                          placeholder="Repite la contraseña"
+                          placeholder={t.auth.passwordPlaceholder}
                           value={confirmPassword}
                           onChange={(e) => setConfirmPassword(e.target.value)}
                           className="w-full px-3.5 py-2.5 pr-10 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] focus:ring-2 focus:ring-[#2e004e]/20 outline-none text-xs bg-white font-medium"
@@ -627,27 +606,19 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                       </div>
                     </div>
                   </div>
-
-                  <p className="text-[11px] text-[#7e7482]">
-                    La contraseña es propia de Agenda Can para acceder al sistema y no tiene que coincidir con la de tu proveedor de correo.
-                  </p>
                 </div>
               )}
 
-              {/* DATOS DEL NEGOCIO (CONSERVADOS) */}
+              {/* DATOS DEL NEGOCIO */}
               <div className="space-y-3 pt-1">
-                <span className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider">
-                  Datos de la Peluquería Canina
-                </span>
-
                 <div>
                   <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                    Nombre del Negocio / Peluquería *
+                    {t.auth.businessNameLabel}
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="ej. Grooming Spa Guayaquil"
+                    placeholder={t.auth.businessNamePlaceholder}
                     value={businessName}
                     onChange={(e) => setBusinessName(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] focus:ring-2 focus:ring-[#2e004e]/20 outline-none text-sm bg-white font-medium"
@@ -656,11 +627,11 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                    Nombre del Responsable / Propietario
+                    {t.auth.ownerNameLabel}
                   </label>
                   <input
                     type="text"
-                    placeholder="ej. Carlos Silva"
+                    placeholder={t.auth.ownerNamePlaceholder}
                     value={ownerName}
                     onChange={(e) => setOwnerName(e.target.value)}
                     className="w-full px-3.5 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs bg-white"
@@ -670,7 +641,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                      País
+                      {t.auth.countryLabel}
                     </label>
                     <select
                       value={country}
@@ -686,7 +657,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                      Moneda
+                      {t.auth.currencyLabel}
                     </label>
                     <select
                       value={currency}
@@ -704,7 +675,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
 
                 <div>
                   <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1">
-                    WhatsApp del Salón
+                    {t.auth.whatsappLabel}
                   </label>
                   <div className="flex gap-2">
                     <span className="px-3 py-2.5 rounded-xl bg-gray-100 border border-[#cfc2d2] text-xs font-bold text-[#4c4451] flex items-center shrink-0">
@@ -712,7 +683,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                     </span>
                     <input
                       type="tel"
-                      placeholder="99 123 4567"
+                      placeholder={t.auth.whatsappPlaceholder}
                       value={phone}
                       onChange={(e) => setPhone(e.target.value)}
                       className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#cfc2d2] focus:border-[#2e004e] outline-none text-xs bg-white"
@@ -729,9 +700,7 @@ export const AccountAuthModal: React.FC<AccountAuthModalProps> = ({
                   className="w-full py-3 px-4 rounded-xl bg-[#f9b900] text-[#261900] font-black text-sm shadow-md hover:bg-[#ffdea1] transition-all flex items-center justify-center gap-2 cursor-pointer active:scale-95 disabled:opacity-60"
                 >
                   <span className="material-symbols-outlined text-lg">check</span>
-                  {loading
-                    ? 'Creando y configurando cuenta...'
-                    : 'Crear Cuenta y Abrir Negocio'}
+                  {loading ? t.auth.registeringInCloud : t.auth.createAdditionalBusiness}
                 </button>
               </div>
             </form>

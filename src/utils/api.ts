@@ -22,6 +22,7 @@ import {
   reconcileBusinessSources,
   mergeAppointments
 } from './syncHelpers';
+import { AppLanguage, getLocaleForLanguage, getTranslations, resolveAppLanguage } from './translations';
 
 export {
   subscribeToBusinessAppointments,
@@ -245,6 +246,9 @@ export async function fetchBusinessProfileWithStatus(
     if (resolvedResult.config.bookingSlug) {
       rememberResolvedBusinessId(resolvedResult.config.bookingSlug, resolvedResult.businessId);
     }
+    if (resolvedResult.config.reviewSlug) {
+      rememberResolvedBusinessId(resolvedResult.config.reviewSlug, resolvedResult.businessId);
+    }
     if (typeof window !== 'undefined') {
       try {
         const serialized = JSON.stringify(resolvedResult);
@@ -252,6 +256,12 @@ export async function fetchBusinessProfileWithStatus(
         if (resolvedResult.config.bookingSlug) {
           localStorage.setItem(
             `agendacan_public_biz_${extractSlugOnly(resolvedResult.config.bookingSlug)}`,
+            serialized
+          );
+        }
+        if (resolvedResult.config.reviewSlug) {
+          localStorage.setItem(
+            `agendacan_public_biz_${extractSlugOnly(resolvedResult.config.reviewSlug)}`,
             serialized
           );
         }
@@ -411,6 +421,7 @@ export async function syncBusinessToServer(
 ): Promise<boolean> {
   const targetId = businessId || config.id || 'biz_main';
   const cleanSlug = extractSlugOnly(config.bookingSlug) || config.bookingSlug;
+  const cleanReviewSlug = extractSlugOnly(config.reviewSlug) || config.reviewSlug || '';
   const syncTimestamp = config.updatedAt || new Date().toISOString();
 
   const configToSync: SalonConfig = {
@@ -421,7 +432,7 @@ export async function syncBusinessToServer(
   };
 
   // Deduplicate concurrent identical sync calls (e.g. AjustesView + App.tsx onUpdateConfig)
-  const dedupKey = `${targetId}|${syncTimestamp}|${configToSync.country || ''}|${configToSync.city || ''}|${configToSync.address || ''}|${cleanSlug}`;
+  const dedupKey = `${targetId}|${syncTimestamp}|${configToSync.country || ''}|${configToSync.city || ''}|${configToSync.address || ''}|${cleanSlug}|${cleanReviewSlug}|${configToSync.language || ''}`;
   const existingFlight = inFlightSyncs.get(dedupKey);
   if (existingFlight) {
     return existingFlight;
@@ -435,7 +446,8 @@ export async function syncBusinessToServer(
         try {
           const prevRaw =
             localStorage.getItem(`agendacan_public_biz_${targetId}`) ||
-            (cleanSlug ? localStorage.getItem(`agendacan_public_biz_${cleanSlug}`) : null);
+            (cleanSlug ? localStorage.getItem(`agendacan_public_biz_${cleanSlug}`) : null) ||
+            (cleanReviewSlug ? localStorage.getItem(`agendacan_public_biz_${cleanReviewSlug}`) : null);
           if (prevRaw) {
             const parsedPrev = JSON.parse(prevRaw);
             if (parsedPrev && parsedPrev.businessId === targetId) {
@@ -466,6 +478,9 @@ export async function syncBusinessToServer(
         localStorage.setItem(`agendacan_public_biz_${targetId}`, serialized);
         if (cleanSlug) {
           localStorage.setItem(`agendacan_public_biz_${cleanSlug}`, serialized);
+        }
+        if (cleanReviewSlug) {
+          localStorage.setItem(`agendacan_public_biz_${cleanReviewSlug}`, serialized);
         }
       } catch (e) {
         console.warn('Error updating local public cache in syncBusinessToServer:', e);
@@ -851,6 +866,8 @@ export interface ReviewBusinessSummary {
   businessId: string;
   name?: string;
   bookingSlug?: string;
+  reviewSlug?: string;
+  language?: string;
   country?: string;
   city?: string;
   address?: string;
@@ -876,8 +893,11 @@ export async function submitPublicReview(
   options?: {
     firestoreDocId?: string;
     businessSummary?: ReviewBusinessSummary;
+    language?: AppLanguage;
   }
 ): Promise<SubmitReviewResult> {
+  const effectiveLang = resolveAppLanguage(options?.language || options?.businessSummary?.language);
+  const tReview = getTranslations(effectiveLang).publicReview;
   const trimmedTarget = (businessIdOrSlug || '').trim();
   const trimmedName = String(review?.clientName || '').trim().slice(0, 120);
   const parsedStars = Number(review?.stars);
@@ -886,7 +906,7 @@ export async function submitPublicReview(
     return {
       success: false,
       errorCode: 'invalid-argument',
-      error: 'Por favor escribe tu nombre y selecciona una calificación de 1 a 5 estrellas.'
+      error: !trimmedName ? tReview.errMissingName : tReview.errMissingStars
     };
   }
 
@@ -895,6 +915,9 @@ export async function submitPublicReview(
   let targetDocId = options?.firestoreDocId?.trim() || '';
   let resolvedSlug = options?.businessSummary?.bookingSlug
     ? extractSlugOnly(options.businessSummary.bookingSlug)
+    : '';
+  let resolvedReviewSlug = options?.businessSummary?.reviewSlug
+    ? extractSlugOnly(options.businessSummary.reviewSlug)
     : '';
   let businessSummary: ReviewBusinessSummary | undefined = options?.businessSummary
     ? {
@@ -912,11 +935,16 @@ export async function submitPublicReview(
         resolvedSlug = resolvedProfile.config?.bookingSlug
           ? extractSlugOnly(resolvedProfile.config.bookingSlug)
           : resolvedSlug;
+        resolvedReviewSlug = resolvedProfile.config?.reviewSlug
+          ? extractSlugOnly(resolvedProfile.config.reviewSlug)
+          : resolvedReviewSlug;
         if (!businessSummary) {
           businessSummary = {
             businessId: resolvedProfile.businessId,
             name: resolvedProfile.config?.name,
             bookingSlug: resolvedProfile.config?.bookingSlug,
+            reviewSlug: resolvedProfile.config?.reviewSlug,
+            language: resolvedProfile.config?.language,
             country: resolvedProfile.config?.country,
             city: resolvedProfile.config?.city,
             address: resolvedProfile.config?.address,
@@ -934,6 +962,7 @@ export async function submitPublicReview(
 
   const now = new Date().toISOString();
   const safeStars = Math.round(Math.min(5, Math.max(1, parsedStars)) * 10) / 10;
+  const finalLang = resolveAppLanguage(options?.language || businessSummary?.language || effectiveLang);
 
   const cleanReview: ClientReview = {
     ...review,
@@ -942,18 +971,18 @@ export async function submitPublicReview(
     stars: safeStars,
     clientName: trimmedName,
     comment: review.comment ? String(review.comment).trim().slice(0, 2000) : '',
-    date: review.date || new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
+    date: review.date || new Date().toLocaleDateString(getLocaleForLanguage(finalLang), { day: 'numeric', month: 'long', year: 'numeric' }),
     createdAt: review.createdAt || now,
     verified: true
   };
 
   // 2. Run Cloud Firestore and Server API saves in parallel
-  const firestoreTask = addReviewToFirestore(targetBizId, cleanReview, targetDocId).catch((err) => {
+  const firestoreTask = addReviewToFirestore(targetBizId, cleanReview, targetDocId, finalLang).catch((err) => {
     console.warn('[FIRESTORE SUBMIT REVIEW WARN]', err);
     return {
       success: false,
       errorCode: err?.code || 'unknown',
-      errorMessage: 'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.'
+      errorMessage: getTranslations(finalLang).publicReview.errSaveFailed
     };
   });
 
@@ -1003,7 +1032,8 @@ export async function submitPublicReview(
 
       const keysToPatch = [`agendacan_public_biz_${targetBizId}`];
       if (resolvedSlug) keysToPatch.push(`agendacan_public_biz_${resolvedSlug}`);
-      if (trimmedTarget !== targetBizId && trimmedTarget !== resolvedSlug) {
+      if (resolvedReviewSlug) keysToPatch.push(`agendacan_public_biz_${resolvedReviewSlug}`);
+      if (trimmedTarget !== targetBizId && trimmedTarget !== resolvedSlug && trimmedTarget !== resolvedReviewSlug) {
         keysToPatch.push(`agendacan_public_biz_${trimmedTarget}`);
       }
       for (const pubKey of keysToPatch) {
@@ -1029,7 +1059,7 @@ export async function submitPublicReview(
       errorCode: firestoreOutcome?.errorCode || 'save-failed',
       error:
         firestoreOutcome?.errorMessage ||
-        'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.',
+        getTranslations(finalLang).publicReview.errSaveFailed,
       persistedTo
     };
   }

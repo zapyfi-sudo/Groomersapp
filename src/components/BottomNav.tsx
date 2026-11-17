@@ -1,5 +1,5 @@
 import React from 'react';
-import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { AppLanguage, getTranslations, useTranslation } from '../utils/i18n';
 
 interface BottomNavProps {
   currentTab: 'retencion' | 'ficha' | 'agenda' | 'en_salon' | 'mascotas' | 'onboarding';
@@ -14,36 +14,37 @@ export const BottomNav: React.FC<BottomNavProps> = ({
   onSelectTab,
   urgentCount = 0,
   inSalonCount = 0,
-  currentLanguage = 'es-LA'
+  currentLanguage
 }) => {
-  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+  const { lang: ctxLang, t: ctxT } = useTranslation();
+  const t = currentLanguage && currentLanguage !== ctxLang ? getTranslations(currentLanguage) : ctxT;
 
   const tabs = [
     {
       id: 'agenda' as const,
-      label: t.agenda,
+      label: t.nav.agenda,
       icon: 'calendar_month'
     },
     {
       id: 'en_salon' as const,
-      label: t.inSalonNav || 'En salón',
+      label: t.nav.inSalonNav,
       icon: 'storefront',
       badge: inSalonCount
     },
     {
       id: 'mascotas' as const,
-      label: t.clients,
+      label: t.nav.clients,
       icon: 'pets'
     },
     {
       id: 'retencion' as const,
-      label: t.retention,
+      label: t.nav.retention,
       icon: 'sync',
       badge: urgentCount
     },
     {
       id: 'onboarding' as const,
-      label: t.settings,
+      label: t.nav.settings,
       icon: 'tune'
     }
   ];

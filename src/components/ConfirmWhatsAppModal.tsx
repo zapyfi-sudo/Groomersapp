@@ -1,12 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { Appointment, SalonConfig, WhatsAppTemplate } from '../types';
 import {
-  DEFAULT_WHATSAPP_TEMPLATES,
+  getDefaultWhatsAppTemplates,
   renderWhatsAppTemplate,
   convertMessageToTemplate,
   buildCustomWhatsAppUrl,
   openWhatsAppUrl
 } from '../utils/phoneUtils';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { formatTemplate, formatDisplayDate } from '../utils/i18n/helpers';
 
 interface ConfirmWhatsAppModalProps {
   isOpen: boolean;
@@ -29,18 +31,23 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
   onConfirmAndSend,
   onSaveTemplateOnly
 }) => {
+  const { t, lang } = useTranslation();
+  const mt = t.modals;
+  const ct = t.common;
+
   // Combine custom templates saved on salonConfig with default templates
   const allTemplates = React.useMemo<WhatsAppTemplate[]>(() => {
+    const defaults = getDefaultWhatsAppTemplates(lang);
     const custom = salonConfig.whatsappTemplates || [];
-    if (custom.length === 0) return DEFAULT_WHATSAPP_TEMPLATES;
+    if (custom.length === 0) return defaults;
 
     // Merge: custom templates first, then any default templates not yet created
     const customTitles = new Set(custom.map((t) => t.title.toLowerCase().trim()));
-    const remainingDefaults = DEFAULT_WHATSAPP_TEMPLATES.filter(
+    const remainingDefaults = defaults.filter(
       (dt) => !customTitles.has(dt.title.toLowerCase().trim())
     );
     return [...custom, ...remainingDefaults];
-  }, [salonConfig.whatsappTemplates]);
+  }, [salonConfig.whatsappTemplates, lang]);
 
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('tmpl-confirmacion');
   const [messageText, setMessageText] = useState<string>('');
@@ -54,14 +61,16 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     if (!isOpen || !appointment) return;
 
     // Default template to load
+    const localizedDefaults = getDefaultWhatsAppTemplates(lang);
     const activeTmpl = allTemplates.find((t) => t.id === selectedTemplateId) || allTemplates[0];
+    const displayDate = appointment.date ? formatDisplayDate(appointment.date, lang) || appointment.date : ct.today;
     const initialText = renderWhatsAppTemplate(
-      activeTmpl ? activeTmpl.content : DEFAULT_WHATSAPP_TEMPLATES[0].content,
+      activeTmpl ? activeTmpl.content : localizedDefaults[0].content,
       {
         tutorName: appointment.tutorName,
         petName: appointment.petName,
         serviceName: appointment.serviceName,
-        date: appointment.date,
+        date: displayDate,
         time: appointment.time,
         tutorPhone: appointment.tutorPhone
       },
@@ -73,7 +82,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     setNewTemplateTitle('');
     setFeedbackNotice(null);
     setIsSubmitting(false);
-  }, [isOpen, appointment]);
+  }, [isOpen, appointment, lang, allTemplates, ct.today, salonConfig.name]);
 
   if (!isOpen || !appointment) return null;
 
@@ -82,20 +91,21 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     setSelectedTemplateId(tmplId);
     const tmpl = allTemplates.find((t) => t.id === tmplId);
     if (tmpl) {
+      const displayDate = appointment.date ? formatDisplayDate(appointment.date, lang) || appointment.date : ct.today;
       const rendered = renderWhatsAppTemplate(
         tmpl.content,
         {
           tutorName: appointment.tutorName,
           petName: appointment.petName,
           serviceName: appointment.serviceName,
-          date: appointment.date,
+          date: displayDate,
           time: appointment.time,
           tutorPhone: appointment.tutorPhone
         },
         salonConfig.name
       );
       setMessageText(rendered);
-      setFeedbackNotice(`Plantilla "${tmpl.title}" cargada`);
+      setFeedbackNotice(formatTemplate(mt.templateLoadedNotice, { title: tmpl.title }));
       setTimeout(() => setFeedbackNotice(null), 2500);
     }
   };
@@ -107,9 +117,9 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     // If user hasn't typed a title yet, open the title field and propose a default title
     if (!newTemplateTitle.trim()) {
       setSaveAsTemplate(true);
-      const proposedTitle = `Plantilla personalizada ${allTemplates.length + 1}`;
+      const proposedTitle = formatTemplate(mt.customTemplateProposedName, { num: allTemplates.length + 1 });
       setNewTemplateTitle(proposedTitle);
-      setFeedbackNotice('Asigna un nombre a la plantilla y vuelve a pulsar "Guardar plantilla"');
+      setFeedbackNotice(mt.assignTemplateNameNotice);
       setTimeout(() => setFeedbackNotice(null), 4000);
       return;
     }
@@ -131,7 +141,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
     if (onSaveTemplateOnly) {
       await onSaveTemplateOnly(titleToUse, templatedContent);
     }
-    setFeedbackNotice(`¡Plantilla "${titleToUse}" guardada exitosamente!`);
+    setFeedbackNotice(formatTemplate(mt.templateSavedNotice, { title: titleToUse }));
     setSaveAsTemplate(false);
     setNewTemplateTitle('');
     setTimeout(() => setFeedbackNotice(null), 3000);
@@ -211,10 +221,10 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
               </div>
               <div>
                 <h3 className="text-base sm:text-lg font-black tracking-tight leading-snug">
-                  Confirmar cita por WhatsApp
+                  {mt.confirmWhatsAppTitle}
                 </h3>
                 <p className="text-xs text-[#d8cce4] mt-0.5 leading-relaxed font-medium">
-                  Revisa y personaliza el mensaje antes de enviarlo al cliente.
+                  {mt.confirmWhatsAppDesc}
                 </p>
               </div>
             </div>
@@ -224,7 +234,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
               onClick={onClose}
               disabled={isSubmitting}
               className="w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 text-white flex items-center justify-center transition-colors cursor-pointer shrink-0"
-              title="Cerrar modal"
+              title={ct.close}
             >
               <span className="material-symbols-outlined text-lg">close</span>
             </button>
@@ -238,7 +248,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
               <span className="text-[#f9b900]">{appointment.serviceName}</span>
             </div>
             <div className="flex items-center gap-2 text-white/80 font-medium text-[11px]">
-              <span>📅 {appointment.date || 'Hoy'}</span>
+              <span>📅 {appointment.date ? formatDisplayDate(appointment.date, lang) : ct.today}</span>
               <span>⏰ {appointment.time}</span>
             </div>
           </div>
@@ -251,7 +261,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
             <div className="flex items-center justify-between">
               <label htmlFor="template-select" className="text-xs font-extrabold text-[#1a1a26] flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-sm text-[#4b0878]">auto_awesome</span>
-                <span>Plantilla de mensaje</span>
+                <span>{mt.templateLabel}</span>
               </label>
 
               {feedbackNotice && (
@@ -270,7 +280,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
               >
                 {allTemplates.map((tmpl) => (
                   <option key={tmpl.id} value={tmpl.id}>
-                    {tmpl.title} {tmpl.isDefault ? '(Recomendada)' : ''}
+                    {tmpl.title} {tmpl.isDefault ? mt.recommendedTag : ''}
                   </option>
                 ))}
               </select>
@@ -283,8 +293,8 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
           {/* Editable Textarea */}
           <div className="space-y-1.5">
             <div className="flex items-center justify-between text-xs">
-              <span className="font-extrabold text-[#1a1a26]">Mensaje a enviar</span>
-              <span className="text-[11px] text-[#7e7482]">Totalmente editable</span>
+              <span className="font-extrabold text-[#1a1a26]">{mt.messageToSendLabel}</span>
+              <span className="text-[11px] text-[#7e7482]">{mt.fullyEditable}</span>
             </div>
 
             <div className="relative">
@@ -292,7 +302,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
                 value={messageText}
                 onChange={(e) => setMessageText(e.target.value)}
                 rows={7}
-                placeholder="Escribe el mensaje para el cliente..."
+                placeholder={mt.messagePlaceholder}
                 className="w-full bg-white border border-[#cfc2d2]/60 focus:border-[#4b0878] rounded-2xl p-3.5 text-xs sm:text-sm text-[#1a1a26] leading-relaxed resize-y focus:outline-hidden focus:ring-2 focus:ring-[#4b0878]/30 shadow-2xs font-sans transition-all"
               />
             </div>
@@ -307,20 +317,20 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
                 onChange={(e) => setSaveAsTemplate(e.target.checked)}
                 className="w-4 h-4 rounded text-[#2e004e] focus:ring-[#2e004e] border-gray-300 cursor-pointer accent-[#2e004e]"
               />
-              <span>Guardar este mensaje como plantilla reutilizable</span>
+              <span>{mt.saveReusableTemplate}</span>
             </label>
 
             {saveAsTemplate && (
               <div className="pl-6 animate-fadeIn space-y-1">
                 <input
                   type="text"
-                  placeholder="Nombre de la nueva plantilla (ej. Confirmación VIP)"
+                  placeholder={mt.templateNamePlaceholder}
                   value={newTemplateTitle}
                   onChange={(e) => setNewTemplateTitle(e.target.value)}
                   className="w-full bg-[#fcf8ff] border border-[#cfc2d2]/60 rounded-xl px-3 py-2 text-xs text-[#1a1a26] focus:outline-hidden focus:ring-2 focus:ring-[#4b0878]/30"
                 />
                 <p className="text-[10px] text-[#7e7482]">
-                  Se guardará con variables dinámicas para que sirva con cualquier cliente.
+                  {mt.dynamicVarsHint}
                 </p>
               </div>
             )}
@@ -336,7 +346,7 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
             disabled={isSubmitting}
             className="w-full sm:w-auto px-4 py-2.5 text-xs font-bold text-[#7e7482] hover:text-[#1a1a26] hover:bg-gray-200/50 rounded-xl transition-all cursor-pointer text-center"
           >
-            Cancelar
+            {ct.cancel}
           </button>
 
           {/* Right Group: Guardar plantilla & Enviar por WhatsApp */}
@@ -347,10 +357,10 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
               onClick={handleSaveTemplateSecondary}
               disabled={isSubmitting || !messageText.trim()}
               className="px-3.5 py-2.5 border border-[#cfc2d2]/60 hover:bg-white text-[#2e004e] rounded-xl text-xs font-bold transition-all shadow-2xs cursor-pointer flex items-center justify-center gap-1 active:scale-95 disabled:opacity-50"
-              title="Guardar el mensaje actual como plantilla para usar después"
+              title={mt.saveTemplateBtn}
             >
               <span className="material-symbols-outlined text-sm">bookmark_add</span>
-              <span>Guardar plantilla</span>
+              <span>{mt.saveTemplateBtn}</span>
             </button>
 
             {/* Main Action: Enviar por WhatsApp */}
@@ -359,10 +369,10 @@ export const ConfirmWhatsAppModal: React.FC<ConfirmWhatsAppModalProps> = ({
               onClick={handleSendAndConfirm}
               disabled={isSubmitting || !messageText.trim()}
               className="flex-1 sm:flex-initial px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs sm:text-sm font-black shadow-md hover:shadow-lg transition-all cursor-pointer flex items-center justify-center gap-1.5 active:scale-95 disabled:opacity-50"
-              title="Confirmar cita en el sistema y abrir WhatsApp para enviar el mensaje"
+              title={mt.sendViaWhatsApp}
             >
               <span className="material-symbols-outlined text-base">chat</span>
-              <span>{isSubmitting ? 'Confirmando...' : 'Enviar por WhatsApp'}</span>
+              <span>{isSubmitting ? mt.sendingConfirming : mt.sendViaWhatsApp}</span>
             </button>
           </div>
         </div>

@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { compressImage } from '../utils/storage';
+import { useTranslation } from '../utils/i18n/I18nContext';
 
 interface PhotoUploadModalProps {
   isOpen: boolean;
@@ -18,6 +19,10 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
   targetType,
   currentPhotoUrl
 }) => {
+  const { t } = useTranslation();
+  const mt = t.modals;
+  const ct = t.common;
+
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -40,7 +45,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
       setSelectedPhoto(compressed);
     } catch (err) {
       console.error('Error procesando fotografía:', err);
-      setErrorMessage('No se pudo procesar la imagen seleccionada. Por favor, intenta con otra.');
+      setErrorMessage(mt.photoProcessError);
     } finally {
       setIsProcessing(false);
       // Reset input values so same file can be re-selected if desired
@@ -115,10 +120,10 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
           {selectedPhoto ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-[#1a1a26]">Fotografía seleccionada</span>
+                <span className="text-xs font-bold text-[#1a1a26]">{mt.photoSelectedTitle}</span>
                 <span className="text-[11px] text-emerald-600 font-bold flex items-center gap-1">
                   <span className="material-symbols-outlined text-sm">check_circle</span>
-                  Lista para guardar
+                  {mt.readyToSave}
                 </span>
               </div>
 
@@ -126,7 +131,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
               <div className="relative rounded-2xl overflow-hidden aspect-video bg-[#2e004e]/5 border-2 border-[#4b0878]/30 shadow-sm flex items-center justify-center">
                 <img
                   src={selectedPhoto}
-                  alt="Vista previa"
+                  alt={mt.photoSelectedTitle}
                   className="w-full h-full object-contain bg-black/5"
                 />
               </div>
@@ -140,7 +145,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
                   className="py-2.5 px-3 bg-[#f5f2ff] hover:bg-[#efecfd] text-[#2e004e] rounded-xl text-xs font-bold transition-all border border-[#cfc2d2]/30 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-sm">photo_camera</span>
-                  <span>Repetir foto</span>
+                  <span>{mt.retakePhoto}</span>
                 </button>
 
                 <button
@@ -150,7 +155,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
                   className="py-2.5 px-3 bg-[#f5f2ff] hover:bg-[#efecfd] text-[#2e004e] rounded-xl text-xs font-bold transition-all border border-[#cfc2d2]/30 flex items-center justify-center gap-1.5 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-sm">photo_library</span>
-                  <span>Elegir otra</span>
+                  <span>{mt.chooseAnother}</span>
                 </button>
               </div>
             </div>
@@ -158,7 +163,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
             /* No photo selected yet: Show Camera & Gallery buttons */
             <div className="space-y-3">
               <p className="text-xs text-[#7e7482] leading-relaxed">
-                Selecciona la fotografía real de la mascota. Puedes tomar una foto ahora mismo o buscarla en la galería de tu dispositivo.
+                {mt.photoModalDesc}
               </p>
 
               {/* Two clear options */}
@@ -174,8 +179,8 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
                     <span className="material-symbols-outlined text-2xl">photo_camera</span>
                   </div>
                   <div>
-                    <span className="block text-xs font-bold text-[#1a1a26]">Tomar fotografía</span>
-                    <span className="block text-[11px] text-[#7e7482] mt-0.5">Abrir cámara</span>
+                    <span className="block text-xs font-bold text-[#1a1a26]">{mt.takePhotoOption}</span>
+                    <span className="block text-[11px] text-[#7e7482] mt-0.5">{mt.openCameraHint}</span>
                   </div>
                 </button>
 
@@ -190,8 +195,8 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
                     <span className="material-symbols-outlined text-2xl">photo_library</span>
                   </div>
                   <div>
-                    <span className="block text-xs font-bold text-[#1a1a26]">Elegir de galería</span>
-                    <span className="block text-[11px] text-[#7e7482] mt-0.5">Archivos o fotos</span>
+                    <span className="block text-xs font-bold text-[#1a1a26]">{mt.uploadFromGallery}</span>
+                    <span className="block text-[11px] text-[#7e7482] mt-0.5">{mt.filesOrPhotosHint}</span>
                   </div>
                 </button>
               </div>
@@ -200,10 +205,10 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
               {currentPhotoUrl && (
                 <div className="pt-2 border-t border-[#cfc2d2]/20">
                   <span className="text-[11px] text-[#7e7482] block mb-1.5 font-semibold">
-                    Fotografía guardada actualmente:
+                    {mt.currentSavedPhoto}
                   </span>
                   <div className="w-20 h-20 rounded-xl overflow-hidden border border-[#cfc2d2]/40 bg-gray-50">
-                    <img src={currentPhotoUrl} alt="Foto actual" className="w-full h-full object-cover" />
+                    <img src={currentPhotoUrl} alt={mt.currentSavedPhoto} className="w-full h-full object-cover" />
                   </div>
                 </div>
               )}
@@ -213,7 +218,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
           {isProcessing && (
             <div className="py-2 text-center text-xs font-bold text-[#4b0878] flex items-center justify-center gap-2">
               <span className="material-symbols-outlined animate-spin text-sm">progress_activity</span>
-              <span>Procesando imagen...</span>
+              <span>{mt.processingImage}</span>
             </div>
           )}
         </div>
@@ -225,7 +230,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
             onClick={handleCancel}
             className="px-4 py-2.5 text-xs font-bold text-[#7e7482] hover:text-[#1a1a26] hover:bg-gray-200/50 rounded-xl transition-all cursor-pointer"
           >
-            Cancelar
+            {ct.cancel}
           </button>
 
           <button
@@ -235,7 +240,7 @@ export const PhotoUploadModal: React.FC<PhotoUploadModalProps> = ({
             className="px-5 py-2.5 bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1.5 cursor-pointer"
           >
             <span className="material-symbols-outlined text-sm">check</span>
-            <span>Confirmar foto</span>
+            <span>{mt.confirmPhotoBtn}</span>
           </button>
         </div>
       </div>

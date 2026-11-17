@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { RetentionPet } from '../types';
-import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { AppLanguage, formatDisplayDate } from '../utils/i18n/helpers';
 
 interface RetentionViewProps {
   retentionPets: RetentionPet[];
@@ -23,7 +24,9 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+  const { t, lang } = useTranslation();
+  const rt = t.retention;
+  const ct = t.common;
 
   const unbookedPets = retentionPets.filter((p) => !p.alreadyBooked);
   const totalCount = unbookedPets.length;
@@ -47,7 +50,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
   const handleCopyMessage = (pet: RetentionPet) => {
     navigator.clipboard.writeText(pet.suggestedMessage);
     setCopiedId(pet.id);
-    setToastMessage(`Mensaje para ${pet.tutorName} copiado al portapapeles`);
+    setToastMessage(rt.messageCopied);
     setTimeout(() => {
       setCopiedId(null);
       setToastMessage(null);
@@ -56,7 +59,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
 
   const handleBookedClick = (id: string, name: string) => {
     onMarkAsBooked(id);
-    setToastMessage(`¡${name} marcado como agendado!`);
+    setToastMessage(`${name} — ${rt.alreadyBooked}`);
     setTimeout(() => setToastMessage(null), 3000);
   };
 
@@ -76,19 +79,19 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
           <div className="flex items-center justify-between">
             <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-white/10 text-white text-[11px] font-bold tracking-wide backdrop-blur-xs">
               <span className="material-symbols-outlined text-sm text-[#f9b900]">sync</span>
-              <span>{t.fidelizationModule}</span>
+              <span>{rt.fidelizationModule}</span>
             </div>
             <span className="px-3 py-0.5 rounded-full bg-[#f9b900] text-[#261900] text-xs font-bold shadow-xs">
-              Activo
+              {ct.active}
             </span>
           </div>
 
           <div>
             <h2 className="text-2xl font-extrabold text-white tracking-tight">
-              {t.retentionTitle}
+              {rt.title}
             </h2>
             <p className="text-xs text-[#e3e0f1] mt-1.5 leading-relaxed font-normal">
-              {t.retentionSubtitle}
+              {rt.subtitle}
             </p>
           </div>
 
@@ -96,12 +99,12 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
           <div className="pt-2 border-t border-white/10 flex items-center gap-4 text-xs font-semibold">
             <div className="flex items-center gap-1.5 text-white/90">
               <span className="material-symbols-outlined text-base text-[#f9b900]">outgoing_mail</span>
-              <span><strong>{totalCount}</strong> {t.toContact}</span>
+              <span><strong>{totalCount}</strong> {rt.toContact}</span>
             </div>
             <div className="h-3 w-px bg-white/20"></div>
             <div className="flex items-center gap-1.5 text-[#f9b900]">
               <span className="w-2 h-2 rounded-full bg-[#f9b900] animate-pulse"></span>
-              <span><strong>{urgentCount}</strong> {t.thisWeek}</span>
+              <span><strong>{urgentCount}</strong> {rt.thisWeek}</span>
             </div>
           </div>
         </div>
@@ -118,7 +121,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
               : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
           }`}
         >
-          <span>{t.filterAll}</span>
+          <span>{rt.filterAll}</span>
           <span
             className={`px-1.5 py-0.2 rounded-full text-[10px] font-extrabold ${
               filter === 'todos' ? 'bg-[#f9b900] text-[#261900]' : 'bg-white/60 text-[#4c4451]'
@@ -137,7 +140,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
               : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
           }`}
         >
-          <span>{t.filterUrgent} ({urgentCount})</span>
+          <span>{rt.filterUrgent} ({urgentCount})</span>
         </button>
 
         <button
@@ -149,7 +152,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
               : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
           }`}
         >
-          <span>{t.filterNextWeek} ({nextWeekCount})</span>
+          <span>{rt.filterNextWeek} ({nextWeekCount})</span>
         </button>
 
         <button
@@ -161,7 +164,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
               : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
           }`}
         >
-          <span>Más adelante ({laterCount})</span>
+          <span>{rt.filterLater} ({laterCount})</span>
         </button>
       </div>
 
@@ -171,9 +174,9 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
           <div className="w-14 h-14 rounded-full bg-[#f5f2ff] text-[#4b0878] flex items-center justify-center mx-auto text-2xl font-bold">
             <span className="material-symbols-outlined text-3xl">done_all</span>
           </div>
-          <h3 className="text-sm font-bold text-[#1a1a26]">{t.noRetentionDue}</h3>
+          <h3 className="text-sm font-bold text-[#1a1a26]">{rt.noRetentionDue}</h3>
           <p className="text-xs text-[#7e7482] max-w-sm mx-auto">
-            Cuando registres visitas para tus mascotas y asignes una recomendación de retorno (4, 6 u 8 semanas), aparecerán automáticamente aquí cuando sea momento de recordarles su próximo turno.
+            {rt.noRetentionFilterDesc}
           </p>
         </div>
       ) : (
@@ -287,7 +290,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                             >
                               {(pet.returnCount ?? 0) > 0 ? 'repeat' : 'history'}
                             </span>
-                            <span>{pet.returnCountLabel || 'Ha vuelto 0 veces'}</span>
+                            <span>{pet.returnCountLabel || rt.returnCountNone}</span>
                           </span>
                         </div>
                       </div>
@@ -300,11 +303,15 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                             calendar_today
                           </span>
                           <span className="break-normal">
-                            <span className="font-medium text-[#4c4451]">{t.lastVisit}:</span>{' '}
-                            <strong className="font-semibold text-[#1a1a26] whitespace-nowrap">{pet.lastVisitDate}</strong>
+                            <span className="font-medium text-[#4c4451]">{rt.lastVisit}:</span>{' '}
+                            <strong className="font-semibold text-[#1a1a26] whitespace-nowrap">
+                              {pet.lastVisitDate === 'Sin visitas registradas'
+                                ? rt.noVisitsRecorded
+                                : formatDisplayDate(pet.lastVisitDate, lang) || pet.lastVisitDate}
+                            </strong>
                             {pet.weeksSinceLastVisit ? (
                               <span className="text-[#7e7482] ml-1.5 whitespace-nowrap inline-block">
-                                (Hace {pet.weeksSinceLastVisit} {t.weeksAgo})
+                                ({pet.weeksSinceLastVisit} {pet.weeksSinceLastVisit === 1 ? rt.weeksAgoSingular : rt.weeksAgoPlural})
                               </span>
                             ) : null}
                           </span>
@@ -317,8 +324,10 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                               event_upcoming
                             </span>
                             <span className="break-normal">
-                              <span className="font-medium text-[#4c4451]">Próxima visita:</span>{' '}
-                              <strong className="font-bold text-[#2e004e] whitespace-nowrap">{pet.nextRecommendedDate}</strong>
+                              <span className="font-medium text-[#4c4451]">{rt.nextVisitRecommended}</span>{' '}
+                              <strong className="font-bold text-[#2e004e] whitespace-nowrap">
+                                {formatDisplayDate(pet.nextRecommendedDate, lang) || pet.nextRecommendedDate}
+                              </strong>
                             </span>
                           </div>
                         )}
@@ -329,7 +338,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                             person
                           </span>
                           <span className="break-normal">
-                            <span className="text-[#5c5462]">Tutor:</span>{' '}
+                            <span className="text-[#5c5462]">{t.agenda.tutorLabel}</span>{' '}
                             <strong className="font-semibold text-[#1a1a26]">{pet.tutorName}</strong>
                           </span>
                         </div>
@@ -355,7 +364,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-[#4b0878] flex items-center gap-1">
                       <span className="material-symbols-outlined text-sm">auto_awesome</span>
-                      <span>{t.suggestedMessageTitle} ({pet.templateName})</span>
+                      <span>{rt.suggestedMessageTitle} ({pet.templateName})</span>
                     </span>
 
                     <button
@@ -366,7 +375,7 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                       <span className="material-symbols-outlined text-xs">
                         {copiedId === pet.id ? 'done' : 'content_copy'}
                       </span>
-                      <span>{copiedId === pet.id ? '¡Copiado!' : t.copyMessage}</span>
+                      <span>{copiedId === pet.id ? ct.copied : rt.copyMessage}</span>
                     </button>
                   </div>
 
@@ -374,35 +383,32 @@ export const RetentionView: React.FC<RetentionViewProps> = ({
                     {pet.suggestedMessage}
                   </div>
 
-                  {/* Actions: Orden y presentación requerida */}
+                  {/* Actions */}
                   <div className="flex flex-col gap-2 pt-2">
-                    {/* 1. Enviar por WhatsApp en la parte superior */}
                     <button
                       type="button"
                       onClick={() => onOpenWhatsApp(pet)}
                       className="w-full py-2.5 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs sm:text-sm font-bold shadow-xs flex items-center justify-center gap-2 transition-all active:scale-[0.98] cursor-pointer"
-                      title="Contactar al tutor por WhatsApp con el mensaje sugerido"
+                      title={rt.sendWhatsApp}
                     >
                       <span className="material-symbols-outlined text-base">chat</span>
-                      <span>{t.sendWhatsApp}</span>
+                      <span>{rt.sendWhatsApp}</span>
                     </button>
 
-                    {/* 2. Agendar cita debajo */}
                     <button
                       type="button"
                       onClick={() => onBookAppointment && onBookAppointment(pet)}
                       className="w-full py-2.5 px-4 rounded-xl text-xs sm:text-sm font-bold transition-all cursor-pointer flex items-center justify-center gap-2 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] shadow-xs active:scale-[0.98]"
-                      title="Abrir formulario para programar una nueva cita para esta mascota"
+                      title={rt.scheduleAppointment}
                     >
                       <span className="material-symbols-outlined text-base font-bold">
                         calendar_add_on
                       </span>
-                      <span>Agendar cita</span>
+                      <span>{rt.scheduleAppointment}</span>
                     </button>
 
-                    {/* Indicación informativa breve, discreta y fácil de entender */}
                     <p className="text-[11px] sm:text-xs text-[#7e7482] text-center pt-0.5 leading-snug">
-                      Envía primero el recordatorio por WhatsApp. Cuando el cliente confirme que desea volver, agenda su cita para la fecha acordada.
+                      {rt.subtitle}
                     </p>
                   </div>
                 </div>

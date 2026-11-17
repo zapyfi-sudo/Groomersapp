@@ -230,6 +230,7 @@ export interface SalonConfig {
   bookingSlotInterval?: number; // alias
   bookingSlotMode?: 'fixed' | 'service_duration';
   bookingSlug: string;
+  reviewSlug?: string;
   activeDays: string[];
   hasMedicationProductsEnabled?: boolean;
   medicationProducts?: MedicationProduct[];

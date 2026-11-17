@@ -9,6 +9,14 @@ import { formatPrice } from '../utils/priceUtils';
 import { parseTimeToMinutes, isDateMatching } from '../utils/scheduleUtils';
 import { extractSlugOnly } from '../utils/slugUtils';
 import { normalizeAndMergeReviews, calculateReviewStats, parseTimestampMs } from '../utils/syncHelpers';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import {
+  resolveAppLanguage,
+  getTranslations,
+  getLocaleForLanguage,
+  translateMoodLabel,
+  formatTemplate
+} from '../utils/i18n/helpers';
 
 interface PublicBookingPageProps {
   businessIdOrSlug: string;
@@ -23,6 +31,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   onClosePreview,
   onAppointmentCreated
 }) => {
+  const { lang } = useTranslation();
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [businessData, setBusinessData] = useState<{
     businessId: string;
@@ -249,6 +258,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                   ? (prevData.config.name || result.config.name)
                   : (result.config.name || prevData.config.name),
                 logoUrl: result.config.logoUrl || prevData.config.logoUrl,
+                reviewSlug: result.config.reviewSlug || prevData.config.reviewSlug,
+                language: localStrictlyNewer
+                  ? (prevData.config.language || result.config.language)
+                  : (result.config.language || prevData.config.language),
                 country: localStrictlyNewer
                   ? (prevData.config.country !== undefined ? prevData.config.country : result.config.country)
                   : (result.config.country !== undefined ? result.config.country : prevData.config.country),
@@ -386,6 +399,11 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
   }, [businessData?.businessId]);
 
   const config = businessData?.config;
+  const pageLang = resolveAppLanguage(config?.language, lang);
+  const bt = getTranslations(pageLang).publicBooking;
+  const ct = getTranslations(pageLang).common;
+  const mt = getTranslations(pageLang).managers;
+  const mdt = getTranslations(pageLang).modals;
 
   // Real reviews and reputation metrics (deduplicated, isolated by businessId, exact arithmetic mean)
   const reviewStats = useMemo(() => {
@@ -450,9 +468,9 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
   useEffect(() => {
     if (config?.name) {
-      document.title = `${config.name} | Reservas Online`;
+      document.title = `${config.name} | ${bt.pageTitleSuffix}`;
     }
-  }, [config?.name]);
+  }, [config?.name, bt.pageTitleSuffix]);
 
   // Base price for service based on size
   const serviceBasePrice = useMemo(() => {
@@ -484,6 +502,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
   const availableDates = useMemo(() => {
     const dates = [];
+    const locale = getLocaleForLanguage(pageLang);
     for (let i = 0; i < 21; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() + i);
@@ -494,14 +513,14 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       dates.push({
         dateObj: d,
         formatted,
-        dayName: d.toLocaleDateString('es-ES', { weekday: 'short' }),
+        dayName: d.toLocaleDateString(locale, { weekday: 'short' }),
         dayNum: d.getDate(),
-        monthName: d.toLocaleDateString('es-ES', { month: 'short' }),
+        monthName: d.toLocaleDateString(locale, { month: 'short' }),
         isWorkingDay
       });
     }
     return dates;
-  }, [today, activeDayLetters]);
+  }, [today, activeDayLetters, pageLang]);
 
   // Set default date when dates are available
   useEffect(() => {
@@ -602,27 +621,15 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     setFormError(null);
 
     if (!activeService) {
-      setFormError('Por favor selecciona un servicio.');
+      setFormError(bt.errSelectService);
       return;
     }
-    if (!selectedDate) {
-      setFormError('Por favor selecciona una fecha.');
+    if (!selectedDate || !selectedTime) {
+      setFormError(bt.errSelectDateTime);
       return;
     }
-    if (!selectedTime) {
-      setFormError('Por favor selecciona un horario.');
-      return;
-    }
-    if (!tutorName.trim()) {
-      setFormError('Por favor indica tu nombre completo.');
-      return;
-    }
-    if (!whatsappPhone.trim()) {
-      setFormError('Por favor indica tu teléfono / WhatsApp de contacto.');
-      return;
-    }
-    if (!petName.trim()) {
-      setFormError('Por favor indica el nombre de la mascota.');
+    if (!tutorName.trim() || !whatsappPhone.trim() || !petName.trim()) {
+      setFormError(bt.errFillRequired);
       return;
     }
 
@@ -691,7 +698,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
     try {
       const saved = await createPublicAppointment(businessData?.businessId || businessIdOrSlug, newApt, petData);
       if (!saved && !isPreviewMode) {
-        setFormError('No pudimos guardar tu reserva en este momento. Por favor verifica tu conexión e intenta nuevamente.');
+        setFormError(bt.errBookingFailed);
         return;
       }
       if (onAppointmentCreated) {
@@ -703,7 +710,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
       if (isPreviewMode) {
         setCreatedAppointment(newApt);
       } else {
-        setFormError('Ocurrió un problema de conexión al registrar tu cita. Por favor intenta nuevamente.');
+        setFormError(bt.errBookingFailed);
       }
     } finally {
       setIsSubmitting(false);
@@ -732,8 +739,8 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         <div className="w-14 h-14 rounded-2xl bg-[#2e004e] text-[#f9b900] flex items-center justify-center shadow-lg animate-pulse mb-4">
           <span className="material-symbols-outlined text-3xl">pets</span>
         </div>
-        <p className="text-sm font-bold text-[#2e004e]">Cargando información del salón...</p>
-        <p className="text-xs text-[#7e7482] mt-1">Conectando con el sistema de reservas</p>
+        <p className="text-sm font-bold text-[#2e004e]">{bt.loadingSalonInfo}</p>
+        <p className="text-xs text-[#7e7482] mt-1">{bt.connectingSystem}</p>
       </div>
     );
   }
@@ -749,10 +756,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             </span>
           </div>
           <h2 className="text-xl font-black text-[#1a1a26]">
-            {loadErrorKind === 'quota_exceeded' ? 'Consultas temporales agotadas' : 'No encontramos este negocio'}
+            {bt.businessNotFoundTitle}
           </h2>
           <p className="text-xs text-[#7e7482] leading-relaxed">
-            {loadError || 'Este enlace de reservas no es válido o ya no está disponible. Por favor, verifica el enlace que te compartió tu peluquería o solicita uno nuevo directamente por WhatsApp.'}
+            {bt.businessNotFoundDesc}
           </p>
           {isPreviewMode && onClosePreview && (
             <button
@@ -760,7 +767,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               onClick={onClosePreview}
               className="mt-4 px-5 py-2.5 rounded-xl bg-[#2e004e] text-white text-xs font-bold hover:bg-[#4b0878] transition-all cursor-pointer"
             >
-              Volver al panel
+              {bt.exitPreview}
             </button>
           )}
         </div>
@@ -775,7 +782,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
         <div className="bg-[#2e004e] text-white text-xs py-2 px-4 flex items-center justify-between shadow-sm sticky top-0 z-50">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
-            <span className="font-semibold">Modo Vista Previa de Cliente — Así es como ven tu salón las personas</span>
+            <span className="font-semibold">{bt.previewBannerTitle}</span>
           </div>
           {onClosePreview && (
             <button
@@ -783,7 +790,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               onClick={onClosePreview}
               className="bg-white/10 hover:bg-white/20 text-white font-bold px-3 py-1 rounded-lg text-xs transition-colors cursor-pointer"
             >
-              Volver a la administración
+              {bt.exitPreview}
             </button>
           )}
         </div>
@@ -797,7 +804,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             {config?.logoUrl && !logoLoadFailed ? (
               <img
                 src={config.logoUrl}
-                alt={config?.name || 'Salón'}
+                alt={config?.name || 'Salon'}
                 className="w-full h-full object-contain"
                 onError={() => setLogoLoadFailed(true)}
               />
@@ -810,13 +817,13 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
           <div className="flex-1 min-w-0">
             <span className="text-[11px] font-bold text-[#7a5900] uppercase tracking-wider block mb-0.5">
-              Peluquería Canina & Estética
+              {bt.defaultTagline}
             </span>
             <h1 className="text-2xl sm:text-3xl font-black text-[#2e004e] tracking-tight">
-              {config?.name || 'Groomer Aida'}
+              {config?.name || 'AgendaCan'}
             </h1>
 
-            {/* Indicador compacto de reputación (Requisito 5) */}
+            {/* Compact reputation indicator */}
             {totalReviews > 0 ? (
               <div className="flex items-center justify-center sm:justify-start gap-1.5 mt-1.5 flex-wrap">
                 <div className="flex items-center text-[#f9b900] text-sm">
@@ -827,15 +834,15 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                   ))}
                 </div>
                 <span className="text-xs font-black text-[#1a1a26]">
-                  {avgRating} de 5
+                  {formatTemplate(bt.ratingOf5, { avg: avgRating || '0.0' })}
                 </span>
                 <span className="text-xs text-[#7e7482]">
-                  ({totalReviews} {totalReviews === 1 ? 'reseña' : 'reseñas'})
+                  ({totalReviews} {totalReviews === 1 ? bt.reviewCountSingular : bt.reviewCountPlural})
                 </span>
               </div>
             ) : null}
 
-            {/* Ubicación: [Ciudad], [País] y debajo [Dirección del negocio] */}
+            {/* Location: [City], [Country] and [Address] */}
             {([config.city?.trim(), config.country?.trim()].filter(Boolean).length > 0 || Boolean(config.address?.trim())) && (
               <div className="flex items-start justify-center sm:justify-start gap-1.5 mt-2 text-xs text-[#7e7482]">
                 <span className="material-symbols-outlined text-sm text-[#2e004e] shrink-0 mt-0.5">location_on</span>
@@ -852,7 +859,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               </div>
             )}
 
-            {/* Teléfono */}
+            {/* Phone */}
             {config.phone && (
               <div className="flex items-center justify-center sm:justify-start gap-1 mt-1 text-xs text-[#7e7482]">
                 <span className="material-symbols-outlined text-sm text-[#2e004e]">call</span>
@@ -863,7 +870,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2 mt-3">
               <span className="inline-flex items-center gap-1 bg-[#f5f2ff] text-[#2e004e] px-2.5 py-1 rounded-full text-[11px] font-bold">
                 <span className="material-symbols-outlined text-xs">schedule</span>
-                <span>{config.workingDays || 'Lunes a Sábado'} ({config.morningOpen || config.openTime} - {config.afternoonClose || config.closeTime})</span>
+                <span>{config.workingDays || bt.defaultWorkingDays} ({config.morningOpen || config.openTime} - {config.afternoonClose || config.closeTime})</span>
               </span>
             </div>
           </div>
@@ -879,40 +886,40 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
             <div>
               <h2 className="text-2xl sm:text-3xl font-black text-[#1a1a26]">
-                ¡Gracias por agendar!
+                {bt.thankYouTitle}
               </h2>
               <p className="text-sm text-[#7e7482] mt-1.5 font-medium">
-                Tu solicitud de cita ha sido registrada correctamente con <strong className="text-[#2e004e]">{config.name}</strong>.
+                {bt.requestRegisteredDesc} <strong className="text-[#2e004e]">{config.name}</strong>.
               </p>
               <p className="text-xs text-[#2e004e] font-bold mt-1">
-                Te confirmaremos la cita próximamente por WhatsApp.
+                {bt.waConfirmSoon}
               </p>
             </div>
 
             {/* Appointment Details Card */}
             <div className="bg-[#fcf8ff] rounded-2xl p-5 border border-[#cfc2d2]/40 text-left space-y-3 text-xs max-w-lg mx-auto">
               <div className="flex justify-between items-center border-b border-[#cfc2d2]/30 pb-2.5">
-                <span className="text-[#7e7482] font-semibold">Mascota:</span>
+                <span className="text-[#7e7482] font-semibold">{bt.summaryPet}:</span>
                 <strong className="text-[#1a1a26] font-bold text-sm">{createdAppointment.petName} ({createdAppointment.breed})</strong>
               </div>
 
               <div className="flex justify-between items-center border-b border-[#cfc2d2]/30 pb-2.5">
-                <span className="text-[#7e7482] font-semibold">Tutor:</span>
+                <span className="text-[#7e7482] font-semibold">{bt.summaryTutor}:</span>
                 <strong className="text-[#1a1a26] font-bold">{createdAppointment.tutorName}</strong>
               </div>
 
               <div className="flex justify-between items-center border-b border-[#cfc2d2]/30 pb-2.5">
-                <span className="text-[#7e7482] font-semibold">Servicio solicitado:</span>
+                <span className="text-[#7e7482] font-semibold">{bt.requestedServiceLabel}</span>
                 <strong className="text-[#2e004e] font-bold">{createdAppointment.serviceName}</strong>
               </div>
 
               <div className="flex justify-between items-center border-b border-[#cfc2d2]/30 pb-2.5">
-                <span className="text-[#7e7482] font-semibold">Fecha y horario:</span>
-                <strong className="text-[#1a1a26] font-bold">{createdAppointment.date} a las {createdAppointment.time}</strong>
+                <span className="text-[#7e7482] font-semibold">{bt.dateTimeLabel}</span>
+                <strong className="text-[#1a1a26] font-bold">{createdAppointment.date} {bt.atWord} {createdAppointment.time}</strong>
               </div>
 
               <div className="flex justify-between items-center pt-1">
-                <span className="text-[#7e7482] font-bold text-sm">Valor estimado:</span>
+                <span className="text-[#7e7482] font-bold text-sm">{bt.summaryTotal}:</span>
                 <strong className="text-[#2e004e] text-base font-black">
                   {formatPrice(createdAppointment.price, createdAppointment.currency, { includeCode: true })}
                 </strong>
@@ -924,10 +931,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               <span className="material-symbols-outlined text-emerald-600 text-2xl shrink-0 mt-0.5">chat</span>
               <div className="text-xs text-emerald-950 space-y-1">
                 <strong className="block text-emerald-900 font-bold text-sm">
-                  Tu cita será confirmada por el salón próximamente
+                  {bt.waWillConfirmTitle}
                 </strong>
                 <p>
-                  Te confirmaremos tu cita por WhatsApp al teléfono <strong>{createdAppointment.tutorPhone}</strong>. Te avisaremos cuando el turno quede formalmente agendado.
+                  {formatTemplate(bt.waWillConfirmDesc, { phone: createdAppointment.tutorPhone || '' })}
                 </p>
               </div>
             </div>
@@ -937,14 +944,20 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               <div className="max-w-lg mx-auto">
                 <a
                   href={`https://wa.me/${config.phonePrefix.replace(/\+/g, '')}${config.phone.replace(/[^0-9]/g, '')}?text=${encodeURIComponent(
-                    `¡Hola ${config.name}! Acabo de solicitar un turno online para mi mascota ${createdAppointment.petName} el día ${createdAppointment.date} a las ${createdAppointment.time} (${createdAppointment.serviceName}).`
+                    formatTemplate(bt.waBookingMessage, {
+                      salonName: config.name,
+                      petName: createdAppointment.petName,
+                      date: createdAppointment.date || '',
+                      time: createdAppointment.time,
+                      serviceName: createdAppointment.serviceName
+                    })
                   )}`}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="w-full py-3.5 px-6 rounded-2xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-sm shadow-md flex items-center justify-center gap-2 transition-all cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-lg">chat</span>
-                  <span>Enviar mensaje al salón por WhatsApp</span>
+                  <span>{bt.sendWaToSalonBtn}</span>
                 </a>
               </div>
             )}
@@ -956,7 +969,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 onClick={handleResetForm}
                 className="py-3 px-6 rounded-2xl bg-[#2e004e] text-white font-bold text-xs hover:bg-[#4b0878] active:scale-95 transition-all cursor-pointer shadow-xs"
               >
-                Agendar otra cita
+                {bt.bookAnotherBtn}
               </button>
             </div>
           </div>
@@ -970,20 +983,20 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               </div>
             )}
 
-            {/* 1. Selecciona el servicio */}
+            {/* 1. Select service */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center">
                   1
                 </span>
                 <h3 className="font-extrabold text-sm text-[#1a1a26]">
-                  Selecciona el servicio
+                  {bt.selectServiceTitle}
                 </h3>
               </div>
 
               {services.length === 0 ? (
                 <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-300 text-xs text-[#7e7482] text-center">
-                  Este salón aún no tiene servicios activos configurados.
+                  {bt.noServicesAvailable}
                 </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1046,12 +1059,12 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                             {svc.durationMin} min
                             {svc.pricingType === 'tamano' && (
                               <span className="ml-1 px-1.5 py-0.2 rounded bg-[#f2daff] text-[#2e004e] font-bold text-[9px]">
-                                Por tamaño
+                                {bt.bySizeBadge}
                               </span>
                             )}
                           </span>
 
-                          {/* Botón «Ver fotos» ÚNICAMENTE si tiene fotografías adicionales */}
+                          {/* View photos button ONLY if extra gallery exists */}
                           {hasGallery && (
                             <button
                               type="button"
@@ -1061,10 +1074,9 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                                 setGalleryActiveIndex(0);
                               }}
                               className="px-2.5 py-1 rounded-lg bg-[#f5f2ff] hover:bg-[#2e004e] hover:text-white text-[#2e004e] border border-[#cfc2d2]/40 text-[11px] font-bold flex items-center gap-1 transition-all active:scale-95 cursor-pointer"
-                              title="Ver fotos adicionales de este servicio"
                             >
                               <span className="material-symbols-outlined text-xs">photo_library</span>
-                              <span>Ver fotos ({totalPhotosCount})</span>
+                              <span>{formatTemplate(bt.viewPhotosBtn, { count: totalPhotosCount })}</span>
                             </button>
                           )}
                         </div>
@@ -1078,15 +1090,15 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               {activeService?.pricingType === 'tamano' && (
                 <div className="p-3.5 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/40 space-y-2.5">
                   <span className="text-xs font-bold text-[#4c4451] block">
-                    Tamaño de la mascota:
+                    {bt.selectedPetSizeLabel}
                   </span>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
                     {(['pequeno', 'mediano', 'grande', 'extraGrande'] as const).map((sz) => {
                       const labels = {
-                        pequeno: 'Pequeño (<8kg)',
-                        mediano: 'Mediano (8-18kg)',
-                        grande: 'Grande (18-30kg)',
-                        extraGrande: 'Gigante (>30kg)'
+                        pequeno: mt.sizeSmallRange,
+                        mediano: mt.sizeMediumRange,
+                        grande: mt.sizeLargeRange,
+                        extraGrande: mt.sizeExtraLargeRange
                       };
                       const priceForSize = activeService.priceBySize?.[sz] || activeService.price;
                       return (
@@ -1112,14 +1124,14 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               )}
             </div>
 
-            {/* 2. Selecciona la fecha */}
+            {/* 2. Date selection */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center">
                   2
                 </span>
                 <h3 className="font-extrabold text-sm text-[#1a1a26]">
-                  Selecciona la fecha
+                  {bt.selectDateTimeTitle}
                 </h3>
               </div>
 
@@ -1151,19 +1163,19 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               </div>
             </div>
 
-            {/* 3. Selecciona el horario */}
+            {/* 3. Time slots */}
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center">
                   3
                 </span>
                 <h3 className="font-extrabold text-sm text-[#1a1a26]">
-                  Selecciona el horario
+                  {bt.stepDateTime.replace('2. ', '')}
                 </h3>
               </div>
 
               {availableTimeSlots.length === 0 ? (
-                <p className="text-xs text-[#7e7482]">No hay horarios disponibles para la fecha seleccionada.</p>
+                <p className="text-xs text-[#7e7482]">{bt.noSlotsAvailable}</p>
               ) : (
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
                   {availableTimeSlots.map((slot) => {
@@ -1182,7 +1194,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                             : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
                         }`}
                       >
-                        {slot.time} hs
+                        {slot.time}
                       </button>
                     );
                   })}
@@ -1190,42 +1202,42 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               )}
             </div>
 
-            {/* 4. Datos del tutor y de la mascota */}
+            {/* 4. Owner and pet info */}
             <div className="space-y-3 pt-2 border-t border-[#cfc2d2]/30">
               <div className="flex items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center">
                   4
                 </span>
                 <h3 className="font-extrabold text-sm text-[#1a1a26]">
-                  Tus datos y los de tu mascota
+                  {bt.tutorAndPetTitle}
                 </h3>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Nombre del tutor / dueño *
+                    {bt.tutorNameLabel}
                   </label>
                   <input
                     type="text"
                     required
                     value={tutorName}
                     onChange={(e) => setTutorName(e.target.value)}
-                    placeholder="Ej: Laura Martínez"
+                    placeholder={bt.tutorNamePlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Teléfono / WhatsApp de contacto *
+                    {bt.whatsappLabel}
                   </label>
                   <input
                     type="tel"
                     required
                     value={whatsappPhone}
                     onChange={(e) => setWhatsappPhone(e.target.value)}
-                    placeholder="Ej: +54 9 11 5566-7788"
+                    placeholder={bt.whatsappPlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
@@ -1234,65 +1246,65 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Nombre de la mascota *
+                    {bt.petNameLabel}
                   </label>
                   <input
                     type="text"
                     required
                     value={petName}
                     onChange={(e) => setPetName(e.target.value)}
-                    placeholder="Ej: Toby"
+                    placeholder={bt.petNamePlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Raza *
+                    {bt.petBreedLabel}
                   </label>
                   <input
                     type="text"
                     required
                     value={breed}
                     onChange={(e) => setBreed(e.target.value)}
-                    placeholder="Ej: Caniche / Mestizo"
+                    placeholder={bt.petBreedPlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
               </div>
 
-              {/* Edad, Sexo y Peso (Requirement #1) */}
+              {/* Age, Gender and Weight */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Edad de la mascota
+                    {bt.ageFieldLabel}
                   </label>
                   <input
                     type="text"
                     value={age}
                     onChange={(e) => setAge(e.target.value)}
-                    placeholder="Ej: 2 años / 8 meses"
+                    placeholder={bt.ageFieldPlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Sexo
+                    {mdt.petGenderLabel}
                   </label>
                   <select
                     value={gender}
                     onChange={(e) => setGender(e.target.value as 'Macho' | 'Hembra')}
                     className="w-full bg-[#fcf8ff] text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] cursor-pointer"
                   >
-                    <option value="Macho">Macho ♂</option>
-                    <option value="Hembra">Hembra ♀</option>
+                    <option value="Macho">{ct.male} ♂</option>
+                    <option value="Hembra">{ct.female} ♀</option>
                   </select>
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Peso aproximado (kg)
+                    {bt.weightFieldLabel}
                   </label>
                   <div className="relative">
                     <input
@@ -1312,12 +1324,12 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 </div>
               </div>
 
-              {/* Fotografía de la mascota antes del servicio (Requirement #2) */}
+              {/* Optional before photo */}
               <div className="p-3.5 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/40 space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-bold text-[#4c4451] flex items-center gap-1.5">
                     <span className="material-symbols-outlined text-sm text-[#2e004e]">photo_camera</span>
-                    <span>Foto de tu mascota (Opcional - Antes del servicio)</span>
+                    <span>{bt.beforePhotoOptTitle}</span>
                   </label>
                   {petPhoto && (
                     <button
@@ -1325,31 +1337,30 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                       onClick={() => setPetPhoto('')}
                       className="text-xs text-rose-600 hover:text-rose-800 font-bold cursor-pointer"
                     >
-                      Quitar foto
+                      {ct.delete}
                     </button>
                   )}
                 </div>
 
                 <p className="text-[11px] text-[#7e7482] leading-tight">
-                  Sube una foto de tu mascota para que el peluquero pueda ver el estado de su manto antes de la cita.
+                  {bt.beforePhotoOptDesc}
                 </p>
 
                 {petPhoto ? (
                   <div className="flex items-center gap-3 pt-1">
                     <div className="w-20 h-20 rounded-xl overflow-hidden border border-[#cfc2d2]/60 bg-gray-100 shrink-0 shadow-xs">
-                      <img src={petPhoto} alt="Foto mascota" className="w-full h-full object-cover" />
+                      <img src={petPhoto} alt={petName || 'Pet'} className="w-full h-full object-cover" />
                     </div>
                     <div className="text-xs text-emerald-700 font-semibold flex items-center gap-1">
                       <span className="material-symbols-outlined text-base">check_circle</span>
-                      <span>Foto adjuntada correctamente</span>
+                      <span>{mdt.photoAttachedOk}</span>
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                    {/* Tomar foto */}
                     <label className="flex-1 py-2.5 px-3 bg-white hover:bg-[#f5f2ff] border border-dashed border-[#cfc2d2] hover:border-[#2e004e] rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#2e004e] cursor-pointer transition-all active:scale-98">
                       <span className="material-symbols-outlined text-base">photo_camera</span>
-                      <span>Tomar foto</span>
+                      <span>{mdt.takePhotoOption}</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -1372,10 +1383,9 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                       />
                     </label>
 
-                    {/* Elegir de galería */}
                     <label className="flex-1 py-2.5 px-3 bg-white hover:bg-[#f5f2ff] border border-dashed border-[#cfc2d2] hover:border-[#2e004e] rounded-xl flex items-center justify-center gap-2 text-xs font-bold text-[#4c4451] cursor-pointer transition-all active:scale-98">
                       <span className="material-symbols-outlined text-base">photo_library</span>
-                      <span>Elegir de galería</span>
+                      <span>{mdt.uploadFromGallery}</span>
                       <input
                         type="file"
                         accept="image/*"
@@ -1401,74 +1411,70 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
                 {isPhotoCompressing && (
                   <p className="text-[11px] text-[#4b0878] font-bold animate-pulse">
-                    Procesando fotografía...
+                    {mdt.processingImage}
                   </p>
                 )}
               </div>
 
-              {/* Comportamiento */}
+              {/* Behavior */}
               <div>
                 <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                  Comportamiento habitual en peluquería
+                  {bt.petBehaviorLabel}
                 </label>
                 <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { id: 'tranquilo', label: '🟢 Tranquilo' },
-                    { id: 'inquieto', label: '🟡 Inquieto' },
-                    { id: 'dificil', label: '🔴 Difícil' }
-                  ].map((m) => (
+                  {(['tranquilo', 'inquieto', 'dificil'] as const).map((mId) => (
                     <button
-                      key={m.id}
+                      key={mId}
                       type="button"
-                      onClick={() => setBehavior(m.id as BehaviorMood)}
+                      onClick={() => setBehavior(mId)}
                       className={`py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                        behavior === m.id
+                        behavior === mId
                           ? 'bg-[#2e004e] text-white shadow-xs'
                           : 'bg-white text-[#4c4451] border border-[#cfc2d2]/40 hover:bg-gray-50'
                       }`}
                     >
-                      {m.label}
+                      {translateMoodLabel(mId, pageLang)}
                     </button>
                   ))}
                 </div>
               </div>
 
-              {/* Notas de salud y manejo */}
+              {/* Health and handling notes */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Alergias o piel sensible (opcional)
+                    {bt.notesLabel}
                   </label>
                   <input
                     type="text"
                     value={healthNotes}
                     onChange={(e) => setHealthNotes(e.target.value)}
-                    placeholder="Ej: Champú hipoalergénico"
+                    placeholder={bt.notesPlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
 
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Observaciones de manejo (opcional)
+                    {getTranslations(pageLang).petProfile.handlingNotes}
                   </label>
                   <input
                     type="text"
                     value={handlingNotes}
                     onChange={(e) => setHandlingNotes(e.target.value)}
-                    placeholder="Ej: Cuidado con pata trasera"
+                    placeholder={mdt.handlingObsPlaceholder}
                     className="w-full bg-[#fcf8ff] text-xs px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none"
                   />
                 </div>
               </div>
             </div>
 
-            {/* Medicamentos adicionales (ONLY if configured by this salon) */}
+            {/* Optional medications (ONLY if configured by this salon) */}
             {availableMedications.length > 0 && (
               <div className="space-y-3 pt-2 border-t border-[#cfc2d2]/30">
                 <h4 className="font-extrabold text-xs text-[#2e004e] flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-sm">medication</span>
-                  <span>Tratamientos adicionales disponibles</span>
+                  <span>{bt.addMedicationsTitle}</span>
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -1514,7 +1520,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             {/* Total & Submit Button */}
             <div className="pt-4 border-t border-[#cfc2d2]/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
-                <span className="text-xs text-[#7e7482] block font-semibold">Total a abonar en el salón:</span>
+                <span className="text-xs text-[#7e7482] block font-semibold">{bt.totalAtSalon}</span>
                 <strong className="text-2xl font-black text-[#2e004e]">
                   {formatPrice(totalPrice, currency, { includeCode: true })}
                 </strong>
@@ -1528,7 +1534,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                 <span className={`material-symbols-outlined font-black ${isSubmitting ? 'animate-spin' : ''}`}>
                   {isSubmitting ? 'progress_activity' : 'event_available'}
                 </span>
-                <span>{isSubmitting ? 'Procesando solicitud...' : 'Solicitar Turno'}</span>
+                <span>{isSubmitting ? bt.processingRequest : bt.submitRequestBtn}</span>
               </button>
             </div>
           </form>
@@ -1537,10 +1543,10 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
       {/* Footer */}
       <footer className="py-6 text-center text-xs text-[#7e7482] border-t border-[#cfc2d2]/30 bg-white">
-        <p>Sistema de Reservas Online para Peluquerías Caninas</p>
+        <p>{bt.footerTagline}</p>
       </footer>
 
-      {/* Modal de Galería de Fotos del Servicio */}
+      {/* Service Photo Gallery Modal */}
       {galleryModalService && galleryPhotos.length > 0 && (
         <div
           role="dialog"
@@ -1552,11 +1558,11 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
             className="bg-white rounded-3xl w-full max-w-2xl overflow-hidden shadow-2xl flex flex-col max-h-[92vh] animate-in zoom-in-95 duration-200"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Cabecera del modal */}
+            {/* Modal Header */}
             <div className="p-4 sm:p-5 border-b border-[#cfc2d2]/30 flex items-center justify-between gap-3 bg-[#fcf8ff]">
               <div className="min-w-0">
                 <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#7a5900] block">
-                  Galería del servicio
+                  {bt.galleryHeaderLabel}
                 </span>
                 <h3 className="font-black text-base sm:text-lg text-[#1a1a26] truncate">
                   {galleryModalService.name}
@@ -1565,28 +1571,28 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
 
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-xs font-bold text-[#7e7482] bg-white px-2.5 py-1 rounded-full border border-[#cfc2d2]/40 shadow-2xs">
-                  {galleryActiveIndex + 1} de {galleryPhotos.length}
+                  {galleryActiveIndex + 1} / {galleryPhotos.length}
                 </span>
                 <button
                   type="button"
                   onClick={() => setGalleryModalService(null)}
                   className="w-9 h-9 rounded-full bg-white hover:bg-gray-100 text-[#1a1a26] flex items-center justify-center border border-[#cfc2d2]/40 transition-colors cursor-pointer shadow-2xs"
-                  title="Cerrar galería"
+                  title={ct.close}
                 >
                   <span className="material-symbols-outlined text-xl">close</span>
                 </button>
               </div>
             </div>
 
-            {/* Visor principal de la imagen */}
+            {/* Main image viewer */}
             <div className="relative flex-1 bg-black/5 flex items-center justify-center min-h-[250px] sm:min-h-[360px] max-h-[58vh] p-3 select-none overflow-hidden">
               <img
                 src={galleryPhotos[galleryActiveIndex]}
-                alt={`${galleryModalService.name} - Foto ${galleryActiveIndex + 1}`}
+                alt={`${galleryModalService.name} - ${galleryActiveIndex + 1}`}
                 className="max-h-[54vh] w-auto max-w-full object-contain rounded-xl shadow-md transition-all duration-200"
               />
 
-              {/* Botones de navegación Anterior / Siguiente (si hay más de 1 imagen) */}
+              {/* Previous / Next navigation buttons */}
               {galleryPhotos.length > 1 && (
                 <>
                   <button
@@ -1597,7 +1603,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                       )
                     }
                     className="absolute left-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/95 hover:bg-white text-[#2e004e] shadow-lg flex items-center justify-center transition-all active:scale-90 cursor-pointer"
-                    title="Foto anterior"
                   >
                     <span className="material-symbols-outlined text-2xl font-bold">chevron_left</span>
                   </button>
@@ -1609,7 +1614,6 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                       )
                     }
                     className="absolute right-3 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/95 hover:bg-white text-[#2e004e] shadow-lg flex items-center justify-center transition-all active:scale-90 cursor-pointer"
-                    title="Siguiente foto"
                   >
                     <span className="material-symbols-outlined text-2xl font-bold">chevron_right</span>
                   </button>
@@ -1617,7 +1621,7 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
               )}
             </div>
 
-            {/* Tira inferior de miniaturas */}
+            {/* Bottom thumbnails strip */}
             {galleryPhotos.length > 1 && (
               <div className="p-3 sm:p-4 bg-white border-t border-[#cfc2d2]/30 flex items-center justify-center gap-2.5 overflow-x-auto">
                 {galleryPhotos.map((photo, idx) => (
@@ -1633,12 +1637,12 @@ export const PublicBookingPage: React.FC<PublicBookingPageProps> = ({
                   >
                     <img
                       src={photo}
-                      alt={`Miniatura ${idx + 1}`}
+                      alt={`${idx + 1}`}
                       className="w-full h-full object-cover"
                     />
                     {idx === 0 && galleryModalService.imageUrl && (
                       <span className="absolute bottom-0 inset-x-0 bg-black/65 text-[9px] font-bold text-white text-center py-0.5 leading-tight">
-                        Principal
+                        {bt.mainPhotoTag}
                       </span>
                     )}
                   </button>

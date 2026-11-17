@@ -127,20 +127,21 @@ function findBusiness(idOrSlug: string, db: Record<string, StoredBusiness>): Sto
   );
   if (matchId) return matchId;
 
-  // 3. Check bookingSlug (matching raw or extracted slug)
+  // 3. Check bookingSlug and reviewSlug (matching raw or extracted slug)
   const matchSlug = all.find((b) => {
-    const rawSlug = b.config?.bookingSlug;
-    if (!rawSlug) return false;
-    const cleanRawSlug = cleanString(rawSlug);
-    const cleanExtracted = cleanString(extractSlug(rawSlug));
-    return (
-      rawSlug === raw ||
-      rawSlug === extracted ||
-      cleanRawSlug === rawClean ||
-      cleanRawSlug === targetClean ||
-      cleanExtracted === rawClean ||
-      cleanExtracted === targetClean
-    );
+    const candidates = [b.config?.bookingSlug, b.config?.reviewSlug].filter(Boolean);
+    return candidates.some((rawSlug) => {
+      const cleanRawSlug = cleanString(rawSlug);
+      const cleanExtracted = cleanString(extractSlug(rawSlug));
+      return (
+        rawSlug === raw ||
+        rawSlug === extracted ||
+        cleanRawSlug === rawClean ||
+        cleanRawSlug === targetClean ||
+        cleanExtracted === rawClean ||
+        cleanExtracted === targetClean
+      );
+    });
   });
   if (matchSlug) return matchSlug;
 
@@ -172,6 +173,8 @@ app.get('/api/businesses', (_req, res) => {
     name: b.config?.name,
     address: b.config?.address,
     slug: b.config?.bookingSlug,
+    reviewSlug: b.config?.reviewSlug,
+    language: b.config?.language,
     updatedAt: b.updatedAt
   }));
   res.json({ businesses: list });
@@ -241,6 +244,10 @@ app.post('/api/businesses', (req, res) => {
     ? (extractSlug(config.bookingSlug) || cleanString(config.bookingSlug))
     : (existing.config?.bookingSlug || cleanString(config.name) || id);
 
+  const cleanReviewSlug = config.reviewSlug
+    ? (extractSlug(config.reviewSlug) || cleanString(config.reviewSlug))
+    : existing.config?.reviewSlug;
+
   // Merge reviews safely by ID so saving business config never erases newly submitted reviews
   const existingReviews: any[] = Array.isArray(existing.config?.reviews) ? existing.config.reviews : [];
   const incomingReviews: any[] = Array.isArray(config.reviews) ? config.reviews : [];
@@ -262,6 +269,8 @@ app.post('/api/businesses', (req, res) => {
     ...config,
     id,
     bookingSlug: cleanSlug,
+    ...(cleanReviewSlug ? { reviewSlug: cleanReviewSlug } : {}),
+    ...(config.language || existing.config?.language ? { language: config.language || existing.config?.language } : {}),
     name: (config.name !== undefined ? config.name : existing.config?.name) || 'Groomer Aida',
     country: config.country !== undefined ? config.country : (existing.config?.country ?? ''),
     city: config.city !== undefined ? config.city : (existing.config?.city ?? ''),
@@ -622,12 +631,17 @@ app.post('/api/businesses/:idOrSlug/reviews', (req, res) => {
       const mirrorSlug = businessSummary.bookingSlug
         ? (extractSlug(businessSummary.bookingSlug) || cleanString(businessSummary.bookingSlug))
         : cleanString(idOrSlug);
+      const mirrorReviewSlug = businessSummary.reviewSlug
+        ? (extractSlug(businessSummary.reviewSlug) || cleanString(businessSummary.reviewSlug))
+        : undefined;
       business = {
         businessId: mirrorBizId,
         config: {
           id: mirrorBizId,
           name: businessSummary.name || mirrorBizId,
           bookingSlug: mirrorSlug || mirrorBizId,
+          ...(mirrorReviewSlug ? { reviewSlug: mirrorReviewSlug } : {}),
+          ...(businessSummary.language ? { language: businessSummary.language } : {}),
           country: businessSummary.country ?? '',
           city: businessSummary.city ?? '',
           address: businessSummary.address ?? '',
@@ -652,6 +666,14 @@ app.post('/api/businesses/:idOrSlug/reviews', (req, res) => {
   const now = new Date().toISOString();
   const safeStars = Math.round(Math.min(5, Math.max(1, parsedStars)) * 10) / 10;
   const trimmedComment = review.comment ? String(review.comment).trim().slice(0, 2000) : '';
+  const bizLang = business.config?.language || businessSummary?.language || 'es-LA';
+  const localeMap: Record<string, string> = {
+    'es-LA': 'es-419',
+    'es-ES': 'es-ES',
+    'en': 'en-US',
+    'pt': 'pt-BR'
+  };
+  const dateLocale = localeMap[bizLang] || 'es-419';
 
   const cleanReview = {
     ...review,
@@ -660,7 +682,7 @@ app.post('/api/businesses/:idOrSlug/reviews', (req, res) => {
     stars: safeStars,
     clientName: trimmedName,
     comment: trimmedComment,
-    date: review.date || new Date().toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }),
+    date: review.date || new Date().toLocaleDateString(dateLocale, { day: 'numeric', month: 'long', year: 'numeric' }),
     createdAt: review.createdAt || now,
     verified: review.verified !== false
   };

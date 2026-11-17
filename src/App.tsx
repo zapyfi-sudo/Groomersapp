@@ -32,7 +32,14 @@ import {
   syncPetToBackend,
   fetchBusinessReviews
 } from './utils/api';
-import { AppLanguage } from './utils/translations';
+import {
+  AppLanguage,
+  LanguageProvider,
+  getTranslations,
+  isValidAppLanguage,
+  resolveAppLanguage,
+  saveAppLanguage
+} from './utils/i18n';
 import { Header } from './components/Header';
 import { BottomNav } from './components/BottomNav';
 import { RetentionView } from './components/RetentionView';
@@ -186,9 +193,16 @@ export default function App() {
 
   // Business Data State
   const [salonConfig, setSalonConfig] = useState<SalonConfig>(initialData.config);
+  const salonConfigRef = useRef<SalonConfig>(initialData.config);
+  salonConfigRef.current = salonConfig;
   const [pets, setPets] = useState<Pet[]>(() => sortPetsByAgendaDate(initialData.pets, initialData.appointments));
   const [appointments, setAppointments] = useState<Appointment[]>(initialData.appointments);
-  const [currentLanguage, setCurrentLanguage] = useState<AppLanguage>(() => loadLanguage());
+  const [currentLanguage, setCurrentLanguage] = useState<AppLanguage>(() => {
+    if (initialAccount && isValidAppLanguage(initialData.config?.language)) {
+      return initialData.config.language;
+    }
+    return loadLanguage();
+  });
   const [bookedRetentions, setBookedRetentions] = useState<string[]>(initialData.bookedRetentions || []);
 
   // Selected pet for profile view (defaults to the most recently attended pet)
@@ -268,6 +282,12 @@ export default function App() {
       if (res.activeData) {
         const sortedPets = sortPetsByAgendaDate(res.activeData.pets, res.activeData.appointments);
         setSalonConfig(res.activeData.config);
+        if (res.activeAccount && isValidAppLanguage(res.activeData.config?.language)) {
+          const accLang = res.activeData.config.language;
+          setCurrentLanguage(accLang);
+          saveLanguage(accLang);
+          saveAppLanguage(accLang);
+        }
         setPets(sortedPets);
         setAppointments(mergeAppointments(res.activeData.appointments));
         setBookedRetentions(res.activeData.bookedRetentions || []);
@@ -356,6 +376,16 @@ export default function App() {
                   profile.config.reviews
                 );
 
+                const resolvedLanguage = localStrictlyNewer
+                  ? (isValidAppLanguage(prev.language) ? prev.language : profile.config.language)
+                  : (isValidAppLanguage(profile.config.language) ? profile.config.language : prev.language);
+
+                if (res.activeAccount && isValidAppLanguage(resolvedLanguage)) {
+                  setCurrentLanguage(resolvedLanguage);
+                  saveLanguage(resolvedLanguage);
+                  saveAppLanguage(resolvedLanguage);
+                }
+
                 return {
                   ...prev,
                   ...profile.config,
@@ -375,8 +405,12 @@ export default function App() {
                   address: localStrictlyNewer
                     ? (prev.address !== undefined ? prev.address : profile.config.address)
                     : (profile.config.address !== undefined ? profile.config.address : prev.address),
+                  language: isValidAppLanguage(resolvedLanguage) ? resolvedLanguage : prev.language,
                   currency: prev.currency || profile.config.currency,
                   bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
+                  reviewSlug: localStrictlyNewer
+                    ? (prev.reviewSlug || profile.config.reviewSlug)
+                    : (profile.config.reviewSlug || prev.reviewSlug),
                   services: mergedServices,
                   reviews: mergedReviews,
                   updatedAt: localStrictlyNewer
@@ -717,6 +751,7 @@ export default function App() {
   useEffect(() => {
     if (!isDbInitialized.current) return;
     saveLanguage(currentLanguage);
+    saveAppLanguage(currentLanguage);
   }, [currentLanguage]);
 
   useEffect(() => {
@@ -724,10 +759,38 @@ export default function App() {
     persistActiveBookedRetentions(bookedRetentions);
   }, [bookedRetentions]);
 
+  // Immediate language switcher that persists locally AND syncs to the active business config
+  const handleUpdateLanguage = (newLang: AppLanguage) => {
+    const resolved = resolveAppLanguage(newLang);
+    setCurrentLanguage(resolved);
+    saveLanguage(resolved);
+    saveAppLanguage(resolved);
+
+    if (activeAccount) {
+      const latestConfig = salonConfigRef.current;
+      const updatedConfig: SalonConfig = {
+        ...latestConfig,
+        language: resolved,
+        updatedAt: new Date().toISOString()
+      };
+      setSalonConfig(updatedConfig);
+      persistActiveConfig(updatedConfig).catch(() => {});
+      const currentBizId = activeAccount.businessId || updatedConfig.id || 'biz_main';
+      syncBusinessToServer(
+        currentBizId,
+        updatedConfig,
+        pets,
+        appointments,
+        bookedRetentions,
+        sales
+      ).catch(() => {});
+    }
+  };
+
   // Derived dynamic Retention Pets directly from real Pet state
   const retentionPets: RetentionPet[] = useMemo(() => {
-    return deriveRetentionPets(pets, salonConfig.name, bookedRetentions, appointments);
-  }, [pets, salonConfig.name, bookedRetentions, appointments]);
+    return deriveRetentionPets(pets, salonConfig.name, bookedRetentions, appointments, currentLanguage);
+  }, [pets, salonConfig.name, bookedRetentions, appointments, currentLanguage]);
 
   // Active selected pet (fallback to first pet or clean default)
   const currentPet: Pet = useMemo(() => {
@@ -772,6 +835,11 @@ export default function App() {
     const initialApts = mergeAppointments(newData.appointments || []);
     setActiveAccount(newAccount);
     setSalonConfig(normalizedConfig);
+    if (isValidAppLanguage(normalizedConfig.language)) {
+      setCurrentLanguage(normalizedConfig.language);
+      saveLanguage(normalizedConfig.language);
+      saveAppLanguage(normalizedConfig.language);
+    }
     setPets(sortPetsByAgendaDate(newData.pets || [], initialApts));
     setAppointments(initialApts);
     setBookedRetentions(newData.bookedRetentions || []);
@@ -796,6 +864,15 @@ export default function App() {
           const remoteUpdatedMs = parseTimestampMs(profile.updatedAt || profile.config.updatedAt);
           const localStrictlyNewer = prevUpdatedMs > 0 && remoteUpdatedMs > 0 && prevUpdatedMs > remoteUpdatedMs;
           const mergedReviews = normalizeAndMergeReviews(targetBizId, prev.reviews, profile.config.reviews);
+          const resolvedLang = localStrictlyNewer
+            ? (isValidAppLanguage(prev.language) ? prev.language : profile.config.language)
+            : (isValidAppLanguage(profile.config.language) ? profile.config.language : prev.language);
+
+          if (isValidAppLanguage(resolvedLang)) {
+            setCurrentLanguage(resolvedLang);
+            saveLanguage(resolvedLang);
+            saveAppLanguage(resolvedLang);
+          }
 
           return {
             ...prev,
@@ -813,7 +890,11 @@ export default function App() {
             address: localStrictlyNewer
               ? (prev.address !== undefined ? prev.address : profile.config.address)
               : (profile.config.address !== undefined ? profile.config.address : prev.address),
+            language: isValidAppLanguage(resolvedLang) ? resolvedLang : prev.language,
             bookingSlug: profile.config.bookingSlug || prev.bookingSlug,
+            reviewSlug: localStrictlyNewer
+              ? (prev.reviewSlug || profile.config.reviewSlug)
+              : (profile.config.reviewSlug || prev.reviewSlug),
             reviews: mergedReviews,
             updatedAt: localStrictlyNewer
               ? prev.updatedAt
@@ -1372,335 +1453,343 @@ export default function App() {
     }).length;
   }, [appointments]);
 
-  // 1. PUBLIC REVIEWS FLOW (Independent public rating form for customers - Requirement #1 & #2)
-  if (urlReviewId) {
-    const targetSlugOrId =
-      urlReviewId === 'default_review'
-        ? salonConfig.bookingSlug || salonConfig.id || 'biz_main'
-        : urlReviewId;
+  const appTr = getTranslations(currentLanguage);
 
-    return (
-      <PublicReviewPage
-        businessIdOrSlug={targetSlugOrId}
-        onReviewSubmitted={(newReview) => {
-          handleAddNewReview(newReview);
-        }}
-      />
-    );
-  }
+  const renderMainContent = () => {
+    // 1. PUBLIC REVIEWS FLOW (Independent public rating form for customers)
+    if (urlReviewId) {
+      const targetSlugOrId =
+        urlReviewId === 'default_review'
+          ? salonConfig.reviewSlug || salonConfig.bookingSlug || salonConfig.id || 'biz_main'
+          : urlReviewId;
 
-  // 1b. ADMIN PREVIEW FLOW FOR REVIEWS ("Probar enlace" from Ajustes -> Calificaciones)
-  if (previewReviewId) {
-    return (
-      <div className="relative">
-        <div className="sticky top-0 z-50 bg-[#2e004e] text-white px-4 py-2.5 text-xs flex items-center justify-between shadow-md border-b-2 border-[#f9b900]">
-          <span className="font-bold flex items-center gap-1.5 text-[#ffdea1]">
-            <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
-            <span>MODO VISTA PREVIA: Así ve tu cliente el formulario de calificación</span>
-          </span>
-          <button
-            type="button"
-            onClick={() => setPreviewReviewId(null)}
-            className="px-3 py-1 bg-[#f9b900] text-[#261900] font-bold rounded-lg text-xs hover:bg-[#ffdea1] cursor-pointer"
-          >
-            Volver a Ajustes
-          </button>
-        </div>
+      return (
         <PublicReviewPage
-          businessIdOrSlug={previewReviewId}
+          businessIdOrSlug={targetSlugOrId}
           onReviewSubmitted={(newReview) => {
             handleAddNewReview(newReview);
           }}
         />
-      </div>
-    );
-  }
+      );
+    }
 
-  // 2. PUBLIC BOOKING LINK FLOW (Requirement #10: COMPLETELY SEPARATE FROM THE ADMIN APP)
-  // When a customer visits via a shared booking link, ONLY show the Public Customer Booking page
-  if (urlBookingId) {
-    return (
-      <PublicBookingPage
-        businessIdOrSlug={urlBookingId}
-        isPreviewMode={false}
-        onAppointmentCreated={(newApt, newPetData) => {
-          handleAddNewAppointment(newApt, newPetData);
-        }}
-      />
-    );
-  }
-
-  // 2b. ADMIN PREVIEW FLOW ("Probar flujo como cliente" inside Ajustes)
-  if (previewBookingId) {
-    return (
-      <PublicBookingPage
-        businessIdOrSlug={previewBookingId}
-        isPreviewMode={true}
-        onClosePreview={() => setPreviewBookingId(null)}
-        onAppointmentCreated={(newApt, newPetData) => {
-          handleAddNewAppointment(newApt, newPetData);
-        }}
-      />
-    );
-  }
-
-  // 3. LOGGED-OUT SCREEN: Multi-account login / creation
-  if (!activeAccount) {
-    return (
-      <LoginScreen
-        accountsList={accountsList}
-        onLoginSuccess={handleAccountChanged}
-      />
-    );
-  }
-
-  // 4. ADMIN SALON DASHBOARD
-  return (
-    <div className="min-h-screen bg-[#fcf8ff] text-[#1a1a26] flex flex-col font-sans selection:bg-[#f9b900] selection:text-[#261900]">
-      {/* Top Application Header */}
-      <Header
-        currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        salonName={salonConfig.name}
-        logoUrl={salonConfig.logoUrl}
-        urgentCount={urgentCount}
-        inSalonCount={inSalonAppointmentsCount}
-        currentLanguage={currentLanguage}
-        activeAccount={activeAccount}
-        onOpenAccountModal={() => setIsAccountModalOpen(true)}
-      />
-
-      {/* Floating Real-Time New Booking Notification Banner (Mejora 1: Dimensión, Bordes y Jerarquía) */}
-      {newBookingNotification && (
-        <aside
-          role="alert"
-          aria-live="polite"
-          className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] sm:w-full max-w-lg bg-[#2e004e] text-white rounded-2xl shadow-2xl border-2 border-[#f9b900] p-3.5 sm:p-4 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto box-border"
-        >
-          <div className="flex items-start gap-3">
-            <div className="w-9 h-9 rounded-xl bg-[#f9b900] text-[#261900] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
-              <span className="material-symbols-outlined text-xl">notifications_active</span>
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-[#f9b900]">
-                  ¡Nueva Solicitud de Cita Online!
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setNewBookingNotification(null)}
-                  className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
-                  title="Cerrar notificación"
-                >
-                  <span className="material-symbols-outlined text-base">close</span>
-                </button>
-              </div>
-
-              <div className="mt-1 space-y-0.5 text-xs">
-                <div className="font-black text-white break-words">
-                  <span className="text-white/70 font-medium">Cliente: </span>
-                  {newBookingNotification.tutorName}
-                </div>
-                <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-white/90">
-                  <span className="font-extrabold text-[#ffdea1] break-words">
-                    🐾 {newBookingNotification.petName}
-                  </span>
-                  <span className="text-white/40">•</span>
-                  <span className="text-white break-words font-medium">
-                    ✂️ {newBookingNotification.serviceName}
-                  </span>
-                  {newBookingNotification.time && (
-                    <>
-                      <span className="text-white/40">•</span>
-                      <span className="text-emerald-300 font-bold whitespace-nowrap">
-                        🕒 {newBookingNotification.time}
-                      </span>
-                    </>
-                  )}
-                </div>
-              </div>
-
-              <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-white/10">
-                <span className="text-[10px] text-white/60">Recibida en tiempo real</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setCurrentTab('agenda');
-                    setNewBookingNotification(null);
-                  }}
-                  className="px-3.5 py-1.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0"
-                >
-                  <span className="material-symbols-outlined text-sm">calendar_month</span>
-                  <span>Ver en Agenda</span>
-                </button>
-              </div>
-            </div>
+    // 1b. ADMIN PREVIEW FLOW FOR REVIEWS ("Probar flujo" from Ajustes -> Calificaciones)
+    if (previewReviewId) {
+      return (
+        <div className="relative">
+          <div className="sticky top-0 z-50 bg-[#2e004e] text-white px-4 py-2.5 text-xs flex items-center justify-between shadow-md border-b-2 border-[#f9b900]">
+            <span className="font-bold flex items-center gap-1.5 text-[#ffdea1]">
+              <span className="material-symbols-outlined text-sm text-[#f9b900]">visibility</span>
+              <span>{appTr.publicReview.previewBannerTitle}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setPreviewReviewId(null)}
+              className="px-3 py-1 bg-[#f9b900] text-[#261900] font-bold rounded-lg text-xs hover:bg-[#ffdea1] cursor-pointer"
+            >
+              {appTr.settings.backToSettings}
+            </button>
           </div>
-        </aside>
-      )}
+          <PublicReviewPage
+            businessIdOrSlug={previewReviewId}
+            onReviewSubmitted={(newReview) => {
+              handleAddNewReview(newReview);
+            }}
+          />
+        </div>
+      );
+    }
 
-      {/* Screen Mode Layout Container */}
-      <div className="flex-1 w-full flex justify-center md:pt-16">
-        <main className="w-full bg-[#fcf8ff] min-h-screen transition-all shadow-sm">
-          {/* Screen: Agenda del Día */}
-          {currentTab === 'agenda' && (
-            <AgendaView
-              appointments={appointments}
-              pets={pets}
-              onSelectPet={handleSelectPetFromList}
-              onNavigateToRetention={() => setCurrentTab('retencion')}
-              onAddNewAppointment={handleAddNewAppointment}
-              onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
-              salonConfig={salonConfig}
-              onSaveWhatsAppTemplate={handleSaveWhatsAppTemplate}
-              urgentRetentionCount={urgentCount}
-              totalRetentionCount={retentionPets.filter((p) => !p.alreadyBooked).length}
-              currentLanguage={currentLanguage}
-              onNavigateToInSalon={() => setCurrentTab('en_salon')}
-            />
-          )}
-
-          {/* Screen: En Salón (Módulo operativo de mascotas en proceso o por retirar) */}
-          {currentTab === 'en_salon' && (
-            <InSalonView
-              appointments={appointments}
-              pets={pets}
-              salonConfig={salonConfig}
-              currentLanguage={currentLanguage}
-              onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
-              onSelectPetForProfile={handleSelectPetForProfile}
-              onNavigateToAgenda={() => setCurrentTab('agenda')}
-              onCompleteAndRegisterVisit={(_apt, pet) => {
-                setPets((prev) => {
-                  const exists = prev.some((p) => p.id === pet.id);
-                  if (exists) return prev;
-                  const next = sortPetsByAgendaDate([pet, ...prev], appointments);
-                  persistActivePets(next);
-                  return next;
-                });
-                setSelectedPetId(pet.id);
-                setCurrentTab('ficha');
-              }}
-            />
-          )}
-
-          {/* Screen: Ajustes y Negocio */}
-          {currentTab === 'onboarding' && (
-            <AjustesView
-              config={salonConfig}
-              sales={sales}
-              onUpdateConfig={(updated) => {
-                const enriched: SalonConfig = {
-                  ...updated,
-                  email: updated.email || activeAccount?.email || salonConfig.email
-                };
-                setSalonConfig(enriched);
-                syncBusinessToServer(enriched.id || 'biz_main', enriched, pets, appointments, bookedRetentions, sales);
-              }}
-              onPreviewClientFlow={() => {
-                setPreviewBookingId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');
-              }}
-              onPreviewReviewFlow={() => {
-                setPreviewReviewId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');
-              }}
-              appointments={appointments}
-              onAddNewReview={handleAddNewReview}
-              onRefreshReviews={handleRefreshReviews}
-              currentLanguage={currentLanguage}
-              onUpdateLanguage={setCurrentLanguage}
-              activeAccount={activeAccount}
-              onOpenAccountModal={() => setIsAccountModalOpen(true)}
-            />
-          )}
-
-          {/* Screen: Por Volver (Módulo de Fidelización derivado directamente de Clientes) */}
-          {currentTab === 'retencion' && (
-            <RetentionView
-              retentionPets={retentionPets}
-              onSelectPetForProfile={handleSelectPetForProfile}
-              onMarkAsBooked={handleMarkAsBooked}
-              onOpenWhatsApp={handleOpenWhatsApp}
-              onBookAppointment={handleBookFromRetention}
-              currentLanguage={currentLanguage}
-            />
-          )}
-
-          {/* Screen: Ficha Mascota */}
-          {currentTab === 'ficha' && (
-            <PetProfileView
-              pet={currentPet}
-              onUpdatePet={handleUpdatePet}
-              onNavigateOnboarding={() => setCurrentTab('onboarding')}
-              salonConfig={salonConfig}
-              appointments={appointments}
-              onAppointmentCompleted={async (appointmentId: string) => {
-                await handleUpdateAppointmentStatus(appointmentId, 'completado', 'COMPLETADO');
-              }}
-            />
-          )}
-
-          {/* Screen: Directorio de Mascotas / Clientes */}
-          {currentTab === 'mascotas' && (
-            <PetListView
-              pets={pets}
-              appointments={appointments}
-              selectedPetId={selectedPetId}
-              onSelectPet={handleSelectPetFromList}
-              onAddNewPet={handleAddNewPet}
-              currentLanguage={currentLanguage}
-            />
-          )}
-        </main>
-      </div>
-
-      {/* Modal Agendar Cita desde Por Volver */}
-      {bookingFromRetention.isOpen && bookingFromRetention.pet && (
-        <NewAppointmentView
-          onClose={() => setBookingFromRetention({ isOpen: false, pet: null })}
-          onAppointmentCreated={async (newApt, newPetData) => {
-            const success = await handleAddNewAppointment(newApt, newPetData);
-            if (success !== false) {
-              // Ensure this pet is marked in bookedRetentions so it disappears from pending retentions immediately
-              const petKey = bookingFromRetention.pet?.id || newApt.petId;
-              if (petKey) {
-                setBookedRetentions((prev) => (prev.includes(petKey) ? prev : [...prev, petKey]));
-              }
-              setBookingFromRetention({ isOpen: false, pet: null });
-            }
-            return success;
+    // 2. PUBLIC BOOKING LINK FLOW
+    if (urlBookingId) {
+      return (
+        <PublicBookingPage
+          businessIdOrSlug={urlBookingId}
+          isPreviewMode={false}
+          onAppointmentCreated={(newApt, newPetData) => {
+            handleAddNewAppointment(newApt, newPetData);
           }}
-          salonName={salonConfig.name}
-          salonAddress={salonConfig.address}
-          salonPhone={salonConfig.phone}
-          simultaneousCapacity={salonConfig.allowSimultaneousStaff === false ? 1 : salonConfig.simultaneousCapacity || 2}
-          existingAppointments={appointments}
-          existingPets={pets}
-          isOnlineClientPortal={false}
-          salonConfig={salonConfig}
-          initialPet={bookingFromRetention.pet}
-          initialDate={bookingFromRetention.targetDate}
         />
-      )}
+      );
+    }
 
-      {/* Account Switcher & SaaS Management Modal */}
-      <AccountAuthModal
-        isOpen={isAccountModalOpen}
-        onClose={() => setIsAccountModalOpen(false)}
-        activeAccount={activeAccount}
-        accountsList={accountsList}
-        onAccountChanged={handleAccountChanged}
-        onLoggedOut={handleLoggedOut}
-      />
+    // 2b. ADMIN PREVIEW FLOW ("Probar flujo" inside Ajustes)
+    if (previewBookingId) {
+      return (
+        <PublicBookingPage
+          businessIdOrSlug={previewBookingId}
+          isPreviewMode={true}
+          onClosePreview={() => setPreviewBookingId(null)}
+          onAppointmentCreated={(newApt, newPetData) => {
+            handleAddNewAppointment(newApt, newPetData);
+          }}
+        />
+      );
+    }
 
-      {/* Mobile Bottom Navigation Bar */}
-      <BottomNav
-        currentTab={currentTab}
-        onSelectTab={setCurrentTab}
-        urgentCount={urgentCount}
-        inSalonCount={inSalonAppointmentsCount}
-        currentLanguage={currentLanguage}
-      />
-    </div>
+    // 3. LOGGED-OUT SCREEN: Multi-account login / creation
+    if (!activeAccount) {
+      return (
+        <LoginScreen
+          accountsList={accountsList}
+          onLoginSuccess={handleAccountChanged}
+        />
+      );
+    }
+
+    // 4. ADMIN SALON DASHBOARD
+    return (
+      <div className="min-h-screen bg-[#fcf8ff] text-[#1a1a26] flex flex-col font-sans selection:bg-[#f9b900] selection:text-[#261900]">
+        {/* Top Application Header */}
+        <Header
+          currentTab={currentTab}
+          onSelectTab={setCurrentTab}
+          salonName={salonConfig.name}
+          logoUrl={salonConfig.logoUrl}
+          urgentCount={urgentCount}
+          inSalonCount={inSalonAppointmentsCount}
+          currentLanguage={currentLanguage}
+          activeAccount={activeAccount}
+          onOpenAccountModal={() => setIsAccountModalOpen(true)}
+        />
+
+        {/* Floating Real-Time New Booking Notification Banner */}
+        {newBookingNotification && (
+          <aside
+            role="alert"
+            aria-live="polite"
+            className="fixed top-3 sm:top-5 left-1/2 -translate-x-1/2 z-50 w-[calc(100%-1.5rem)] sm:w-full max-w-lg bg-[#2e004e] text-white rounded-2xl shadow-2xl border-2 border-[#f9b900] p-3.5 sm:p-4 animate-in fade-in slide-in-from-top-4 duration-300 pointer-events-auto box-border"
+          >
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-[#f9b900] text-[#261900] flex items-center justify-center shrink-0 shadow-xs mt-0.5">
+                <span className="material-symbols-outlined text-xl">notifications_active</span>
+              </div>
+
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-[11px] sm:text-xs font-black uppercase tracking-wider text-[#f9b900]">
+                    {appTr.agenda.onlineBookingsAlertTitle}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setNewBookingNotification(null)}
+                    className="text-white/60 hover:text-white p-1 rounded-lg hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+                    title={appTr.common.close}
+                  >
+                    <span className="material-symbols-outlined text-base">close</span>
+                  </button>
+                </div>
+
+                <div className="mt-1 space-y-0.5 text-xs">
+                  <div className="font-black text-white break-words">
+                    <span className="text-white/70 font-medium">{appTr.agenda.tutorLabel} </span>
+                    {newBookingNotification.tutorName}
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-white/90">
+                    <span className="font-extrabold text-[#ffdea1] break-words">
+                      🐾 {newBookingNotification.petName}
+                    </span>
+                    <span className="text-white/40">•</span>
+                    <span className="text-white break-words font-medium">
+                      ✂️ {newBookingNotification.serviceName}
+                    </span>
+                    {newBookingNotification.time && (
+                      <>
+                        <span className="text-white/40">•</span>
+                        <span className="text-emerald-300 font-bold whitespace-nowrap">
+                          🕒 {newBookingNotification.time}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="mt-2.5 flex items-center justify-between gap-2 pt-2 border-t border-white/10">
+                  <span className="text-[10px] text-white/60">{appTr.agenda.onlineBadge}</span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCurrentTab('agenda');
+                      setNewBookingNotification(null);
+                    }}
+                    className="px-3.5 py-1.5 bg-[#f9b900] hover:bg-[#ffdea1] text-[#261900] font-black text-xs rounded-xl shadow-xs transition-all active:scale-95 cursor-pointer flex items-center gap-1.5 shrink-0"
+                  >
+                    <span className="material-symbols-outlined text-sm">calendar_month</span>
+                    <span>{appTr.agenda.reviewPendingBtn}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </aside>
+        )}
+
+        {/* Screen Mode Layout Container */}
+        <div className="flex-1 w-full flex justify-center md:pt-16">
+          <main className="w-full bg-[#fcf8ff] min-h-screen transition-all shadow-sm">
+            {/* Screen: Agenda del Día */}
+            {currentTab === 'agenda' && (
+              <AgendaView
+                appointments={appointments}
+                pets={pets}
+                onSelectPet={handleSelectPetFromList}
+                onNavigateToRetention={() => setCurrentTab('retencion')}
+                onAddNewAppointment={handleAddNewAppointment}
+                onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+                salonConfig={salonConfig}
+                onSaveWhatsAppTemplate={handleSaveWhatsAppTemplate}
+                urgentRetentionCount={urgentCount}
+                totalRetentionCount={retentionPets.filter((p) => !p.alreadyBooked).length}
+                currentLanguage={currentLanguage}
+                onNavigateToInSalon={() => setCurrentTab('en_salon')}
+              />
+            )}
+
+            {/* Screen: En Salón */}
+            {currentTab === 'en_salon' && (
+              <InSalonView
+                appointments={appointments}
+                pets={pets}
+                salonConfig={salonConfig}
+                currentLanguage={currentLanguage}
+                onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+                onSelectPetForProfile={handleSelectPetForProfile}
+                onNavigateToAgenda={() => setCurrentTab('agenda')}
+                onCompleteAndRegisterVisit={(_apt, pet) => {
+                  setPets((prev) => {
+                    const exists = prev.some((p) => p.id === pet.id);
+                    if (exists) return prev;
+                    const next = sortPetsByAgendaDate([pet, ...prev], appointments);
+                    persistActivePets(next);
+                    return next;
+                  });
+                  setSelectedPetId(pet.id);
+                  setCurrentTab('ficha');
+                }}
+              />
+            )}
+
+            {/* Screen: Ajustes y Negocio */}
+            {currentTab === 'onboarding' && (
+              <AjustesView
+                config={salonConfig}
+                sales={sales}
+                onUpdateConfig={(updated) => {
+                  const enriched: SalonConfig = {
+                    ...updated,
+                    email: updated.email || activeAccount?.email || salonConfig.email
+                  };
+                  setSalonConfig(enriched);
+                  syncBusinessToServer(enriched.id || 'biz_main', enriched, pets, appointments, bookedRetentions, sales);
+                }}
+                onPreviewClientFlow={() => {
+                  setPreviewBookingId(salonConfig.id || salonConfig.bookingSlug || 'biz_main');
+                }}
+                onPreviewReviewFlow={() => {
+                  setPreviewReviewId(salonConfig.reviewSlug || salonConfig.bookingSlug || salonConfig.id || 'biz_main');
+                }}
+                appointments={appointments}
+                onAddNewReview={handleAddNewReview}
+                onRefreshReviews={handleRefreshReviews}
+                currentLanguage={currentLanguage}
+                onUpdateLanguage={handleUpdateLanguage}
+                activeAccount={activeAccount}
+                onOpenAccountModal={() => setIsAccountModalOpen(true)}
+              />
+            )}
+
+            {/* Screen: Por Volver */}
+            {currentTab === 'retencion' && (
+              <RetentionView
+                retentionPets={retentionPets}
+                onSelectPetForProfile={handleSelectPetForProfile}
+                onMarkAsBooked={handleMarkAsBooked}
+                onOpenWhatsApp={handleOpenWhatsApp}
+                onBookAppointment={handleBookFromRetention}
+                currentLanguage={currentLanguage}
+              />
+            )}
+
+            {/* Screen: Ficha Mascota */}
+            {currentTab === 'ficha' && (
+              <PetProfileView
+                pet={currentPet}
+                onUpdatePet={handleUpdatePet}
+                onNavigateOnboarding={() => setCurrentTab('onboarding')}
+                salonConfig={salonConfig}
+                appointments={appointments}
+                onAppointmentCompleted={async (appointmentId: string) => {
+                  await handleUpdateAppointmentStatus(appointmentId, 'completado', 'COMPLETADO');
+                }}
+              />
+            )}
+
+            {/* Screen: Directorio de Mascotas / Clientes */}
+            {currentTab === 'mascotas' && (
+              <PetListView
+                pets={pets}
+                appointments={appointments}
+                selectedPetId={selectedPetId}
+                onSelectPet={handleSelectPetFromList}
+                onAddNewPet={handleAddNewPet}
+                currentLanguage={currentLanguage}
+              />
+            )}
+          </main>
+        </div>
+
+        {/* Modal Agendar Cita desde Por Volver */}
+        {bookingFromRetention.isOpen && bookingFromRetention.pet && (
+          <NewAppointmentView
+            onClose={() => setBookingFromRetention({ isOpen: false, pet: null })}
+            onAppointmentCreated={async (newApt, newPetData) => {
+              const success = await handleAddNewAppointment(newApt, newPetData);
+              if (success !== false) {
+                const petKey = bookingFromRetention.pet?.id || newApt.petId;
+                if (petKey) {
+                  setBookedRetentions((prev) => (prev.includes(petKey) ? prev : [...prev, petKey]));
+                }
+                setBookingFromRetention({ isOpen: false, pet: null });
+              }
+              return success;
+            }}
+            salonName={salonConfig.name}
+            salonAddress={salonConfig.address}
+            salonPhone={salonConfig.phone}
+            simultaneousCapacity={salonConfig.allowSimultaneousStaff === false ? 1 : salonConfig.simultaneousCapacity || 2}
+            existingAppointments={appointments}
+            existingPets={pets}
+            isOnlineClientPortal={false}
+            salonConfig={salonConfig}
+            initialPet={bookingFromRetention.pet}
+            initialDate={bookingFromRetention.targetDate}
+          />
+        )}
+
+        {/* Account Switcher & SaaS Management Modal */}
+        <AccountAuthModal
+          isOpen={isAccountModalOpen}
+          onClose={() => setIsAccountModalOpen(false)}
+          activeAccount={activeAccount}
+          accountsList={accountsList}
+          onAccountChanged={handleAccountChanged}
+          onLoggedOut={handleLoggedOut}
+        />
+
+        {/* Mobile Bottom Navigation Bar */}
+        <BottomNav
+          currentTab={currentTab}
+          onSelectTab={setCurrentTab}
+          urgentCount={urgentCount}
+          inSalonCount={inSalonAppointmentsCount}
+          currentLanguage={currentLanguage}
+        />
+      </div>
+    );
+  };
+
+  return (
+    <LanguageProvider language={currentLanguage} onChangeLanguage={handleUpdateLanguage}>
+      {renderMainContent()}
+    </LanguageProvider>
   );
 }

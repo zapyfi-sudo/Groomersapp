@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import { parseTimeParts } from '../utils/scheduleUtils';
+import { useTranslation } from '../utils/i18n/I18nContext';
 
 interface TimeSelectPickerProps {
   value: string; // e.g. "9:15 AM", "09:15", "14:30", etc.
@@ -20,6 +21,7 @@ export const TimeSelectPicker: React.FC<TimeSelectPickerProps> = ({
   className = '',
   compact = false
 }) => {
+  const { t } = useTranslation();
   const parts = useMemo(() => parseTimeParts(value), [value]);
 
   const handleChange = (newHour: string, newMin: string, newPeriod: 'AM' | 'PM') => {
@@ -43,7 +45,7 @@ export const TimeSelectPicker: React.FC<TimeSelectPickerProps> = ({
           className={`w-full bg-white text-[#1a1a26] font-bold rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878] transition-all cursor-pointer ${
             compact ? 'px-2 py-1.5 text-xs' : 'px-2.5 py-2 text-xs sm:text-sm'
           } ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'hover:border-[#4b0878]'}`}
-          aria-label="Hora"
+          aria-label={t.modals.hourAria}
         >
           {HOURS.map((h) => (
             <option key={h} value={h}>
@@ -64,7 +66,7 @@ export const TimeSelectPicker: React.FC<TimeSelectPickerProps> = ({
           className={`w-full bg-white text-[#1a1a26] font-bold rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878] transition-all cursor-pointer ${
             compact ? 'px-2 py-1.5 text-xs' : 'px-2.5 py-2 text-xs sm:text-sm'
           } ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'hover:border-[#4b0878]'}`}
-          aria-label="Minutos"
+          aria-label={t.modals.minuteAria}
         >
           {MINUTES.map((m) => (
             <option key={m} value={m}>
@@ -83,7 +85,7 @@ export const TimeSelectPicker: React.FC<TimeSelectPickerProps> = ({
           className={`w-full bg-white text-[#2e004e] font-extrabold rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878] transition-all cursor-pointer ${
             compact ? 'px-2 py-1.5 text-xs' : 'px-2.5 py-2 text-xs sm:text-sm'
           } ${disabled ? 'opacity-50 cursor-not-allowed bg-gray-100' : 'hover:border-[#4b0878]'}`}
-          aria-label="Período AM/PM"
+          aria-label={t.modals.periodAria}
         >
           {PERIODS.map((p) => (
             <option key={p} value={p}>

@@ -3,6 +3,7 @@ import { MedicationProduct } from '../types';
 import { compressImage } from '../utils/storage';
 import { formatPrice } from '../utils/priceUtils';
 import { PriceInput } from './PriceInput';
+import { useTranslation } from '../utils/i18n/I18nContext';
 
 interface MedicationManagerProps {
   enabled: boolean;
@@ -19,6 +20,11 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
   onChangeProducts,
   currency = 'ARS'
 }) => {
+  const { t } = useTranslation();
+  const mt = t.managers;
+  const st = t.settings;
+  const ct = t.common;
+
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
 
@@ -132,10 +138,10 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
           </div>
           <div>
             <h3 className="text-base font-black text-[#1a1a26]">
-              Medicamentos
+              {st.medicationsTitle}
             </h3>
             <p className="text-xs text-[#7e7482]">
-              Configura los productos que tu salón puede aplicar o suministrar durante la sesión
+              {mt.medicationsSubtitle}
             </p>
           </div>
         </div>
@@ -147,7 +153,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
             className="py-2.5 px-4 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-black shadow-sm flex items-center justify-center gap-1.5 transition-all active:scale-95 cursor-pointer self-start sm:self-auto"
           >
             <span className="material-symbols-outlined text-base text-[#f9b900]">add</span>
-            <span>+ Añadir medicamento</span>
+            <span>{st.addMedication}</span>
           </button>
         )}
       </div>
@@ -156,10 +162,10 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
       <div className="p-3.5 bg-[#fcf8ff] rounded-2xl border border-[#cfc2d2]/40 flex items-center justify-between gap-3">
         <div>
           <span className="text-xs font-bold text-[#1a1a26] block">
-            ¿Ofreces medicamentos o productos para mascotas?
+            {mt.offerMedicationsQuestion}
           </span>
           <span className="text-[11px] text-[#7e7482] block">
-            Habilita esta opción si administras pipetas, pastillas antiparasitarias o tratamientos dérmicos
+            {mt.offerMedicationsHint}
           </span>
         </div>
 
@@ -176,7 +182,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
 
       {!enabled ? (
         <div className="py-4 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-xs text-[#7e7482] text-center">
-          Esta función está desactivada. Actívala si tu negocio suministra o vende medicamentos o productos adicionales.
+          {mt.medicationsDisabledNotice}
         </div>
       ) : (
         <>
@@ -188,14 +194,14 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                   <span className="material-symbols-outlined text-base">
                     {editingId ? 'edit' : 'add_circle'}
                   </span>
-                  <span>{editingId ? 'Editar medicamento' : 'Nuevo medicamento'}</span>
+                  <span>{editingId ? mt.editMedicationTitle : mt.newMedicationTitle}</span>
                 </h4>
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="text-[#7e7482] hover:text-[#1a1a26] text-xs font-bold"
+                  className="text-[#7e7482] hover:text-[#1a1a26] text-xs font-bold cursor-pointer"
                 >
-                  ✕ Cancelar
+                  ✕ {ct.cancel}
                 </button>
               </div>
 
@@ -203,14 +209,14 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                 {/* Nombre del producto */}
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Nombre del medicamento o producto *
+                    {mt.medicationName} *
                   </label>
                   <input
                     type="text"
                     required
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="Ej: Pipeta antipulgas y garrapatas"
+                    placeholder={mt.medicationNamePlaceholder}
                     className="w-full bg-white text-xs font-semibold px-3 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e]"
                   />
                 </div>
@@ -218,7 +224,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                 {/* Precio */}
                 <div>
                   <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                    Precio adicional ({currency}) *
+                    {mt.medicationPrice} ({currency}) *
                   </label>
                   <PriceInput
                     value={price}
@@ -233,13 +239,13 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
               {/* ¿Para qué sirve? (Propósito) */}
               <div>
                 <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                  ¿Para qué sirve? (Propósito o descripción para el cliente) *
+                  {mt.medicationPurpose} *
                 </label>
                 <textarea
                   rows={2}
                   value={purpose}
                   onChange={(e) => setPurpose(e.target.value)}
-                  placeholder="Ej: Control y eliminación eficaz de pulgas y garrapatas durante el baño."
+                  placeholder={mt.medicationPurposePlaceholder}
                   className="w-full bg-white text-xs font-medium p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:border-[#2e004e] resize-none"
                 />
               </div>
@@ -247,7 +253,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
               {/* Foto del medicamento */}
               <div>
                 <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                  Foto del producto
+                  {mt.medicationPhotoLabel}
                 </label>
                 <div className="flex items-center gap-3">
                   {photoUrl ? (
@@ -262,7 +268,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
 
                   <label className="py-2 px-3 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 cursor-pointer shadow-xs flex items-center gap-1.5 transition-all">
                     <span className="material-symbols-outlined text-sm">photo_camera</span>
-                    <span>{photoUrl ? 'Cambiar foto' : 'Subir foto'}</span>
+                    <span>{photoUrl ? ct.changePhoto : ct.uploadPhoto}</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -275,9 +281,9 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                     <button
                       type="button"
                       onClick={() => setPhotoUrl('')}
-                      className="text-xs text-rose-600 font-bold hover:underline"
+                      className="text-xs text-rose-600 font-bold hover:underline cursor-pointer"
                     >
-                      Quitar foto
+                      {ct.removePhoto}
                     </button>
                   )}
                 </div>
@@ -287,9 +293,9 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                 <button
                   type="button"
                   onClick={resetForm}
-                  className="py-2 px-4 rounded-xl text-xs font-bold text-[#7e7482] hover:bg-gray-100"
+                  className="py-2 px-4 rounded-xl text-xs font-bold text-[#7e7482] hover:bg-gray-100 cursor-pointer"
                 >
-                  Cancelar
+                  {ct.cancel}
                 </button>
                 <button
                   type="button"
@@ -297,7 +303,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                   className="py-2.5 px-5 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-white text-xs font-black shadow-sm flex items-center gap-1.5 cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-sm text-[#f9b900]">save</span>
-                  <span>{editingId ? 'Guardar cambios' : 'Añadir medicamento'}</span>
+                  <span>{editingId ? mt.saveChangesBtn : mt.addMedicationBtn}</span>
                 </button>
               </div>
             </div>
@@ -306,7 +312,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
           {/* List of Products */}
           {products.length === 0 ? (
             <div className="py-6 px-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200 text-xs text-[#7e7482] text-center">
-              No hay medicamentos configurados. Haz clic en "+ Añadir medicamento" para crear el primero.
+              {mt.noMedicationsHint}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -334,7 +340,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                         </span>
                       </div>
                       <p className="text-[11px] text-[#7e7482] line-clamp-2 mt-0.5 leading-tight">
-                        {p.purpose || 'Sin descripción'}
+                        {p.purpose || mt.medicationNoDesc}
                       </p>
                     </div>
                   </div>
@@ -349,7 +355,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                           : 'bg-gray-200 text-gray-700'
                       }`}
                     >
-                      {p.active ? '✓ Activo en reservas' : 'Pausado'}
+                      {p.active ? mt.medicationActiveBadge : ct.paused}
                     </button>
 
                     <div className="flex items-center gap-1">
@@ -357,7 +363,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                         type="button"
                         onClick={() => handleOpenEdit(p)}
                         className="p-1 text-[#4b0878] hover:bg-white rounded-lg transition-colors cursor-pointer"
-                        title="Editar"
+                        title={ct.edit}
                       >
                         <span className="material-symbols-outlined text-base">edit</span>
                       </button>
@@ -365,7 +371,7 @@ export const MedicationManager: React.FC<MedicationManagerProps> = ({
                         type="button"
                         onClick={() => handleDelete(p.id)}
                         className="p-1 text-[#ba1a1a] hover:bg-white rounded-lg transition-colors cursor-pointer"
-                        title="Eliminar"
+                        title={ct.delete}
                       >
                         <span className="material-symbols-outlined text-base">delete</span>
                       </button>

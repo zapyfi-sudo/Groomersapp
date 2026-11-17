@@ -260,7 +260,7 @@ export function formatDateByLanguage(date: Date, lang?: AppLanguage): string {
     'en': 'en-US',
     'pt': 'pt-BR'
   };
-  const locale = (lang && localeMap[lang]) || 'es-ES';
+  const locale = (lang && localeMap[lang]) || 'es-419';
   return date.toLocaleDateString(locale, {
     day: 'numeric',
     month: 'long',

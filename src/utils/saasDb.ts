@@ -1,9 +1,11 @@
 import { UserAccount, BusinessAccountData, SalonConfig, Pet, Appointment, SalonService, SaleRecord } from '../types';
-import { DEFAULT_SALON_CONFIG, getDefaultPets, getDefaultAppointments, compressImage } from './storage';
+import { DEFAULT_SALON_CONFIG, compressImage } from './storage';
 import { generateStableBusinessId, slugify, extractSlugOnly } from './slugUtils';
 import { saveBusinessToFirestore } from './firebase';
 import { syncBusinessToServer } from './api';
 import { normalizeAndMergeReviews, mergeAppointments } from './syncHelpers';
+import { AppLanguage } from './translations';
+import { getDefaultWhatsAppTemplates } from './phoneUtils';
 
 const DB_NAME = 'agendacan_saas_db';
 const DB_VERSION = 3;
@@ -403,6 +405,7 @@ export async function createNewBusinessAccount(params: {
   businessName: string;
   country?: string;
   currency?: string;
+  language?: AppLanguage;
   phonePrefix?: string;
   phone?: string;
   firebaseUid?: string;
@@ -412,6 +415,7 @@ export async function createNewBusinessAccount(params: {
   const newUserId = params.firebaseUid || `usr_${Date.now()}`;
   const newBizId = generateStableBusinessId(params.businessName);
   const now = new Date().toISOString();
+  const resolvedLang: AppLanguage = params.language || 'es-LA';
 
   // Fresh, clean business config for new user (no fake customers, fake locations, or fake reviews)
   const newConfig: SalonConfig = {
@@ -422,6 +426,7 @@ export async function createNewBusinessAccount(params: {
     name: params.businessName || 'Mi Peluquería Canina',
     country: params.country || 'Ecuador',
     city: '',
+    language: resolvedLang,
     currency: params.currency || 'USD',
     phonePrefix: params.phonePrefix || '+593',
     phone: params.phone || '',
@@ -430,6 +435,7 @@ export async function createNewBusinessAccount(params: {
     googleMapsUrl: undefined,
     coordinates: undefined,
     bookingSlug: slugify(params.businessName || 'mipeluqueria', 'mipeluqueria'),
+    whatsappTemplates: getDefaultWhatsAppTemplates(resolvedLang),
     simultaneousCapacity: 2,
     updatedAt: now,
     // Clean starting services as editable defaults
@@ -702,6 +708,7 @@ export async function findBusinessInLocalSaaSDb(businessIdOrSlug: string): Promi
       const dBizId = (d.businessId || '').trim();
       const cfgId = (d.config.id || '').trim();
       const dSlug = extractSlugOnly(d.config.bookingSlug);
+      const dReviewSlug = extractSlugOnly(d.config.reviewSlug);
       const dNameSlug = slugify(d.config.name || '');
       return (
         dBizId === raw ||
@@ -709,6 +716,7 @@ export async function findBusinessInLocalSaaSDb(businessIdOrSlug: string): Promi
         dBizId.toLowerCase() === clean ||
         cfgId.toLowerCase() === clean ||
         (Boolean(dSlug) && dSlug === clean) ||
+        (Boolean(dReviewSlug) && dReviewSlug === clean) ||
         (Boolean(dNameSlug) && dNameSlug === clean)
       );
     });
@@ -750,12 +758,13 @@ export async function getPublicBusinessProfile(businessIdOrSlug: string): Promis
     let matched = allData.find((d) => d.businessId === businessIdOrSlug);
 
     if (!matched) {
-      // Try finding by bookingSlug or name
+      // Try finding by bookingSlug, reviewSlug, or name
       const cleanTarget = businessIdOrSlug.toLowerCase().replace(/[^a-z0-9]/g, '');
       matched = allData.find((d) => {
         const slugClean = (d.config.bookingSlug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+        const revSlugClean = (d.config.reviewSlug || '').toLowerCase().replace(/[^a-z0-9]/g, '');
         const nameClean = (d.config.name || '').toLowerCase().replace(/[^a-z0-9]/g, '');
-        return slugClean.includes(cleanTarget) || nameClean.includes(cleanTarget);
+        return slugClean.includes(cleanTarget) || revSlugClean.includes(cleanTarget) || nameClean.includes(cleanTarget);
       });
     }
 
@@ -766,6 +775,7 @@ export async function getPublicBusinessProfile(businessIdOrSlug: string): Promis
         logoUrl: matched.config.logoUrl,
         country: matched.config.country,
         city: matched.config.city,
+        language: matched.config.language,
         currency: matched.config.currency,
         phonePrefix: matched.config.phonePrefix,
         phone: matched.config.phone,
@@ -782,6 +792,7 @@ export async function getPublicBusinessProfile(businessIdOrSlug: string): Promis
         afternoonClose: matched.config.afternoonClose,
         hasDoubleShift: matched.config.hasDoubleShift,
         bookingSlug: matched.config.bookingSlug,
+        reviewSlug: matched.config.reviewSlug,
         activeDays: matched.config.activeDays,
         services: (matched.config.services || []).filter((s: SalonService) => s.active !== false),
         reviews: matched.config.reviews || [],

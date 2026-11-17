@@ -8,6 +8,14 @@ import { formatDateSpanish, parseSpanishOrIsoDate } from '../utils/storage';
 import { downloadPetReportPdf, cleanPetDisplayName, formatDeliveryDate } from '../utils/pdfGenerator';
 import { formatPrice } from '../utils/priceUtils';
 import { PriceInput } from './PriceInput';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import {
+  formatTemplate,
+  formatDisplayDate,
+  translateGenderLabel,
+  translateMoodLabel,
+  translateSizeLabel
+} from '../utils/i18n/helpers';
 
 interface PetProfileViewProps {
   pet: Pet;
@@ -26,6 +34,11 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
   appointments = [],
   onAppointmentCompleted
 }) => {
+  const { t, lang } = useTranslation();
+  const pt = t.petProfile;
+  const ct = t.common;
+  const mt = t.modals;
+
   const currency = salonConfig?.currency || pet.lastVisit?.currency || 'ARS';
   const salonServices = useMemo(() => {
     return (salonConfig?.services || []).filter((s) => s.active !== false);
@@ -365,7 +378,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     const combinedServiceName =
       serviceItems.length > 0
         ? serviceItems.map((s) => s.name).join(' + ')
-        : primaryService?.name || 'Baño + corte';
+        : primaryService?.name || pt.defaultServiceFallback;
 
     const newVisit: Visit = {
       id: 'v-' + Date.now(),
@@ -481,15 +494,16 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
 
     await onUpdatePet(updatedPet);
 
-    setReminderSavedNotice(`¡Próxima visita sugerida calculada para el ${dateFormatted}! (en ${weeks} semanas)`);
+    const displayDateFormatted = formatDisplayDate(targetDate, lang) || dateFormatted;
+    setReminderSavedNotice(formatTemplate(pt.reminderCalculatedToast, { date: displayDateFormatted, weeks }));
     setTimeout(() => setReminderSavedNotice(null), 4000);
   };
 
   const handleOpenPhotoModal = (target: 'before' | 'after' | 'avatar') => {
     const titles = {
-      before: 'Foto Antes del Servicio',
-      after: 'Foto Después del Servicio',
-      avatar: `Foto de Perfil de ${pet.name}`
+      before: pt.photoBeforeTitle,
+      after: pt.photoAfterTitle,
+      avatar: formatTemplate(pt.photoAvatarTitle, { petName: pet.name })
     };
     setPhotoModalConfig({
       isOpen: true,
@@ -558,12 +572,12 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
     const returnWeeks = selectedInterval === 'custom' ? Number(customWeeks) || 4 : selectedInterval;
     const targetDate = new Date();
     targetDate.setDate(targetDate.getDate() + Number(returnWeeks) * 7);
-    const nextVisitFormatted = formatDateSpanish(targetDate);
+    const nextVisitFormatted = formatDisplayDate(targetDate, lang) || formatDateSpanish(targetDate);
 
     const activeVisit: Visit = {
       id: pet.lastVisit?.id || 'temp',
       date: pet.lastVisit?.date || formatDateSpanish(new Date()),
-      serviceName: allSelectedServices.map((s) => s.name).join(' + ') || primaryService?.name || 'Baño + corte',
+      serviceName: allSelectedServices.map((s) => s.name).join(' + ') || primaryService?.name || pt.defaultServiceFallback,
       services: allSelectedServices.map((s) => ({ id: s.id, name: s.name, price: s.price })),
       price: Number(customPrice) || 0,
       currency,
@@ -589,9 +603,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
         },
         visit: activeVisit,
         salonConfig,
-        nextVisitDateStr: nextVisitFormatted
+        nextVisitDateStr: nextVisitFormatted,
+        language: lang
       });
-      setPdfDownloadedToast(`Ficha descargada: ${filename}`);
+      setPdfDownloadedToast(formatTemplate(pt.pdfDownloadedNotice, { filename }));
       setTimeout(() => setPdfDownloadedToast(null), 4000);
     } catch (err) {
       console.error('Error generando PDF:', err);
@@ -606,7 +621,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
       {visitSavedToast && (
         <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-[#2e004e] text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-2 border border-[#f9b900] animate-in fade-in slide-in-from-top-4 duration-300">
           <span className="material-symbols-outlined text-[#f9b900] text-lg">check_circle</span>
-          <span className="font-bold text-xs">¡Visita registrada y guardada con éxito!</span>
+          <span className="font-bold text-xs">{pt.visitSavedBannerToast}</span>
         </div>
       )}
 
@@ -631,7 +646,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               type="button"
               onClick={() => handleOpenPhotoModal('avatar')}
               className="absolute bottom-1 right-1 bg-[#2e004e] text-[#f9b900] p-1 rounded-lg shadow-md cursor-pointer hover:scale-105 transition-transform"
-              title="Cambiar foto de perfil"
+              title={pt.changeAvatarTitle}
             >
               <span className="material-symbols-outlined text-sm font-bold">add_a_photo</span>
             </button>
@@ -645,7 +660,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </h2>
             </div>
             <p className="text-sm text-[#e3e0f1] truncate">
-              {pet.breed} • {pet.age} • {pet.gender}
+              {pet.breed} • {pet.age} • {translateGenderLabel(pet.gender, lang)}
             </p>
             <div className="flex items-center gap-2 mt-2">
               <span className="text-[11px] px-2.5 py-1 rounded-full bg-white/15 text-[#f2daff] font-semibold tracking-wide">
@@ -656,7 +671,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </span>
               {pet.size && (
                 <span className="text-[11px] px-2.5 py-0.5 rounded-full bg-white/20 text-white font-bold capitalize">
-                  {pet.size === 'pequeno' ? 'Pequeño' : pet.size === 'mediano' ? 'Mediano' : pet.size === 'grande' ? 'Grande' : pet.size}
+                  {translateSizeLabel(pet.size, lang)}
                 </span>
               )}
             </div>
@@ -674,7 +689,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             </div>
             <div className="min-w-0">
               <p className="text-[10px] text-[#4c4451] uppercase tracking-wider font-bold">
-                Tutor Responsable
+                {pt.tutorResponsible}
               </p>
               <p className="font-semibold text-sm text-[#1a1a26] truncate">{pet.tutor.name}</p>
               <p className="text-xs text-[#7e7482] truncate font-mono">{pet.tutor.phone}</p>
@@ -685,7 +700,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             <a
               className="w-10 h-10 rounded-xl bg-[#efecfd] flex items-center justify-center text-[#2e004e] hover:bg-[#e3e0f1] transition-colors active:scale-95"
               href={`tel:${pet.tutor.phone}`}
-              title="Llamar al tutor"
+              title={pt.callTutorTitle}
             >
               <span className="material-symbols-outlined text-xl">call</span>
             </a>
@@ -694,7 +709,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               href={`https://wa.me/${pet.tutor.rawPhone || pet.tutor.phone.replace(/\D/g, '')}`}
               target="_blank"
               rel="noopener noreferrer"
-              title="Abrir chat de WhatsApp"
+              title={pt.openWhatsAppTitle}
             >
               <span className="material-symbols-outlined text-xl">chat</span>
             </a>
@@ -707,7 +722,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             <div className="flex items-center gap-1.5">
               <span className="material-symbols-outlined text-[#7a5900] text-xl">pets</span>
               <span className="font-semibold text-sm text-[#1a1a26]">
-                Comportamiento Habitual
+                {pt.habitualMood}
               </span>
             </div>
             <span className="text-xs px-2.5 py-0.5 rounded-full bg-[#ffdea1] text-[#261900] font-bold flex items-center gap-1">
@@ -720,7 +735,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                     : 'bg-rose-500'
                 }`}
               ></span>
-              <span className="capitalize">{pet.habitualMood}</span>
+              <span className="capitalize">{translateMoodLabel(pet.habitualMood, lang)}</span>
             </span>
           </div>
 
@@ -735,7 +750,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               type="button"
             >
               <span className="text-base">🟢</span>
-              <span className="text-xs font-semibold">Tranquilo</span>
+              <span className="text-xs font-semibold">{t.statuses.moodCalm}</span>
             </button>
 
             <button
@@ -748,7 +763,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               type="button"
             >
               <span className="text-base">🟡</span>
-              <span className="text-xs font-bold">Inquieto</span>
+              <span className="text-xs font-bold">{t.statuses.moodRestless}</span>
             </button>
 
             <button
@@ -761,7 +776,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               type="button"
             >
               <span className="text-base">🔴</span>
-              <span className="text-xs font-semibold">Difícil</span>
+              <span className="text-xs font-semibold">{t.statuses.moodDifficult}</span>
             </button>
           </div>
         </div>
@@ -774,10 +789,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-xs text-[#ba1a1a] font-bold uppercase tracking-wider mb-1">
-                Salud, Alergias y Piel Sensible
+                {pt.healthAllergies}
               </h3>
               <p className="text-sm text-[#1a1a26] leading-snug">
-                {pet.healthAllergies || 'Sin afecciones registradas.'}
+                {pet.healthAllergies || pt.noAllergiesDefault}
               </p>
             </div>
           </div>
@@ -790,10 +805,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             </div>
             <div className="flex-1 min-w-0">
               <h3 className="text-xs text-[#7a5900] font-bold uppercase tracking-wider mb-1">
-                Observaciones de Manejo
+                {pt.handlingNotes}
               </h3>
               <p className="text-sm text-[#1a1a26] leading-snug">
-                {pet.handlingObservations || 'Manejo habitual sin restricciones.'}
+                {pet.handlingObservations || pt.noHandlingNotesDefault}
               </p>
             </div>
           </div>
@@ -804,20 +819,20 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
           <div className="bg-white rounded-2xl p-4 shadow-xs border border-[#cfc2d2]/20">
             <div className="flex items-center justify-between mb-2">
               <span className="text-[10px] font-bold text-[#4c4451] uppercase tracking-wider">
-                Última Visita Registrada
+                {pt.lastRegisteredVisit}
               </span>
               <span className="material-symbols-outlined text-[#2e004e] text-lg">history</span>
             </div>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-lg font-bold text-[#1a1a26]">{pet.lastVisit.date}</p>
+                <p className="text-lg font-bold text-[#1a1a26]">{formatDisplayDate(pet.lastVisit.date, lang) || pet.lastVisit.date}</p>
                 <p className="text-xs text-[#4c4451]">{pet.lastVisit.serviceName}</p>
               </div>
               <div className="text-right">
                 <span className="text-lg text-[#2e004e] font-bold">
                   {formatPrice(pet.lastVisit.price, pet.lastVisit.currency || currency, { includeCode: true })}
                 </span>
-                <p className="text-xs text-[#7a5900] font-semibold">Pagado</p>
+                <p className="text-xs text-[#7a5900] font-semibold">{pt.paidBadge}</p>
               </div>
             </div>
           </div>
@@ -831,7 +846,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             className="w-full py-3.5 px-4 rounded-xl bg-[#f9b900] text-[#261900] text-base text-center font-bold shadow-md hover:bg-[#ffdea1] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer"
           >
             <span className="material-symbols-outlined font-bold text-2xl">add_circle</span>
-            <span>+ Registrar Visita</span>
+            <span>{pt.registerVisitActionBtn}</span>
           </button>
 
           <div className="grid grid-cols-2 gap-2">
@@ -841,7 +856,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               className="py-3 px-2 rounded-xl bg-[#e9e6f7] text-[#2e004e] text-sm font-bold flex items-center justify-center gap-1.5 hover:bg-[#e3e0f1] active:scale-95 transition-all cursor-pointer"
             >
               <span className="material-symbols-outlined text-lg">edit</span>
-              <span>Editar Ficha</span>
+              <span>{pt.editProfile}</span>
             </button>
 
             <button
@@ -850,7 +865,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               className="py-3 px-2 rounded-xl bg-[#e9e6f7] text-[#2e004e] text-sm font-bold flex items-center justify-center gap-1.5 hover:bg-[#e3e0f1] active:scale-95 transition-all cursor-pointer"
             >
               <span className="material-symbols-outlined text-lg">event_repeat</span>
-              <span>Próxima Visita</span>
+              <span>{pt.nextVisitActionBtn}</span>
             </button>
           </div>
         </div>
@@ -863,10 +878,10 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
           <div className="flex items-center justify-between pb-2 border-b border-[#efecfd]">
             <div className="flex items-center gap-2">
               <span className="w-3 h-3 rounded-full bg-[#f9b900]"></span>
-              <h3 className="text-base sm:text-lg font-bold text-[#2e004e]">Registrar Nueva Visita</h3>
+              <h3 className="text-base sm:text-lg font-bold text-[#2e004e]">{pt.registerVisitSection}</h3>
             </div>
             <span className="text-[11px] bg-[#e9e6f7] text-[#2e004e] font-bold px-2.5 py-1 rounded-full">
-              Sesión Actual
+              {pt.currentSessionBadge}
             </span>
           </div>
 
@@ -876,14 +891,14 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-base">event_available</span>
                 <div>
-                  <span className="font-bold block">Cita agendada para este cliente:</span>
+                  <span className="font-bold block">{pt.scheduledAptBannerTitle}</span>
                   <span>
-                    {scheduledAppointment.serviceName} ({scheduledAppointment.date || 'Hoy'} - {scheduledAppointment.time})
+                    {scheduledAppointment.serviceName} ({scheduledAppointment.date ? formatDisplayDate(scheduledAppointment.date, lang) || scheduledAppointment.date : ct.today} - {scheduledAppointment.time})
                   </span>
                 </div>
               </div>
               <span className="text-[10px] bg-[#f9b900] text-[#261900] font-black px-2 py-0.5 rounded-full shrink-0">
-                Seleccionado
+                {pt.selectedBadge}
               </span>
             </div>
           )}
@@ -892,7 +907,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             {/* 1. Selección del Servicio Realizado (Requirement #4) */}
             <div>
               <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                Servicio Principal Realizado *
+                {pt.mainServiceLabel} *
               </label>
 
               {salonServices.length > 0 ? (
@@ -914,7 +929,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 </div>
               ) : (
                 <p className="text-xs text-[#7e7482]">
-                  No tienes servicios configurados en Configuración del negocio.
+                  {pt.noServicesConfiguredHint}
                 </p>
               )}
             </div>
@@ -924,7 +939,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-[#2e004e] flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-base">playlist_add</span>
-                  <span>Servicios adicionales realizados</span>
+                  <span>{pt.additionalServicesLabel}</span>
                 </span>
 
                 <button
@@ -935,7 +950,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                   <span className="material-symbols-outlined text-sm">
                     {isChoosingOtherServices ? 'close' : 'add'}
                   </span>
-                  <span>{isChoosingOtherServices ? 'Ocultar' : 'Elegir otros servicios'}</span>
+                  <span>{isChoosingOtherServices ? pt.hideBtn : pt.chooseOtherServicesBtn}</span>
                 </button>
               </div>
 
@@ -943,7 +958,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               {isChoosingOtherServices && (
                 <div className="space-y-2 pt-2 border-t border-[#cfc2d2]/30 animate-in fade-in duration-200">
                   <p className="text-[11px] text-[#7e7482]">
-                    Selecciona los servicios adicionales que también se hayan realizado en esta visita:
+                    {pt.chooseOtherServicesHint}
                   </p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                     {salonServices
@@ -982,7 +997,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               {allSelectedServices.length > 0 && (
                 <div className="space-y-1.5 pt-1">
                   <span className="text-[11px] text-[#4c4451] font-bold block">
-                    Resumen de servicios de la visita:
+                    {pt.visitServicesSummary}
                   </span>
                   <div className="space-y-1">
                     {allSelectedServices.map((s, idx) => (
@@ -991,7 +1006,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                         className="flex items-center justify-between py-1 px-2.5 rounded-lg bg-white border border-[#cfc2d2]/30 text-xs"
                       >
                         <span className="font-semibold text-[#1a1a26]">
-                          {idx === 0 ? '• Principal: ' : '• Adicional: '}
+                          {idx === 0 ? pt.principalItemPrefix : pt.additionalItemPrefix}
                           {s.name}
                         </span>
                         <div className="flex items-center gap-2">
@@ -1003,7 +1018,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                               type="button"
                               onClick={() => handleToggleAdditionalService(s.id)}
                               className="text-rose-500 hover:text-rose-700 cursor-pointer text-xs"
-                              title="Quitar servicio adicional"
+                              title={pt.removeExtraServiceTitle}
                             >
                               <span className="material-symbols-outlined text-sm">cancel</span>
                             </button>
@@ -1020,9 +1035,9 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-bold text-[#4c4451]">
-                  Importe Total ({currency})
+                  {pt.totalAmountLabel} ({currency})
                 </label>
-                <span className="text-[11px] text-[#7e7482]">Editable si aplicas descuentos</span>
+                <span className="text-[11px] text-[#7e7482]">{pt.editableDiscountHint}</span>
               </div>
               <div className="relative">
                 <PriceInput
@@ -1040,12 +1055,16 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             {/* 4. Comportamiento en Sesión */}
             <div>
               <label className="text-xs font-bold text-[#4c4451] block mb-1.5">
-                Comportamiento en esta Sesión
+                {pt.sessionMood}
               </label>
               <div className="grid grid-cols-3 gap-2">
                 {(['tranquilo', 'inquieto', 'dificil'] as const).map((m) => {
                   const icons = { tranquilo: '🟢', inquieto: '🟡', dificil: '🔴' };
-                  const labels = { tranquilo: 'Tranquilo', inquieto: 'Inquieto', dificil: 'Difícil' };
+                  const labels = {
+                    tranquilo: t.statuses.moodCalm,
+                    inquieto: t.statuses.moodRestless,
+                    dificil: t.statuses.moodDifficult
+                  };
                   const isSelected = sessionMood === m;
                   return (
                     <button
@@ -1073,13 +1092,14 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             {/* 5. Notas Generales */}
             <div>
               <label className="text-xs font-bold text-[#4c4451] block mb-1">
-                Notas y Observaciones de la Sesión
+                {pt.sessionNotesFullLabel}
               </label>
               <textarea
                 rows={2}
                 value={sessionNotes}
                 onChange={(e) => setSessionNotes(e.target.value)}
-                placeholder="Escribe observaciones sobre el manto, nudos, corte o detalles del estilista..."
+                onBlur={handleSessionNotesBlur}
+                placeholder={pt.sessionNotesPlaceholder}
                 className="w-full bg-[#f5f2ff] text-[#1a1a26] text-xs p-3 rounded-xl outline-none resize-none border border-[#cfc2d2]/20"
               />
             </div>
@@ -1089,15 +1109,16 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               <div className="flex items-center justify-between mb-1">
                 <label className="text-xs font-bold text-[#2e004e] flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-sm text-[#7a5900]">tips_and_updates</span>
-                  <span>Recomendaciones de cuidado para el tutor</span>
+                  <span>{pt.careRecommendationsLabel}</span>
                 </label>
-                <span className="text-[11px] text-[#7e7482]">Se incluirán en la ficha PDF y WhatsApp</span>
+                <span className="text-[11px] text-[#7e7482]">{mt.visibleInPdfAndWa}</span>
               </div>
               <textarea
                 rows={2}
                 value={careRecommendations}
                 onChange={(e) => setCareRecommendations(e.target.value)}
-                placeholder="Escribe recomendaciones personalizadas para el tutor (ej: cepillar manto 2 veces por semana, secar bien almohadillas tras paseo, usar champú hidratante)..."
+                onBlur={handleCareRecommendationsBlur}
+                placeholder={pt.careRecommendationsPlaceholder}
                 className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs p-3 rounded-xl outline-none resize-none border border-[#cfc2d2]/40 focus:border-[#4b0878]"
               />
             </div>
@@ -1106,16 +1127,16 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
             <div className="space-y-2 pt-1">
               <label className="text-xs font-bold text-[#4c4451] flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-[#2e004e] text-base">photo_camera</span>
-                <span>Fotos del servicio (Antes y Después)</span>
+                <span>{pt.servicePhotos}</span>
               </label>
 
               <div className="grid grid-cols-2 gap-3">
                 {/* Foto Antes */}
                 <div className="bg-[#f5f2ff] rounded-2xl p-2.5 flex flex-col gap-2 border border-[#cfc2d2]/30">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#1a1a26]">Foto Antes</span>
+                    <span className="text-xs font-bold text-[#1a1a26]">{pt.beforePhoto}</span>
                     <span className="text-[10px] text-[#7e7482]">
-                      {beforePhoto ? 'Cargada' : 'Pendiente'}
+                      {beforePhoto ? pt.loadedStatus : pt.pendingStatus}
                     </span>
                   </div>
 
@@ -1124,11 +1145,11 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                     className="aspect-video rounded-xl bg-[#efecfd] overflow-hidden flex flex-col items-center justify-center border border-dashed border-[#cfc2d2] cursor-pointer hover:bg-[#e3e0f1]/50 transition-all relative"
                   >
                     {beforePhoto ? (
-                      <img src={beforePhoto} alt="Antes" className="w-full h-full object-cover" />
+                      <img src={beforePhoto} alt={mt.beforeTag} className="w-full h-full object-cover" />
                     ) : (
                       <div className="text-center p-2">
                         <span className="material-symbols-outlined text-2xl text-[#7e7482]">pets</span>
-                        <span className="block text-[10px] text-[#7e7482] mt-0.5">Toca para subir</span>
+                        <span className="block text-[10px] text-[#7e7482] mt-0.5">{pt.tapToUpload}</span>
                       </div>
                     )}
                   </div>
@@ -1139,15 +1160,15 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                     className="w-full py-1.5 rounded-xl bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
                   >
                     <span className="material-symbols-outlined text-xs">add_a_photo</span>
-                    <span>{beforePhoto ? 'Cambiar foto' : 'Subir antes'}</span>
+                    <span>{beforePhoto ? ct.changePhoto : pt.uploadBeforeBtn}</span>
                   </button>
                 </div>
 
                 {/* Foto Después */}
                 <div className="bg-[#f5f2ff] rounded-2xl p-2.5 flex flex-col gap-2 border border-[#cfc2d2]/30">
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-[#2e004e]">Foto Después</span>
-                    <span className="text-[10px] text-[#7a5900] font-bold">Final</span>
+                    <span className="text-xs font-bold text-[#2e004e]">{pt.afterPhoto}</span>
+                    <span className="text-[10px] text-[#7a5900] font-bold">{pt.finalStatus}</span>
                   </div>
 
                   <div
@@ -1155,11 +1176,11 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                     className="aspect-video rounded-xl bg-[#f9b900]/10 overflow-hidden flex flex-col items-center justify-center border border-dashed border-[#f9b900]/40 cursor-pointer hover:bg-[#f9b900]/20 transition-all relative"
                   >
                     {afterPhoto ? (
-                      <img src={afterPhoto} alt="Después" className="w-full h-full object-cover" />
+                      <img src={afterPhoto} alt={mt.afterTag} className="w-full h-full object-cover" />
                     ) : (
                       <div className="text-center p-2">
                         <span className="material-symbols-outlined text-2xl text-[#7a5900]">auto_awesome</span>
-                        <span className="block text-[10px] text-[#7a5900] mt-0.5">Toca para subir</span>
+                        <span className="block text-[10px] text-[#7a5900] mt-0.5">{pt.tapToUpload}</span>
                       </div>
                     )}
                   </div>
@@ -1170,7 +1191,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                     className="w-full py-1.5 rounded-xl bg-[#f9b900] text-[#261900] text-xs font-bold flex items-center justify-center gap-1 shadow-xs cursor-pointer active:scale-95 transition-all"
                   >
                     <span className="material-symbols-outlined text-xs">add_a_photo</span>
-                    <span>{afterPhoto ? 'Cambiar foto' : 'Subir después'}</span>
+                    <span>{afterPhoto ? ct.changePhoto : pt.uploadAfterBtn}</span>
                   </button>
                 </div>
               </div>
@@ -1183,12 +1204,12 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                   auto_schedule
                 </span>
                 <h4 className="text-sm text-[#1a1a26] font-bold">
-                  ¿Cuándo debería volver {pet.name}?
+                  {formatTemplate(pt.whenShouldReturnPet, { petName: pet.name })}
                 </h4>
               </div>
 
               <p className="text-xs text-[#4c4451] -mt-1 leading-relaxed">
-                Recomendación periódica para el cuidado óptimo del manto. Esta recomendación alimentará automáticamente el módulo &quot;Por volver&quot;.
+                {pt.returnAdviceNote}
               </p>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -1203,7 +1224,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                         : 'bg-white text-[#4c4451] hover:bg-[#e9e6f7] border border-[#cfc2d2]/30'
                     }`}
                   >
-                    {w} semanas
+                    {w} {ct.weeks}
                   </button>
                 ))}
 
@@ -1216,13 +1237,13 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                       : 'bg-white text-[#4c4451] hover:bg-[#e9e6f7] border border-[#cfc2d2]/30'
                   }`}
                 >
-                  Personalizado
+                  {pt.customWeeks}
                 </button>
               </div>
 
               {selectedInterval === 'custom' && (
                 <div className="flex items-center gap-2 bg-white p-2 rounded-xl border border-[#cfc2d2]/40">
-                  <span className="text-xs text-[#4c4451]">Cada</span>
+                  <span className="text-xs text-[#4c4451]">{pt.everyWord}</span>
                   <input
                     type="number"
                     min="1"
@@ -1231,7 +1252,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                     onChange={(e) => setCustomWeeks(e.target.value)}
                     className="w-16 bg-[#f5f2ff] text-center font-bold text-xs p-1.5 rounded-lg border border-[#cfc2d2]"
                   />
-                  <span className="text-xs text-[#4c4451]">semanas</span>
+                  <span className="text-xs text-[#4c4451]">{ct.weeks}</span>
                 </div>
               )}
 
@@ -1248,7 +1269,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 className="w-full mt-0.5 py-2.5 px-4 rounded-xl bg-[#4b0878] text-white text-xs font-bold shadow-sm hover:bg-[#2e004e] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer"
               >
                 <span className="material-symbols-outlined text-base">notifications_active</span>
-                <span>Guardar Recomendación de Retorno</span>
+                <span>{pt.saveReturnRecommendationBtn}</span>
               </button>
             </div>
 
@@ -1257,7 +1278,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               <div className="flex items-center justify-between">
                 <span className="text-xs font-bold text-[#1a1a26] flex items-center gap-1.5">
                   <span className="material-symbols-outlined text-base text-[#7a5900]">loyalty</span>
-                  <span>Entrega de Mascota al Tutor</span>
+                  <span>{pt.deliverySection}</span>
                 </span>
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#ffdea1] text-[#261900] font-bold">
                   PDF & WhatsApp
@@ -1265,21 +1286,20 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               </div>
 
               <p className="text-xs text-[#4c4451] leading-snug">
-                Genera la ficha técnica final en PDF y prepara el reporte para enviar directamente a{' '}
-                <strong>{pet.tutor.name}</strong>.
+                {formatTemplate(pt.deliveryNoticeDesc, { tutorName: pet.tutor.name })}
               </p>
 
               {/* Delivery info preview badge */}
               <div className="bg-white/80 rounded-xl p-2.5 text-xs border border-[#cfc2d2]/30 space-y-1 text-[#1a1a26]">
                 <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-[#7e7482]">Fecha de entrega:</span>
+                  <span className="text-[#7e7482]">{pt.deliveryDateLabel}:</span>
                   <span className="font-bold text-[#2e004e]">
-                    {formatDeliveryDate(pet.deliveryDate || pet.lastVisit?.deliveryDate) || 'Hoy'}
+                    {formatDeliveryDate(pet.deliveryDate || pet.lastVisit?.deliveryDate, lang) || ct.today}
                   </span>
                 </div>
                 {(pet.deliveryTime || pet.lastVisit?.deliveryTime) && (
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-[#7e7482]">Hora de entrega:</span>
+                    <span className="text-[#7e7482]">{pt.deliveryTimeLabel}:</span>
                     <span className="font-bold text-[#2e004e]">
                       {pet.deliveryTime || pet.lastVisit?.deliveryTime}
                     </span>
@@ -1287,7 +1307,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 )}
                 {(pet.serviceResponsible || pet.lastVisit?.serviceResponsible) && (
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-[#7e7482]">A cargo del servicio:</span>
+                    <span className="text-[#7e7482]">{pt.serviceInChargeShortLabel}</span>
                     <span className="font-bold text-[#2e004e]">
                       {pet.serviceResponsible || pet.lastVisit?.serviceResponsible}
                     </span>
@@ -1295,7 +1315,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                 )}
                 {salonConfig?.phone && (
                   <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-[#7e7482]">Tel. negocio:</span>
+                    <span className="text-[#7e7482]">{pt.businessPhoneShortLabel}</span>
                     <span className="font-bold text-[#4b0878]">
                       {salonConfig.phonePrefix ? salonConfig.phonePrefix + ' ' : ''}{salonConfig.phone}
                     </span>
@@ -1310,12 +1330,12 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                   onClick={handleDirectDownloadPdf}
                   disabled={isDownloadingPdfDirect}
                   className="w-full py-2.5 px-3 rounded-xl bg-[#4b0878] hover:bg-[#2e004e] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all cursor-pointer disabled:opacity-50"
-                  title="Descargar documento PDF con logotipo, fotos y detalles del servicio"
+                  title={pt.downloadPdfBtnLabel}
                 >
                   <span className={`material-symbols-outlined text-base ${isDownloadingPdfDirect ? 'animate-spin' : ''}`}>
                     {isDownloadingPdfDirect ? 'progress_activity' : 'picture_as_pdf'}
                   </span>
-                  <span>{isDownloadingPdfDirect ? 'Generando...' : 'Descargar ficha en PDF'}</span>
+                  <span>{isDownloadingPdfDirect ? pt.generatingPdf : pt.downloadPdfBtnLabel}</span>
                 </button>
 
                 {/* Acción: Generar reporte y enviar por WhatsApp (Requirement #6) */}
@@ -1325,7 +1345,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
                   className="w-full py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs active:scale-95 transition-all cursor-pointer"
                 >
                   <span className="material-symbols-outlined text-base">chat</span>
-                  <span>Generar reporte y enviar por WhatsApp</span>
+                  <span>{pt.generateReportWaBtn}</span>
                 </button>
               </div>
             </div>
@@ -1340,7 +1360,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
               <span className={`material-symbols-outlined font-bold ${isSavingVisit ? 'animate-spin' : ''}`}>
                 {isSavingVisit ? 'progress_activity' : 'check_circle'}
               </span>
-              <span>{isSavingVisit ? 'Guardando Visita...' : 'Guardar Visita'}</span>
+              <span>{isSavingVisit ? pt.savingVisit : pt.saveVisit}</span>
             </button>
           </div>
         </div>
@@ -1357,7 +1377,7 @@ export const PetProfileView: React.FC<PetProfileViewProps> = ({
         visit={{
           id: pet.lastVisit?.id || 'temp',
           date: formatDateSpanish(new Date()),
-          serviceName: allSelectedServices.map((s) => s.name).join(' + ') || primaryService?.name || 'Baño + corte',
+          serviceName: allSelectedServices.map((s) => s.name).join(' + ') || primaryService?.name || pt.defaultServiceFallback,
           services: allSelectedServices.map((s) => ({ id: s.id, name: s.name, price: s.price })),
           price: Number(customPrice) || 0,
           currency,

@@ -4,6 +4,13 @@ import { fetchBusinessProfileWithStatus, submitPublicReview, ReviewBusinessSumma
 import { getSyncActiveData } from '../utils/saasDb';
 import { extractSlugOnly, slugify } from '../utils/slugUtils';
 import { HOTLINK_IMAGES } from '../mockData';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import {
+  resolveAppLanguage,
+  getTranslations,
+  getLocaleForLanguage,
+  formatTemplate
+} from '../utils/i18n/helpers';
 
 interface PublicReviewPageProps {
   businessIdOrSlug: string;
@@ -14,6 +21,8 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
   businessIdOrSlug,
   onReviewSubmitted
 }) => {
+  const { lang } = useTranslation();
+
   const [config, setConfig] = useState<SalonConfig | null>(null);
   const [businessId, setBusinessId] = useState<string>(businessIdOrSlug);
   const [firestoreDocId, setFirestoreDocId] = useState<string | undefined>(undefined);
@@ -35,6 +44,16 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
   const submittingRef = useRef<boolean>(false);
   const draftReviewIdRef = useRef<{ signature: string; id: string; createdAt: string } | null>(null);
 
+  const pageLang = resolveAppLanguage(config?.language, lang);
+  const rt = getTranslations(pageLang).publicReview;
+  const ct = getTranslations(pageLang).common;
+
+  useEffect(() => {
+    if (config?.name) {
+      document.title = `${config.name} | ${rt.heroTitle}`;
+    }
+  }, [config?.name, rt.heroTitle]);
+
   useEffect(() => {
     let isMounted = true;
     setIsLoading(true);
@@ -44,23 +63,27 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
     setBusinessSummary(undefined);
 
     let hasEagerMatch = false;
+    let resolvedFallbackLang = lang;
     if (typeof window !== 'undefined') {
       try {
         const raw = businessIdOrSlug.trim();
         const clean = extractSlugOnly(raw) || raw.toLowerCase();
         const syncData = getSyncActiveData();
         const activeSlug = syncData?.config?.bookingSlug ? extractSlugOnly(syncData.config.bookingSlug) : '';
+        const activeReviewSlug = syncData?.config?.reviewSlug ? extractSlugOnly(syncData.config.reviewSlug) : '';
         const activeNameSlug = syncData?.config?.name ? slugify(syncData.config.name) : '';
         const syncBizId = (syncData?.businessId || syncData?.config?.id || '').trim();
         const isSessionMatch =
           Boolean(syncData?.config && syncBizId) &&
           (syncBizId === raw ||
             syncBizId.toLowerCase() === clean ||
+            (Boolean(activeReviewSlug) && activeReviewSlug === clean) ||
             (Boolean(activeSlug) && activeSlug === clean) ||
             (Boolean(activeNameSlug) && activeNameSlug === clean));
 
         if (isSessionMatch && syncData?.config) {
           hasEagerMatch = true;
+          resolvedFallbackLang = resolveAppLanguage(syncData.config.language, lang);
           setConfig(syncData.config);
           setBusinessId(syncBizId);
           setFirestoreDocId(syncBizId);
@@ -68,6 +91,8 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
             businessId: syncBizId,
             name: syncData.config.name,
             bookingSlug: syncData.config.bookingSlug,
+            reviewSlug: syncData.config.reviewSlug,
+            language: syncData.config.language,
             country: syncData.config.country,
             city: syncData.config.city,
             address: syncData.config.address,
@@ -91,6 +116,8 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
             businessId: res.businessId,
             name: res.config.name,
             bookingSlug: res.config.bookingSlug,
+            reviewSlug: res.config.reviewSlug,
+            language: res.config.language,
             country: res.config.country,
             city: res.config.city,
             address: res.config.address,
@@ -100,14 +127,13 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
           setLoadError(null);
           setLoadErrorKind(null);
         } else if (!hasEagerMatch) {
+          const errT = getTranslations(resolvedFallbackLang).publicReview;
           if (outcome.reason === 'quota_exceeded') {
             setLoadErrorKind('quota_exceeded');
-            setLoadError(
-              'Se alcanzó temporalmente el límite diario gratuito de consultas en la base de datos. Intenta nuevamente más tarde o verifica tu plan en Firebase.'
-            );
+            setLoadError(errT.errConnectionFailed);
           } else {
             setLoadErrorKind('not_found');
-            setLoadError('No pudimos encontrar este negocio. Por favor verifica el enlace.');
+            setLoadError(errT.businessNotFoundDesc);
           }
         }
       })
@@ -116,7 +142,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
         console.error('Error loading business for rating:', err);
         if (!hasEagerMatch) {
           setLoadErrorKind('not_found');
-          setLoadError('Hubo un error al cargar la información del negocio.');
+          setLoadError(getTranslations(resolvedFallbackLang).publicReview.errConnectionFailed);
         }
       })
       .finally(() => {
@@ -126,7 +152,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
     return () => {
       isMounted = false;
     };
-  }, [businessIdOrSlug]);
+  }, [businessIdOrSlug, lang]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,23 +165,18 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
     const trimmedName = clientName.trim();
     const trimmedComment = comment.trim();
 
-    if (!trimmedName) {
-      setSubmitError('Por favor escribe tu nombre para enviar la calificación.');
-      return;
-    }
-
-    if (trimmedName.length > 120) {
-      setSubmitError('El nombre no puede superar los 120 caracteres.');
+    if (!trimmedName || trimmedName.length > 120) {
+      setSubmitError(rt.errMissingName);
       return;
     }
 
     if (trimmedComment.length > 2000) {
-      setSubmitError('El comentario no puede superar los 2000 caracteres.');
+      setSubmitError(rt.errSaveFailed);
       return;
     }
 
     if (!Number.isFinite(stars) || stars < 1 || stars > 5) {
-      setSubmitError('Por favor selecciona una puntuación de 1 a 5 estrellas.');
+      setSubmitError(rt.errMissingStars);
       return;
     }
 
@@ -179,7 +200,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
         clientName: trimmedName,
         stars,
         comment: trimmedComment,
-        date: new Date().toLocaleDateString('es-ES', {
+        date: new Date().toLocaleDateString(getLocaleForLanguage(pageLang), {
           day: 'numeric',
           month: 'long',
           year: 'numeric'
@@ -190,7 +211,8 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
 
       const result = await submitPublicReview(targetBizId, reviewPayload, {
         firestoreDocId,
-        businessSummary
+        businessSummary,
+        language: pageLang
       });
 
       if (result.success && result.review) {
@@ -199,13 +221,11 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
           onReviewSubmitted(result.review);
         }
       } else {
-        setSubmitError(
-          result.error || 'Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.'
-        );
+        setSubmitError(result.error || rt.errSaveFailed);
       }
     } catch (err) {
       console.error('Review submit error:', err);
-      setSubmitError('Ocurrió un error al guardar tu calificación. Por favor intenta nuevamente.');
+      setSubmitError(rt.errConnectionFailed);
     } finally {
       submittingRef.current = false;
       setIsSubmitting(false);
@@ -216,7 +236,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
     return (
       <div className="min-h-screen bg-[#fcf8ff] flex flex-col items-center justify-center p-4">
         <div className="w-12 h-12 border-4 border-[#2e004e] border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-sm font-bold text-[#2e004e]">Cargando información del negocio...</p>
+        <p className="text-sm font-bold text-[#2e004e]">{ct.loading}</p>
       </div>
     );
   }
@@ -230,10 +250,8 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
               {loadErrorKind === 'quota_exceeded' ? 'cloud_off' : 'storefront'}
             </span>
           </div>
-          <h1 className="text-xl font-black text-[#1a1a26]">
-            {loadErrorKind === 'quota_exceeded' ? 'Consultas temporales agotadas' : 'Negocio no encontrado'}
-          </h1>
-          <p className="text-xs text-[#7e7482]">{loadError || 'Este enlace no es válido.'}</p>
+          <h1 className="text-xl font-black text-[#1a1a26]">{rt.businessNotFoundTitle}</h1>
+          <p className="text-xs text-[#7e7482]">{loadError || rt.businessNotFoundDesc}</p>
         </div>
       </div>
     );
@@ -263,7 +281,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
             <p className="text-xs text-[#e3e0f1] flex items-center justify-center gap-1">
               <span className="material-symbols-outlined text-xs text-[#f9b900]">location_on</span>
               <span>
-                {[config.city?.trim(), config.country?.trim()].filter(Boolean).join(', ')}
+                {[config.city?.trim(), config.country?.trim()].filter(Boolean).join(', ') || config.address}
               </span>
             </p>
           )}
@@ -279,9 +297,9 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
               </div>
 
               <div className="space-y-1">
-                <h2 className="text-2xl font-black text-[#1a1a26]">¡Gracias por tu opinión!</h2>
+                <h2 className="text-2xl font-black text-[#1a1a26]">{rt.successTitle}</h2>
                 <p className="text-xs sm:text-sm text-[#4c4451] max-w-sm mx-auto leading-relaxed">
-                  Tu calificación se ha registrado correctamente. Gracias por ayudarnos a mejorar y ofrecer un mejor servicio.
+                  {rt.successSubtitle} {rt.successThanks}
                 </p>
               </div>
 
@@ -304,10 +322,10 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
             <form onSubmit={handleSubmit} className="space-y-5">
               <div className="text-center space-y-1.5 pb-2">
                 <h2 className="text-xl sm:text-2xl font-black text-[#2e004e] flex items-center justify-center gap-1.5">
-                  <span>¡Tu opinión nos importa!</span>
+                  <span>{rt.heroTitle}</span>
                 </h2>
                 <p className="text-xs sm:text-sm text-[#7e7482] leading-relaxed max-w-md mx-auto">
-                  Cuéntanos cómo fue tu experiencia con nuestro negocio. Tu opinión nos ayuda a mejorar y a ofrecer un mejor servicio a nuestros clientes.
+                  {rt.heroSubtitle}
                 </p>
               </div>
 
@@ -321,14 +339,14 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
               {/* Nombre Field */}
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold text-[#1a1a26]">
-                  Escribe tu nombre <span className="text-red-500">*</span>
+                  {rt.clientNameLabel}
                 </label>
                 <input
                   type="text"
                   required
                   value={clientName}
                   onChange={(e) => setClientName(e.target.value)}
-                  placeholder="Tu nombre completo"
+                  placeholder={rt.clientNamePlaceholder}
                   className="w-full bg-[#fcf8ff] border border-[#cfc2d2]/60 focus:border-[#4b0878] rounded-2xl px-4 py-3 text-xs sm:text-sm text-[#1a1a26] outline-none focus:ring-2 focus:ring-[#4b0878]/30 transition-all font-sans"
                 />
               </div>
@@ -336,7 +354,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
               {/* Star Rating Selector */}
               <div className="space-y-2 text-center bg-[#fcf8ff] rounded-2xl p-4 border border-[#cfc2d2]/40">
                 <label className="block text-xs font-bold text-[#1a1a26]">
-                  ¿Cómo calificarías tu experiencia? <span className="text-red-500">*</span>
+                  {rt.ratingPrompt}
                 </label>
 
                 <div className="flex items-center justify-center gap-2 sm:gap-3 py-1">
@@ -350,7 +368,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
                         onMouseEnter={() => setHoveredStar(starVal)}
                         onMouseLeave={() => setHoveredStar(null)}
                         className="text-3xl sm:text-4xl transition-transform active:scale-90 cursor-pointer focus:outline-none p-1"
-                        title={`${starVal} de 5 estrellas`}
+                        title={formatTemplate(getTranslations(pageLang).publicBooking.ratingOf5, { avg: starVal })}
                       >
                         <span
                           className={`transition-colors ${
@@ -365,11 +383,11 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
                 </div>
 
                 <div className="text-xs font-bold text-[#2e004e]">
-                  {stars === 5 && '★★★★★ Excelente (5/5)'}
-                  {stars === 4 && '★★★★☆ Muy buena (4/5)'}
-                  {stars === 3 && '★★★☆☆ Buena (3/5)'}
-                  {stars === 2 && '★★☆☆☆ Regular (2/5)'}
-                  {stars === 1 && '★☆☆☆☆ A mejorar (1/5)'}
+                  {stars === 5 && `★★★★★ ${rt.rating5}`}
+                  {stars === 4 && `★★★★☆ ${rt.rating4}`}
+                  {stars === 3 && `★★★☆☆ ${rt.rating3}`}
+                  {stars === 2 && `★★☆☆☆ ${rt.rating2}`}
+                  {stars === 1 && `★☆☆☆☆ ${rt.rating1}`}
                 </div>
               </div>
 
@@ -377,15 +395,15 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-[#1a1a26]">
-                    Cuéntanos cómo fue tu experiencia
+                    {rt.commentLabel}
                   </label>
-                  <span className="text-[11px] text-[#7e7482]">Opcional</span>
+                  <span className="text-[11px] text-[#7e7482]">{ct.optional}</span>
                 </div>
                 <textarea
                   rows={4}
                   value={comment}
                   onChange={(e) => setComment(e.target.value)}
-                  placeholder="Escribe tu opinión o sugerencia sobre nuestro servicio..."
+                  placeholder={rt.commentPlaceholder}
                   className="w-full bg-[#fcf8ff] border border-[#cfc2d2]/60 focus:border-[#4b0878] rounded-2xl p-3.5 text-xs sm:text-sm text-[#1a1a26] outline-none focus:ring-2 focus:ring-[#4b0878]/30 transition-all font-sans resize-y"
                 />
               </div>
@@ -399,7 +417,7 @@ export const PublicReviewPage: React.FC<PublicReviewPageProps> = ({
                 <span className={`material-symbols-outlined font-black ${isSubmitting ? 'animate-spin' : ''}`}>
                   {isSubmitting ? 'progress_activity' : 'send'}
                 </span>
-                <span>{isSubmitting ? 'Enviando calificación...' : 'Enviar calificación'}</span>
+                <span>{isSubmitting ? rt.submittingBtn : rt.submitBtn}</span>
               </button>
             </form>
           )}

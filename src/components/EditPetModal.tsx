@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Pet, BehaviorMood } from '../types';
+import { useTranslation } from '../utils/i18n/I18nContext';
 
 interface EditPetModalProps {
   isOpen: boolean;
@@ -14,6 +15,12 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
   pet,
   onSavePet
 }) => {
+  const { t } = useTranslation();
+  const mt = t.modals;
+  const pt = t.petProfile;
+  const ct = t.common;
+  const st = t.statuses;
+
   const [name, setName] = useState(pet.name);
   const [breed, setBreed] = useState(pet.breed);
   const [age, setAge] = useState(pet.age);
@@ -118,7 +125,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
         <div className="p-4 bg-gradient-to-r from-[#2e004e] to-[#4b0878] text-white flex items-center justify-between">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-[#f9b900]">edit_note</span>
-            <h3 className="font-bold text-base">Editar Ficha de {pet.name}</h3>
+            <h3 className="font-bold text-base">{mt.editPetTitle} — {pet.name}</h3>
           </div>
           <button
             onClick={onClose}
@@ -132,7 +139,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
         <form onSubmit={handleSubmit} className="p-4 overflow-y-auto space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-bold text-[#4c4451] mb-1">Nombre</label>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">{ct.pet}</label>
               <input
                 type="text"
                 value={name}
@@ -142,7 +149,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4c4451] mb-1">Raza</label>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">{t.settings.csvColBreed}</label>
               <input
                 type="text"
                 value={breed}
@@ -155,40 +162,40 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
 
           <div className="grid grid-cols-3 gap-3">
             <div>
-              <label className="block text-xs font-bold text-[#4c4451] mb-1">Edad</label>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">{pt.ageLabel}</label>
               <input
                 type="text"
                 value={age}
                 onChange={(e) => setAge(e.target.value)}
-                placeholder="ej. 3 años"
+                placeholder={mt.agePlaceholder}
                 className="w-full bg-white text-[#1a1a26] text-sm px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
               />
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4c4451] mb-1">Tamaño</label>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">{pt.sizeLabel}</label>
               <select
                 value={size}
                 onChange={(e) => setSize(e.target.value)}
                 className="w-full bg-white text-[#1a1a26] text-sm px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
               >
-                <option value="pequeno">Pequeño</option>
-                <option value="mediano">Mediano</option>
-                <option value="grande">Grande</option>
+                <option value="pequeno">{ct.small}</option>
+                <option value="mediano">{ct.medium}</option>
+                <option value="grande">{ct.large}</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4c4451] mb-1">Sexo</label>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">{pt.genderLabel}</label>
               <select
                 value={gender}
                 onChange={(e) => setGender(e.target.value as 'Macho' | 'Hembra')}
                 className="w-full bg-white text-[#1a1a26] text-sm px-3 py-2 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
               >
-                <option value="Macho">Macho</option>
-                <option value="Hembra">Hembra</option>
+                <option value="Macho">{ct.male}</option>
+                <option value="Hembra">{ct.female}</option>
               </select>
             </div>
             <div>
-              <label className="block text-xs font-bold text-[#4c4451] mb-1">Peso (kg)</label>
+              <label className="block text-xs font-bold text-[#4c4451] mb-1">{pt.weightLabel} (kg)</label>
               <input
                 type="number"
                 step="0.5"
@@ -209,19 +216,19 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
               className="w-4 h-4 accent-[#4b0878] rounded cursor-pointer"
             />
             <label htmlFor="vipCheck" className="text-xs font-bold text-[#1a1a26] cursor-pointer flex items-center gap-1">
-              <span className="bg-[#f9b900] text-[#261900] text-[10px] font-bold px-1.5 py-0.2 rounded-full">VIP</span>
-              Cliente Preferencial / Frecuente
+              <span className="bg-[#f9b900] text-[#261900] text-[10px] font-bold px-1.5 py-0.2 rounded-full">{ct.vip}</span>
+              {mt.isVipLabel}
             </label>
           </div>
 
           {/* Tutor Info */}
           <div className="bg-white p-3 rounded-2xl border border-[#cfc2d2]/30 space-y-3">
             <h4 className="text-xs font-bold text-[#4b0878] uppercase tracking-wider">
-              Tutor Responsable
+              {pt.tutorResponsible}
             </h4>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-xs text-[#7e7482] mb-1">Nombre del Tutor</label>
+                <label className="block text-xs text-[#7e7482] mb-1">{ct.tutor}</label>
                 <input
                   type="text"
                   value={tutorName}
@@ -231,7 +238,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 />
               </div>
               <div>
-                <label className="block text-xs text-[#7e7482] mb-1">Teléfono / WhatsApp</label>
+                <label className="block text-xs text-[#7e7482] mb-1">{ct.phone} / WhatsApp</label>
                 <input
                   type="text"
                   value={tutorPhone}
@@ -246,7 +253,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
           {/* Habitual Behavior */}
           <div>
             <label className="block text-xs font-bold text-[#4c4451] uppercase tracking-wider mb-1.5">
-              Comportamiento Habitual
+              {pt.habitualMood}
             </label>
             <div className="grid grid-cols-3 gap-2">
               <button
@@ -259,7 +266,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 }`}
               >
                 <span>🟢</span>
-                <span>Tranquilo</span>
+                <span>{st.moodCalm}</span>
               </button>
               <button
                 type="button"
@@ -271,7 +278,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 }`}
               >
                 <span>🟡</span>
-                <span>Inquieto</span>
+                <span>{st.moodRestless}</span>
               </button>
               <button
                 type="button"
@@ -283,7 +290,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 }`}
               >
                 <span>🔴</span>
-                <span>Difícil</span>
+                <span>{st.moodDifficult}</span>
               </button>
             </div>
           </div>
@@ -292,14 +299,14 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
           <div>
             <label className="block text-xs font-bold text-rose-700 uppercase tracking-wider mb-1 flex items-center gap-1">
               <span className="material-symbols-outlined text-sm">medical_services</span>
-              Salud, Alergias y Piel Sensible
+              {pt.healthAllergies}
             </label>
             <textarea
               rows={2}
               value={healthAllergies}
               onChange={(e) => setHealthAllergies(e.target.value)}
               className="w-full bg-white text-[#1a1a26] text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
-              placeholder="Detalla alergias, afecciones de piel, heridas previas..."
+              placeholder={mt.healthAllergiesPlaceholder}
             />
           </div>
 
@@ -307,14 +314,14 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
           <div>
             <label className="block text-xs font-bold text-[#7a5900] uppercase tracking-wider mb-1 flex items-center gap-1">
               <span className="material-symbols-outlined text-sm">pan_tool</span>
-              Observaciones de Manejo
+              {pt.handlingNotes}
             </label>
             <textarea
               rows={2}
               value={handlingObservations}
               onChange={(e) => setHandlingObservations(e.target.value)}
               className="w-full bg-white text-[#1a1a26] text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
-              placeholder="Detalla qué le molesta, cuidados con secador, tijeras o extremidades..."
+              placeholder={mt.handlingObsPlaceholder}
             />
           </div>
 
@@ -323,16 +330,16 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
             <div className="flex items-center justify-between mb-1">
               <label className="text-xs font-bold text-[#2e004e] uppercase tracking-wider flex items-center gap-1">
                 <span className="material-symbols-outlined text-sm text-[#7a5900]">tips_and_updates</span>
-                Recomendaciones de Cuidado
+                {pt.careRecommendationsLabel}
               </label>
-              <span className="text-[10px] text-[#7e7482]">Visible en Ficha PDF y WhatsApp</span>
+              <span className="text-[10px] text-[#7e7482]">{mt.visibleInPdfAndWa}</span>
             </div>
             <textarea
               rows={2}
               value={careRecommendations}
               onChange={(e) => setCareRecommendations(e.target.value)}
               className="w-full bg-[#fcf8ff] text-[#1a1a26] text-xs p-3 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
-              placeholder="Recomendaciones personalizadas del groomer para el tutor (manto, cepillado, productos)..."
+              placeholder={mt.careRecsPlaceholder}
             />
           </div>
 
@@ -340,16 +347,16 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
           <div className="bg-white p-3.5 rounded-2xl border border-[#cfc2d2]/30 space-y-2">
             <label className="text-xs font-bold text-[#2e004e] uppercase tracking-wider flex items-center gap-1.5">
               <span className="material-symbols-outlined text-sm text-[#4b0878]">badge</span>
-              <span>Persona a cargo del servicio</span>
+              <span>{mt.serviceResponsibleLabel}</span>
             </label>
             <p className="text-[11px] text-[#7e7482]">
-              Persona que atendió a la mascota durante la sesión (propietario o estilista/trabajador).
+              {mt.responsibleHelper}
             </p>
             <input
               type="text"
               value={serviceResponsible}
               onChange={(e) => setServiceResponsible(e.target.value)}
-              placeholder="ej. Carlos Morales"
+              placeholder={mt.serviceResponsiblePlaceholder}
               className="w-full bg-[#fcf8ff] text-[#1a1a26] text-sm px-3.5 py-2.5 rounded-xl border border-[#cfc2d2]/40 outline-none focus:ring-2 focus:ring-[#4b0878]"
             />
           </div>
@@ -359,15 +366,15 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
             <div className="flex items-center justify-between">
               <h4 className="text-xs font-bold text-[#2e004e] uppercase tracking-wider flex items-center gap-1.5">
                 <span className="material-symbols-outlined text-sm text-[#7a5900]">event_available</span>
-                <span>Entrega de la Mascota</span>
+                <span>{mt.deliveryHeader}</span>
               </h4>
-              <span className="text-[10px] text-[#7e7482]">Visible en Ficha de Entrega</span>
+              <span className="text-[10px] text-[#7e7482]">{mt.visibleInDeliverySheet}</span>
             </div>
 
             {/* Fecha de entrega */}
             <div>
               <label className="block text-xs font-bold text-[#4c4451] mb-1">
-                Fecha de entrega
+                {mt.deliveryDateLabel}
               </label>
               <input
                 type="date"
@@ -381,7 +388,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <label className="text-xs font-bold text-[#4c4451]">
-                  Hora de entrega
+                  {mt.deliveryTimeLabel}
                 </label>
                 <span className="text-xs font-black text-[#2e004e] bg-[#f5f2ff] px-2.5 py-0.5 rounded-lg border border-[#cfc2d2]/40">
                   {formattedDeliveryTime}
@@ -391,7 +398,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
               {/* Selector de Hora, Minutos y AM/PM */}
               <div className="grid grid-cols-3 gap-2">
                 <div>
-                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">Hora</label>
+                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">{mt.hourLabel}</label>
                   <select
                     value={deliveryHour}
                     onChange={(e) => setDeliveryHour(e.target.value)}
@@ -404,7 +411,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">Minutos</label>
+                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">{mt.minuteLabel}</label>
                   <select
                     value={deliveryMinute}
                     onChange={(e) => setDeliveryMinute(e.target.value)}
@@ -417,7 +424,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">Período</label>
+                  <label className="text-[10px] text-[#7e7482] font-semibold block mb-0.5">{mt.periodLabel}</label>
                   <div className="grid grid-cols-2 gap-1">
                     <button
                       type="button"
@@ -447,7 +454,7 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
 
               {/* Botones rápidos de hora recomendada */}
               <div className="flex flex-wrap items-center gap-1.5 pt-2">
-                <span className="text-[10px] text-[#7e7482] font-semibold mr-1">Rápido:</span>
+                <span className="text-[10px] text-[#7e7482] font-semibold mr-1">{mt.deliveryQuickLabel}</span>
                 {['9:00 AM', '9:15 AM', '3:00 PM', '4:30 PM', '7:00 PM'].map((preset) => (
                   <button
                     key={preset}
@@ -479,14 +486,14 @@ export const EditPetModal: React.FC<EditPetModalProps> = ({
               onClick={onClose}
               className="flex-1 py-3 px-4 rounded-xl border border-[#cfc2d2] text-[#4c4451] font-semibold text-sm hover:bg-[#f5f2ff]"
             >
-              Cancelar
+              {ct.cancel}
             </button>
             <button
               type="submit"
               className="flex-1 py-3 px-4 rounded-xl bg-[#4b0878] text-white font-bold text-sm shadow-md hover:bg-[#2e004e] active:scale-98 transition-all flex items-center justify-center gap-1.5"
             >
               <span className="material-symbols-outlined text-lg">save</span>
-              Guardar Cambios
+              {mt.savePetChanges}
             </button>
           </div>
         </form>

@@ -2,6 +2,8 @@ import React, { useState, useMemo } from 'react';
 import { SalonConfig } from '../types';
 import { slugify, extractSlugOnly, generateStableBusinessId, buildPublicBookingUrl } from '../utils/slugUtils';
 import { HOTLINK_IMAGES } from '../mockData';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { formatTemplate } from '../utils/i18n/helpers';
 
 interface ShareLinkModalProps {
   isOpen: boolean;
@@ -22,6 +24,10 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
   salonConfig,
   onOpenClientPortal
 }) => {
+  const { t } = useTranslation();
+  const st = t.settings;
+  const ct = t.common;
+
   const [copiedType, setCopiedType] = useState<'link' | 'bio' | null>(null);
 
   const realBookingUrl = useMemo(() => {
@@ -33,7 +39,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
     return buildPublicBookingUrl(origin, bId, slug, salonConfig);
   }, [businessId, bookingSlug, salonName, salonConfig]);
 
-  const socialBioText = `🐶✨ ¡Haz tu cita online acá! Reserva el turno de tu mascota en ${salonName} en menos de 2 minutos:\n👉 ${realBookingUrl}`;
+  const socialBioText = formatTemplate(st.socialBioInvite, { salonName, url: realBookingUrl });
 
   if (!isOpen) return null;
 
@@ -64,8 +70,8 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
               <span className="material-symbols-outlined text-lg">share</span>
             </div>
             <div>
-              <h3 className="font-extrabold text-base leading-tight">Enlace Público de Reservas</h3>
-              <p className="text-[11px] text-[#f2daff]">Para compartir en redes sociales y bio de WhatsApp</p>
+              <h3 className="font-extrabold text-base leading-tight">{st.shareModalTitle}</h3>
+              <p className="text-[11px] text-[#f2daff]">{st.shareModalSubtitle}</p>
             </div>
           </div>
           <button
@@ -94,19 +100,19 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
               </div>
               <div>
                 <h4 className="font-bold text-sm text-[#1a1a26]">{salonName}</h4>
-                <p className="text-xs text-[#7e7482]">Portal de agendamiento 24/7 activo</p>
+                <p className="text-xs text-[#7e7482]">{st.portal247Active}</p>
               </div>
             </div>
             <span className="px-2.5 py-1 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-bold flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-              En línea
+              {st.onlineStatusPill}
             </span>
           </div>
 
           {/* Direct URL Box */}
           <div className="space-y-1.5">
             <label className="text-xs font-bold text-[#4c4451] uppercase tracking-wider block">
-              Tu enlace directo para clientes
+              {st.directLinkForClients}
             </label>
             <div className="flex items-center justify-between bg-white rounded-2xl p-2 pl-3.5 border border-[#cfc2d2]/40 shadow-xs">
               <div className="flex items-center gap-2 min-w-0 text-xs font-mono font-bold text-[#2e004e]">
@@ -121,7 +127,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
                 <span className="material-symbols-outlined text-xs font-bold">
                   {copiedType === 'link' ? 'check' : 'content_copy'}
                 </span>
-                <span>{copiedType === 'link' ? '¡Copiado!' : 'Copiar'}</span>
+                <span>{copiedType === 'link' ? ct.copied : ct.copy}</span>
               </button>
             </div>
           </div>
@@ -130,14 +136,14 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
           <div className="bg-[#f5f2ff] rounded-2xl p-3.5 border border-[#cfc2d2]/30 space-y-2">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[#2e004e] flex items-center gap-1">
-                <span>📱</span> Texto sugerido para tu perfil de Instagram / TikTok:
+                <span>📱</span> {st.bioSuggestedTitle}
               </span>
               <button
                 type="button"
                 onClick={handleCopyBioText}
                 className="text-xs text-[#4b0878] font-bold hover:underline cursor-pointer"
               >
-                {copiedType === 'bio' ? '✓ Copiado' : 'Copiar texto'}
+                {copiedType === 'bio' ? `✓ ${ct.copied}` : st.copyTextBtn}
               </button>
             </div>
             <p className="text-xs text-[#4c4451] bg-white p-2.5 rounded-xl border border-[#cfc2d2]/20 font-mono leading-relaxed whitespace-pre-line">
@@ -153,7 +159,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
               className="w-full py-3 px-4 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
             >
               <span className="material-symbols-outlined text-base">chat</span>
-              <span>Compartir directo por WhatsApp</span>
+              <span>{st.shareDirectWhatsApp}</span>
             </button>
 
             <button
@@ -162,7 +168,7 @@ export const ShareLinkModal: React.FC<ShareLinkModalProps> = ({
               className="w-full py-2.5 px-4 rounded-xl bg-white hover:bg-[#f5f2ff] text-[#2e004e] font-bold text-xs border border-[#cfc2d2]/40 flex items-center justify-center gap-2 transition-all cursor-pointer active:scale-98"
             >
               <span className="material-symbols-outlined text-base text-[#f9b900]">open_in_new</span>
-              <span>Probar flujo como cliente online</span>
+              <span>{st.testFlowAsOnlineClient}</span>
             </button>
           </div>
         </div>

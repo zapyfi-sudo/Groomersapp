@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Appointment, Pet, SalonConfig } from '../types';
-import { AppLanguage, TRANSLATIONS } from '../utils/translations';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { AppLanguage, formatTemplate, translateSizeLabel } from '../utils/i18n/helpers';
 import { formatPrice } from '../utils/priceUtils';
 import {
   normalizeAppointmentStatus,
@@ -29,7 +30,10 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
   onNavigateToAgenda,
   onCompleteAndRegisterVisit
 }) => {
-  const t = TRANSLATIONS[currentLanguage] || TRANSLATIONS['es-LA'];
+  const { t, lang } = useTranslation();
+  const ist = t.inSalonView;
+  const st = t.statuses;
+  const ct = t.common;
   const [filterState, setFilterState] = useState<'todos' | 'en_servicio' | 'por_retirar'>('todos');
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -69,7 +73,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
   // Mark pet as finished and ready for pickup
   const handleMarkReadyForPickup = async (apt: Appointment) => {
     await onUpdateAppointmentStatus(apt.id, 'por_retirar', 'LISTO PARA RETIRAR');
-    showToast(`¡${apt.petName} marcado como "Listo para retirar"!`);
+    showToast(`${apt.petName} — ${ist.readyToast}`);
   };
 
   // Notify tutor via WhatsApp that pet is ready for pickup
@@ -78,17 +82,21 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
     const phone = pet?.tutor?.rawPhone || apt.tutorPhone || pet?.tutor?.phone || '';
     const cleanPhone = phone.replace(/\D/g, '');
 
-    const msg = `¡Hola ${apt.tutorName}! 🐾 Te avisamos de *${salonConfig.name}* que *${apt.petName}* ya terminó su servicio de ${apt.serviceName} y quedó hermoso(a) ✨. Ya puedes pasar a retirarlo(a). ¡Te esperamos!`;
+    const msg = formatTemplate(ist.whatsappReadyMessage, {
+      tutorName: apt.tutorName,
+      petName: apt.petName,
+      salonName: salonConfig.name
+    });
     const url = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(msg)}`;
     window.open(url, '_blank', 'noopener,noreferrer');
-    showToast(`Abriendo WhatsApp para notificar al tutor de ${apt.petName}`);
+    showToast(`${ist.notifyReadyWhatsAppBtn} — ${apt.petName}`);
   };
 
   // Deliver pet and complete service (transitioning into Clientes / Visita registration)
   const handleDeliverPet = async (apt: Appointment) => {
     const resolvedPet = findMatchedPet(apt) || materializePetFromAppointment(apt);
     await onUpdateAppointmentStatus(apt.id, 'completado', 'COMPLETADO');
-    showToast(`¡Servicio de ${apt.petName} completado y entregado con éxito!`);
+    showToast(`${apt.petName} — ${ist.deliveredToast}`);
 
     if (onCompleteAndRegisterVisit) {
       onCompleteAndRegisterVisit(apt, resolvedPet);
@@ -113,13 +121,13 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
           <div className="space-y-1">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/10 text-xs font-bold backdrop-blur-xs text-[#f9b900]">
               <span className="w-2 h-2 rounded-full bg-[#f9b900] animate-pulse"></span>
-              <span>OPERACIONES EN TIEMPO REAL</span>
+              <span className="uppercase">{ist.activeInSalon}</span>
             </div>
             <h2 className="text-xl sm:text-2xl font-black text-white tracking-tight">
-              Mascotas en Salón
+              {ist.title}
             </h2>
             <p className="text-xs text-[#e3e0f1] max-w-lg">
-              Visualiza y gestiona las mascotas que se encuentran en el establecimiento recibiendo servicio o esperando ser retiradas.
+              {ist.subtitle}
             </p>
           </div>
 
@@ -127,12 +135,12 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
           <div className="flex items-center gap-2.5">
             <div className="bg-[#3e066a] border border-white/10 rounded-2xl px-4 py-2.5 text-center shrink-0">
               <div className="text-2xl font-black text-[#f9b900]">{inServiceAppointments.length}</div>
-              <div className="text-[10px] font-bold text-white/80 uppercase tracking-wider">En servicio</div>
+              <div className="text-[10px] font-bold text-white/80 uppercase tracking-wider">{ist.inProcessCount}</div>
             </div>
 
             <div className="bg-[#3e066a] border border-white/10 rounded-2xl px-4 py-2.5 text-center shrink-0">
               <div className="text-2xl font-black text-emerald-400">{readyForPickupAppointments.length}</div>
-              <div className="text-[10px] font-bold text-white/80 uppercase tracking-wider">Por retirar</div>
+              <div className="text-[10px] font-bold text-white/80 uppercase tracking-wider">{ist.readyPickupCount}</div>
             </div>
           </div>
         </div>
@@ -150,7 +158,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                 : 'bg-[#e9e6f7] text-[#4c4451] hover:bg-[#e3e0f1]'
             }`}
           >
-            <span className="truncate sm:whitespace-normal">Todos en salón</span>
+            <span className="truncate sm:whitespace-normal">{ist.filterAll}</span>
             <span
               className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
                 filterState === 'todos' ? 'bg-[#f9b900] text-[#261900]' : 'bg-white/60 text-[#4c4451]'
@@ -170,7 +178,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-[#f9b900] shrink-0"></span>
-            <span className="truncate sm:whitespace-normal">En servicio</span>
+            <span className="truncate sm:whitespace-normal">{ist.filterInProcess}</span>
             <span
               className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
                 filterState === 'en_servicio' ? 'bg-white/20 text-white' : 'bg-white/60 text-[#4c4451]'
@@ -190,7 +198,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
             }`}
           >
             <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0"></span>
-            <span className="truncate sm:whitespace-normal">Por retirar</span>
+            <span className="truncate sm:whitespace-normal">{ist.filterReadyPickup}</span>
             <span
               className={`px-1.5 py-0.5 rounded-full text-[10px] font-extrabold shrink-0 ${
                 filterState === 'por_retirar' ? 'bg-white/20 text-white' : 'bg-white/60 text-[#4c4451]'
@@ -207,7 +215,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
           className="text-xs font-bold text-[#4b0878] hover:underline flex items-center gap-1 self-end sm:self-center shrink-0 cursor-pointer py-1"
         >
           <span className="material-symbols-outlined text-sm">calendar_month</span>
-          <span>Ver Agenda</span>
+          <span>{ist.goToAgenda}</span>
         </button>
       </div>
 
@@ -218,15 +226,10 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
             <span className="material-symbols-outlined text-3xl">storefront</span>
           </div>
           <h3 className="text-base font-bold text-[#1a1a26]">
-            {filterState === 'todos'
-              ? 'No hay mascotas en el salón en este momento'
-              : filterState === 'en_servicio'
-              ? 'No hay mascotas en servicio actualmente'
-              : 'No hay mascotas pendientes por retirar'}
+            {ist.emptyTitle}
           </h3>
           <p className="text-xs text-[#7e7482] max-w-md mx-auto leading-relaxed">
-            Cuando recibas a una mascota con cita confirmada en la <strong>Agenda</strong> y pulses{' '}
-            <strong className="text-[#2e004e]">«Comenzar servicio»</strong>, aparecerá automáticamente aquí para gestionar su atención paso a paso.
+            {ist.emptyDesc}
           </p>
           <div className="pt-2">
             <button
@@ -235,7 +238,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
               className="py-2.5 px-5 bg-[#2e004e] hover:bg-[#4b0878] text-[#f9b900] text-xs font-bold rounded-xl shadow-xs inline-flex items-center gap-2 transition-all cursor-pointer"
             >
               <span className="material-symbols-outlined text-sm">calendar_month</span>
-              <span>Ir a la Agenda de hoy</span>
+              <span>{ist.goToAgenda}</span>
             </button>
           </div>
         </div>
@@ -266,7 +269,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                       <div
                         onClick={() => pet && onSelectPetForProfile(pet.id)}
                         className="w-16 h-16 rounded-2xl overflow-hidden bg-[#f5f2ff] shrink-0 border border-[#cfc2d2]/40 shadow-2xs cursor-pointer group"
-                        title="Ver ficha de la mascota"
+                        title={ist.openProfileBtn}
                       >
                         {pet?.photoUrl || apt.beforePhotoUrl ? (
                           <img
@@ -291,14 +294,14 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           </h4>
                           {pet?.isVip && (
                             <span className="px-1.5 py-0.5 rounded-md bg-[#f9b900] text-[#261900] text-[10px] font-black uppercase">
-                              VIP
+                              {ct.vip}
                             </span>
                           )}
                         </div>
 
                         <p className="text-xs text-[#7e7482] font-medium mt-0.5 truncate">
-                          {apt.breed || pet?.breed || 'Mestizo'}
-                          {pet?.size ? ` • ${pet.size}` : ''}
+                          {apt.breed || pet?.breed || ct.pet}
+                          {pet?.size ? ` • ${translateSizeLabel(pet.size, lang)}` : ''}
                         </p>
 
                         <div className="flex items-center gap-2 mt-1 text-xs">
@@ -308,7 +311,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           </span>
                           {apt.groomer && (
                             <span className="text-[#7e7482]">
-                              • Estilista: <strong className="text-[#1a1a26]">{apt.groomer}</strong>
+                              • {ist.stylistLabel} <strong className="text-[#1a1a26]">{apt.groomer}</strong>
                             </span>
                           )}
                         </div>
@@ -324,7 +327,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                             : 'bg-[#f9b900] text-[#261900] shadow-xs'
                         }`}
                       >
-                        {isReadyForPickup ? 'LISTO PARA RETIRAR' : 'EN SERVICIO'}
+                        {isReadyForPickup ? st.readyPickup : st.inSalon}
                       </span>
                     </div>
                   </div>
@@ -332,13 +335,13 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                   {/* Service & Price Badge */}
                   <div className="bg-[#f5f2ff] rounded-xl p-3 border border-[#cfc2d2]/30 flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
-                      <span className="text-[#7e7482] block text-[11px]">Servicio en curso:</span>
+                      <span className="text-[#7e7482] block text-[11px]">{ist.serviceLabel}</span>
                       <strong className="text-[#1a1a26] font-bold text-xs truncate block">
                         {apt.serviceName}
                       </strong>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="text-[#7e7482] block text-[11px]">Importe:</span>
+                      <span className="text-[#7e7482] block text-[11px]">{ist.totalLabel}</span>
                       <strong className="text-[#2e004e] font-extrabold text-sm">
                         {formatPrice(apt.price, apt.currency || salonConfig.currency, { includeCode: true })}
                       </strong>
@@ -353,7 +356,7 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           person
                         </span>
                         <span>
-                          Tutor: <strong className="text-[#1a1a26]">{apt.tutorName}</strong>
+                          {t.agenda.tutorLabel} <strong className="text-[#1a1a26]">{apt.tutorName}</strong>
                         </span>
                       </div>
 
@@ -376,11 +379,11 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           {apt.notes && <span>{apt.notes} </span>}
                           {pet?.healthAllergies && (
                             <span className="font-semibold text-rose-800">
-                              • Alergia: {pet.healthAllergies}{' '}
+                              • {t.clientsView.allergiesPrefix} {pet.healthAllergies}{' '}
                             </span>
                           )}
                           {pet?.handlingObservations && (
-                            <span>• Manejo: {pet.handlingObservations}</span>
+                            <span>• {t.petProfile.handlingNotes}: {pet.handlingObservations}</span>
                           )}
                         </div>
                       </div>
@@ -397,10 +400,10 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                         type="button"
                         onClick={() => handleMarkReadyForPickup(apt)}
                         className="flex-1 py-2.5 px-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-                        title="Marcar servicio como finalizado y listo para retirar"
+                        title={ist.markReadyPickupBtn}
                       >
                         <span className="material-symbols-outlined text-base">check_circle</span>
-                        <span>Listo para retirar</span>
+                        <span>{ist.markReadyPickupBtn}</span>
                       </button>
 
                       {pet && (
@@ -408,10 +411,10 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           type="button"
                           onClick={() => onSelectPetForProfile(pet.id)}
                           className="py-2.5 px-3 rounded-xl bg-[#f5f2ff] hover:bg-[#ece6fb] text-[#2e004e] font-semibold text-xs border border-[#cfc2d2]/40 flex items-center justify-center gap-1 transition-all cursor-pointer"
-                          title="Ver ficha técnica de la mascota"
+                          title={ist.openProfileBtn}
                         >
                           <span className="material-symbols-outlined text-base">visibility</span>
-                          <span>Ficha</span>
+                          <span>{t.nav.petProfile}</span>
                         </button>
                       )}
                     </div>
@@ -424,10 +427,10 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           type="button"
                           onClick={() => handleNotifyTutorReady(apt)}
                           className="flex-1 py-2.5 px-3 rounded-xl bg-[#25D366] hover:bg-[#20ba59] text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-                          title="Enviar mensaje por WhatsApp avisando que la mascota está lista para retirar"
+                          title={ist.notifyReadyWhatsAppBtn}
                         >
                           <span className="material-symbols-outlined text-base">chat</span>
-                          <span>Avisar por WhatsApp</span>
+                          <span>{ist.notifyReadyWhatsAppBtn}</span>
                         </button>
 
                         {/* Deliver & Complete Visit */}
@@ -435,16 +438,12 @@ export const InSalonView: React.FC<InSalonViewProps> = ({
                           type="button"
                           onClick={() => handleDeliverPet(apt)}
                           className="flex-1 py-2.5 px-3 rounded-xl bg-[#2e004e] hover:bg-[#4b0878] text-[#f9b900] font-black text-xs shadow-xs flex items-center justify-center gap-1.5 active:scale-95 transition-all cursor-pointer"
-                          title="Entregar la mascota al tutor y registrar la visita completada"
+                          title={ist.deliverAndCompleteBtn}
                         >
                           <span className="material-symbols-outlined text-base">task_alt</span>
-                          <span>Entregar y completar</span>
+                          <span>{ist.deliverAndCompleteBtn}</span>
                         </button>
                       </div>
-
-                      <p className="text-[11px] text-[#7e7482] text-center leading-snug">
-                        Al pulsar «Entregar y completar», podrás registrar la visita y su recomendación de retorno para que se sincronice en Por volver.
-                      </p>
                     </div>
                   )}
                 </div>

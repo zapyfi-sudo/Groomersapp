@@ -1,6 +1,11 @@
 import { Pet, SalonConfig, Appointment, RetentionPet, SaleRecord } from '../types';
 import { HOTLINK_IMAGES } from '../mockData';
-import { AppLanguage } from './translations';
+import {
+  AppLanguage,
+  formatDisplayDate,
+  formatTemplate,
+  getTranslations
+} from './translations';
 import { DEFAULT_WHATSAPP_TEMPLATES } from './phoneUtils';
 import {
   hasGenuineCompletedVisit,
@@ -449,9 +454,13 @@ export function saveAppointments(apts: Appointment[]): void {
 
 export function loadLanguage(): AppLanguage {
   try {
-    const lang = localStorage.getItem(STORAGE_KEY_LANGUAGE);
-    if (lang === 'es-LA' || lang === 'es-ES' || lang === 'en' || lang === 'pt') {
-      return lang;
+    const langV2 = localStorage.getItem(STORAGE_KEY_LANGUAGE);
+    if (langV2 === 'es-LA' || langV2 === 'es-ES' || langV2 === 'en' || langV2 === 'pt') {
+      return langV2;
+    }
+    const langV1 = localStorage.getItem('agendacan_language');
+    if (langV1 === 'es-LA' || langV1 === 'es-ES' || langV1 === 'en' || langV1 === 'pt') {
+      return langV1;
     }
   } catch {
     // fallback
@@ -462,6 +471,7 @@ export function loadLanguage(): AppLanguage {
 export function saveLanguage(lang: AppLanguage): void {
   try {
     localStorage.setItem(STORAGE_KEY_LANGUAGE, lang);
+    localStorage.setItem('agendacan_language', lang);
   } catch (err) {
     console.error('Error saving language:', err);
   }
@@ -542,7 +552,8 @@ export function parseSpanishOrIsoDate(str?: string): Date | null {
 // Helper to calculate total real completed visits and returns for a pet
 export function calculatePetReturnStats(
   pet: Pet,
-  appointments?: Appointment[]
+  appointments?: Appointment[],
+  lang: AppLanguage = 'es-LA'
 ): { totalCompletedVisits: number; returnCount: number; returnCountLabel: string } {
   // Use a map/set of unique visit keys to avoid double counting
   // We record both visit id and date to cross-reference with appointments
@@ -632,12 +643,13 @@ export function calculatePetReturnStats(
   const totalCompletedVisits = visitCount;
   // First visit is initial visit. Returns = totalCompletedVisits - 1 (min 0)
   const returnCount = Math.max(0, totalCompletedVisits - 1);
+  const tr = getTranslations(lang).retention;
 
-  let returnCountLabel = 'Ha vuelto 0 veces';
+  let returnCountLabel = tr.returnCountNone;
   if (returnCount === 1) {
-    returnCountLabel = 'Ha vuelto 1 vez';
+    returnCountLabel = tr.returnCountOnce;
   } else if (returnCount > 1) {
-    returnCountLabel = `Ha vuelto ${returnCount} veces`;
+    returnCountLabel = formatTemplate(tr.returnCountMany, { count: returnCount });
   }
 
   return {
@@ -652,7 +664,8 @@ export function deriveRetentionPets(
   pets: Pet[],
   salonName: string,
   bookedIds: string[],
-  appointments?: Appointment[]
+  appointments?: Appointment[],
+  lang: AppLanguage = 'es-LA'
 ): RetentionPet[] {
   const results: RetentionPet[] = [];
   const now = new Date();
@@ -705,9 +718,10 @@ export function deriveRetentionPets(
       refDate = parseSpanishOrIsoDate(pet.visitHistory[0].date);
     }
 
+    const tr = getTranslations(lang).retention;
     const lastVisitDateText = hasCompletedVisit && lastVisit?.date
-      ? lastVisit.date
-      : 'Sin visitas registradas';
+      ? (formatDisplayDate(lastVisit.date, lang) || lastVisit.date)
+      : tr.noVisitsRecorded;
 
     // If no visit exists, base reference date on today
     const effectiveRefDate = refDate || new Date();
@@ -725,7 +739,7 @@ export function deriveRetentionPets(
       targetDate = new Date(effectiveRefDate.getTime() + intervalWeeks * 7 * 24 * 60 * 60 * 1000);
     }
 
-    const nextRecommendedDateFormatted = formatDateSpanish(targetDate);
+    const nextRecommendedDateFormatted = formatDisplayDate(targetDate, lang);
 
     // 4. Calculate calendar difference in days
     const targetZero = new Date(targetDate.getFullYear(), targetDate.getMonth(), targetDate.getDate()).getTime();
@@ -742,34 +756,34 @@ export function deriveRetentionPets(
 
     // 6. Urgency classification & countdown text
     let urgency: 'esta_semana' | 'urgente' | 'proxima_semana' | 'mas_adelante' = 'esta_semana';
-    let urgencyLabel = '¡Esta semana!';
+    let urgencyLabel = tr.urgencyThisWeek;
     let countdownText = '';
 
     if (diffDays < 0) {
       urgency = 'urgente';
       const daysOverdue = Math.abs(diffDays);
-      urgencyLabel = '! Urgente (Vencida)';
-      countdownText = daysOverdue === 1 ? 'Vencida hace 1 día' : `Vencida hace ${daysOverdue} días`;
+      urgencyLabel = tr.urgencyUrgent;
+      countdownText = formatTemplate(tr.countdownOverdueDays, { days: daysOverdue });
     } else if (diffDays === 0) {
       urgency = 'urgente';
-      urgencyLabel = '! Hoy';
-      countdownText = 'Hoy corresponde su visita';
+      urgencyLabel = tr.urgencyUrgent;
+      countdownText = tr.countdownToday;
     } else if (diffDays <= 3) {
       urgency = 'urgente';
-      urgencyLabel = '! Urgente';
-      countdownText = diffDays === 1 ? 'Falta 1 día' : `Faltan ${diffDays} días`;
+      urgencyLabel = tr.urgencyUrgent;
+      countdownText = diffDays === 1 ? tr.countdownTomorrow : formatTemplate(tr.countdownInDays, { days: diffDays });
     } else if (diffDays <= 7) {
       urgency = 'esta_semana';
-      urgencyLabel = '¡Esta semana!';
-      countdownText = `Faltan ${diffDays} días`;
+      urgencyLabel = tr.urgencyThisWeek;
+      countdownText = formatTemplate(tr.countdownInDays, { days: diffDays });
     } else if (diffDays <= 14) {
       urgency = 'proxima_semana';
-      urgencyLabel = 'Próxima semana';
-      countdownText = `Faltan ${diffDays} días`;
+      urgencyLabel = tr.urgencyNextWeek;
+      countdownText = formatTemplate(tr.countdownInDays, { days: diffDays });
     } else {
       urgency = 'mas_adelante';
-      urgencyLabel = 'Más adelante';
-      countdownText = `Faltan ${diffDays} días`;
+      urgencyLabel = tr.urgencyLater;
+      countdownText = formatTemplate(tr.countdownInDays, { days: diffDays });
     }
 
     // Check if pet is marked as booked via bookedRetentions OR has a scheduled active appointment
@@ -790,7 +804,6 @@ export function deriveRetentionPets(
             a.tutorName.trim().toLowerCase() === pet.tutor.name.trim().toLowerCase()
         );
         if (!matchesPetId && !matchesName) return false;
-        // An active scheduled appointment (not cancelled, not completed yet)
         const isActive =
           a.status !== 'cancelada' &&
           a.status !== 'completado' &&
@@ -799,23 +812,25 @@ export function deriveRetentionPets(
       });
 
     const alreadyBooked = isManuallyBooked || hasScheduledAppointment;
-    const tutorFirstName = pet.tutor?.name ? (pet.tutor.name.split(' ')[0] || pet.tutor.name) : 'Tutor';
-    const serviceName = lastVisit?.serviceName || 'Baño + corte';
+    const tutorFirstName = pet.tutor?.name ? (pet.tutor.name.split(' ')[0] || pet.tutor.name) : getTranslations(lang).common.tutor;
+    const serviceName = lastVisit?.serviceName || tr.defaultTemplateName;
 
     // 7. Context-accurate suggested smart message
-    let suggestedMessage = '';
-    if (diffDays <= 0) {
-      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Ya es momento de renovar el cuidado de ${pet.name} (${serviceName}) para mantener su manto impecable y saludable. ¿Te gustaría que reservemos su próximo turno esta semana?”`;
-    } else if (diffDays <= 7) {
-      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te saludamos desde ${salonName}. Esta semana corresponde la visita periódica de ${pet.name} para su sesión de ${serviceName}. ¿Qué día y horario te viene mejor para agendar?”`;
-    } else if (diffDays <= 14) {
-      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos de ${salonName} para recordarte que la próxima semana le toca su turno a ${pet.name} (${serviceName}). ¿Deseas coordinar su cita con anticipación?”`;
-    } else {
-      suggestedMessage = `“Hola ${tutorFirstName} 👋 Te escribimos desde ${salonName}. Según la recomendación de cuidado para ${pet.name}, su próxima sesión de ${serviceName} está prevista para el ${nextRecommendedDateFormatted} (en ${intervalWeeks} semanas). ¡Estamos a tu disposición si gustas reservar con anticipación!”`;
-    }
+    const suggestedMessage =
+      diffDays <= 0
+        ? formatTemplate(tr.suggestedMsgOverdue, {
+            tutorName: tutorFirstName,
+            salonName,
+            petName: pet.name
+          })
+        : formatTemplate(tr.suggestedMsgUpcoming, {
+            tutorName: tutorFirstName,
+            salonName,
+            petName: pet.name
+          });
 
     // 8. Fidelidad / Regresos de la mascota
-    const { returnCount, returnCountLabel } = calculatePetReturnStats(pet, appointments);
+    const { returnCount, returnCountLabel } = calculatePetReturnStats(pet, appointments, lang);
 
     results.push({
       id: `ret-${pet.id.replace('#', '')}`,
@@ -836,7 +851,7 @@ export function deriveRetentionPets(
       urgency,
       urgencyLabel,
       suggestedMessage,
-      templateName: `Servicio ${serviceName}`,
+      templateName: serviceName,
       alreadyBooked,
       returnCount,
       returnCountLabel

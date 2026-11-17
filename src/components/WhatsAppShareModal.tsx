@@ -4,6 +4,8 @@ import { downloadPetReportPdf, generatePetReportPdf, cleanPetDisplayName, format
 import { formatDateSpanish } from '../utils/storage';
 import { HOTLINK_IMAGES } from '../mockData';
 import { formatPrice } from '../utils/priceUtils';
+import { useTranslation } from '../utils/i18n/I18nContext';
+import { formatTemplate, formatDisplayDate, translateGenderLabel } from '../utils/i18n/helpers';
 
 interface WhatsAppShareModalProps {
   isOpen: boolean;
@@ -22,13 +24,18 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   salonConfig,
   salonName
 }) => {
+  const { t, lang } = useTranslation();
+  const mt = t.modals;
+  const pt = t.petProfile;
+  const ct = t.common;
+
   const currentSalonName = salonName || salonConfig?.name || 'Peluquería Canina Luna';
   const currency = visit.currency || salonConfig?.currency || 'ARS';
   const returnWeeks = visit.nextRecommendedWeeks || pet.recommendedIntervalWeeks || 4;
 
   // Delivery data
   const rawDeliveryDate = visit.deliveryDate || pet.deliveryDate;
-  const deliveryDateFormatted = formatDeliveryDate(rawDeliveryDate) || visit.date || 'Hoy';
+  const deliveryDateFormatted = formatDeliveryDate(rawDeliveryDate, lang) || formatDisplayDate(visit.date, lang) || ct.today;
   const deliveryTimeFormatted = visit.deliveryTime || pet.deliveryTime;
   const serviceResponsible = visit.serviceResponsible || pet.serviceResponsible;
   const salonBusinessPhone = salonConfig?.phone
@@ -38,23 +45,34 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   // Calculate return date
   const returnDate = new Date();
   returnDate.setDate(returnDate.getDate() + Number(returnWeeks) * 7);
-  const nextVisitFormatted = formatDateSpanish(returnDate);
+  const nextVisitFormatted = formatDisplayDate(returnDate, lang) || formatDateSpanish(returnDate);
 
   const customRecommendations = (visit.careRecommendations || pet.careRecommendations || '').trim();
   const recLine = customRecommendations
-    ? `\n• Recomendaciones de cuidado: ${customRecommendations}`
+    ? `\n• ${pt.careRecommendationsLabel}: ${customRecommendations}`
     : '';
 
   const petDisplayName = cleanPetDisplayName(pet.name);
 
   const deliveryLines = [
-    `• Fecha de entrega: ${deliveryDateFormatted}`,
-    deliveryTimeFormatted ? `• Hora de entrega: ${deliveryTimeFormatted}` : '',
-    serviceResponsible ? `• A cargo del servicio: ${serviceResponsible}` : ''
+    `• ${mt.deliveryDateLabel}: ${deliveryDateFormatted}`,
+    deliveryTimeFormatted ? `• ${mt.deliveryTimeLabel}: ${deliveryTimeFormatted}` : '',
+    serviceResponsible ? `• ${mt.serviceInChargeLabel} ${serviceResponsible}` : ''
   ].filter(Boolean).join('\n');
 
   const formattedVisitPrice = formatPrice(visit.price, currency, { includeCode: true });
-  const initialMsg = `🐾 *¡Hola ${pet.tutor.name}!* \n\n¡${petDisplayName} ya terminó su sesión y está listo/a para volver a casa en *${currentSalonName}*! ✨🐶\n\n📋 *Resumen del servicio realizado:*\n• Servicio: ${visit.serviceName}\n• Total: ${formattedVisitPrice}\n${deliveryLines}\n• Estado del manto: ${pet.healthAllergies || 'En excelentes condiciones'}${recLine}\n• Próximo turno recomendado: cada ${returnWeeks} semanas (alrededor del ${nextVisitFormatted}).\n\n📄 *Ficha Oficial en PDF:* Te adjunto la ficha técnica completa con las fotografías del ANTES y DESPUÉS de la sesión.\n\n¡Muchas gracias por confiar el cuidado de ${petDisplayName} en nosotros! Te esperamos pronto.`;
+  const initialMsg = formatTemplate(mt.whatsappDeliveryTemplate, {
+    tutorName: pet.tutor.name,
+    petName: petDisplayName,
+    salonName: currentSalonName,
+    serviceName: visit.serviceName,
+    price: formattedVisitPrice,
+    deliveryLines,
+    coatCondition: pet.healthAllergies || pt.noAllergiesDefault,
+    recLine,
+    returnWeeks: String(returnWeeks),
+    nextVisitFormatted
+  });
 
   const [messageText, setMessageText] = useState<string>(initialMsg);
   const [copied, setCopied] = useState(false);
@@ -62,10 +80,10 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
   const [pdfDownloaded, setPdfDownloaded] = useState(false);
   const [downloadedFilename, setDownloadedFilename] = useState<string | null>(null);
 
-  // Sync initial message if visit recommendations change
+  // Sync initial message if visit recommendations or language change
   useEffect(() => {
     setMessageText(initialMsg);
-  }, [visit.careRecommendations, pet.careRecommendations, visit.serviceName, visit.price, visit.deliveryDate, pet.deliveryDate, visit.deliveryTime, pet.deliveryTime, visit.serviceResponsible, pet.serviceResponsible]);
+  }, [initialMsg]);
 
   if (!isOpen) return null;
 
@@ -85,7 +103,8 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         pet,
         visit,
         salonConfig,
-        nextVisitDateStr: nextVisitFormatted
+        nextVisitDateStr: nextVisitFormatted,
+        language: lang
       });
       setDownloadedFilename(filename);
       setPdfDownloaded(true);
@@ -104,12 +123,13 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
         pet,
         visit,
         salonConfig,
-        nextVisitDateStr: nextVisitFormatted
+        nextVisitDateStr: nextVisitFormatted,
+        language: lang
       });
       const file = new File([blob], filename, { type: 'application/pdf' });
       if (navigator.canShare && navigator.canShare({ files: [file] })) {
         await navigator.share({
-          title: `Ficha de ${pet.name}`,
+          title: `${pt.petProfileTitle} - ${pet.name}`,
           text: messageText,
           files: [file]
         });
@@ -133,8 +153,8 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
           <div className="flex items-center gap-2.5">
             <span className="material-symbols-outlined text-2xl">loyalty</span>
             <div>
-              <h3 className="font-bold text-base leading-tight">Entrega de Mascota al Tutor</h3>
-              <p className="text-xs text-white/90">Envío de reporte y ficha técnica a {pet.tutor.name}</p>
+              <h3 className="font-bold text-base leading-tight">{mt.deliveryTitle}</h3>
+              <p className="text-xs text-white/90">{formatTemplate(mt.deliverySubtitle, { tutorName: pet.tutor.name })}</p>
             </div>
           </div>
           <button
@@ -171,12 +191,12 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                   )}
                   {salonBusinessPhone && (
                     <p className="text-[11px] text-[#e3e0f1] font-semibold">
-                      Tel. negocio: <strong className="text-white">{salonBusinessPhone}</strong>
+                      {mt.businessPhoneLabel} <strong className="text-white">{salonBusinessPhone}</strong>
                     </p>
                   )}
                   {serviceResponsible && (
                     <p className="text-[11px] text-[#ffdea1] font-bold">
-                      A cargo del servicio: <span className="text-[#f9b900]">{serviceResponsible}</span>
+                      {mt.serviceInChargeLabel} <span className="text-[#f9b900]">{serviceResponsible}</span>
                     </p>
                   )}
                 </div>
@@ -184,10 +204,10 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
 
               {/* Lado derecho: Ficha de entrega, Fecha de entrega y Hora de entrega */}
               <div className="bg-white text-[#2e004e] px-3.5 py-2 rounded-xl text-center self-start sm:self-auto shrink-0 shadow-sm border border-white/20">
-                <span className="text-[10px] font-black uppercase tracking-wider block text-[#2e004e]">Ficha de entrega</span>
-                <span className="text-[11px] font-bold text-[#7e7482] block">Fecha: {deliveryDateFormatted}</span>
+                <span className="text-[10px] font-black uppercase tracking-wider block text-[#2e004e]">{mt.deliverySheetLabel}</span>
+                <span className="text-[11px] font-bold text-[#7e7482] block">{ct.date}: {deliveryDateFormatted}</span>
                 {deliveryTimeFormatted && (
-                  <span className="text-[11px] font-black text-[#2e004e] block">Hora de entrega: {deliveryTimeFormatted}</span>
+                  <span className="text-[11px] font-black text-[#2e004e] block">{mt.deliveryTimeLabel}: {deliveryTimeFormatted}</span>
                 )}
               </div>
             </div>
@@ -198,12 +218,12 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 <div>
                   <h4 className="font-bold text-sm text-[#1a1a26]">{pet.name}</h4>
                   <p className="text-xs text-[#7e7482]">
-                    {pet.breed} • {pet.age} • {pet.gender} • {pet.weightKg} kg
+                    {pet.breed} • {pet.age} • {translateGenderLabel(pet.gender, lang)} • {pet.weightKg} kg
                   </p>
                 </div>
               </div>
               <span className="bg-[#f9b900] text-[#261900] text-[10px] font-bold px-2.5 py-1 rounded-full">
-                Listo para entrega
+                {mt.readyForDeliveryBadge}
               </span>
             </div>
 
@@ -213,17 +233,17 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 {visit.photos.beforeUrl ? (
                   <img
                     src={visit.photos.beforeUrl}
-                    alt="Antes"
+                    alt={mt.beforeTag}
                     className="w-full h-full object-cover"
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-[11px] text-[#7e7482] p-2 text-center">
                     <span className="material-symbols-outlined text-xl mb-0.5">pets</span>
-                    <span>Sin foto antes</span>
+                    <span>{mt.noBeforePhoto}</span>
                   </div>
                 )}
                 <span className="absolute top-1.5 left-1.5 bg-[#2e004e] text-white text-[9px] font-bold px-2 py-0.5 rounded shadow-xs">
-                  Antes
+                  {mt.beforeTag}
                 </span>
               </div>
 
@@ -231,17 +251,17 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 {visit.photos.afterUrl ? (
                   <img
                     src={visit.photos.afterUrl}
-                    alt="Después"
+                    alt={mt.afterTag}
                     className="w-full h-full object-cover"
                   />
                 ) : (
                   <div className="w-full h-full flex flex-col items-center justify-center text-[11px] text-[#7a5900] p-2 text-center">
                     <span className="material-symbols-outlined text-xl mb-0.5">auto_awesome</span>
-                    <span>Sin foto después</span>
+                    <span>{mt.noAfterPhoto}</span>
                   </div>
                 )}
                 <span className="absolute top-1.5 left-1.5 bg-[#f9b900] text-[#261900] text-[9px] font-bold px-2 py-0.5 rounded shadow-xs">
-                  Después
+                  {mt.afterTag}
                 </span>
               </div>
             </div>
@@ -249,35 +269,35 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             {/* Details snippet */}
             <div className="bg-[#f5f2ff] rounded-xl p-3 text-xs space-y-1.5 text-[#1a1a26]">
               <div className="flex justify-between">
-                <span className="text-[#4c4451]">Servicio:</span>
+                <span className="text-[#4c4451]">{ct.service}:</span>
                 <span className="font-bold text-[#2e004e]">{visit.serviceName}</span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#4c4451]">Importe total:</span>
+                <span className="text-[#4c4451]">{mt.totalAmountLabel}</span>
                 <span className="font-bold text-[#2e004e]">
                   {formatPrice(visit.price, currency, { includeCode: true })}
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-[#4c4451]">Fecha de entrega:</span>
+                <span className="text-[#4c4451]">{mt.deliveryDateLabel}:</span>
                 <span className="font-bold text-[#2e004e]">{deliveryDateFormatted}</span>
               </div>
               {deliveryTimeFormatted && (
                 <div className="flex justify-between">
-                  <span className="text-[#4c4451]">Hora de entrega:</span>
+                  <span className="text-[#4c4451]">{mt.deliveryTimeLabel}:</span>
                   <span className="font-bold text-[#2e004e]">{deliveryTimeFormatted}</span>
                 </div>
               )}
               {serviceResponsible && (
                 <div className="flex justify-between">
-                  <span className="text-[#4c4451]">A cargo del servicio:</span>
+                  <span className="text-[#4c4451]">{mt.serviceInChargeLabel}</span>
                   <span className="font-bold text-[#2e004e]">{serviceResponsible}</span>
                 </div>
               )}
               <div className="flex justify-between">
-                <span className="text-[#4c4451]">Próximo turno sugerido:</span>
+                <span className="text-[#4c4451]">{mt.suggestedNextTurn}</span>
                 <span className="font-bold text-[#7a5900]">
-                  Cada {returnWeeks} semanas ({nextVisitFormatted})
+                  {formatTemplate(mt.everyWeeksPattern, { weeks: String(returnWeeks), date: nextVisitFormatted })}
                 </span>
               </div>
 
@@ -286,7 +306,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 <div className="pt-1 border-t border-[#cfc2d2]/30 flex flex-col gap-0.5">
                   <span className="text-[#7a5900] font-bold flex items-center gap-1">
                     <span className="material-symbols-outlined text-xs">tips_and_updates</span>
-                    <span>Recomendaciones de cuidado:</span>
+                    <span>{pt.careRecommendationsLabel}:</span>
                   </span>
                   <span className="text-[#1a1a26] text-[11px] leading-relaxed italic bg-white/60 p-2 rounded-lg border border-[#cfc2d2]/20">
                     {customRecommendations}
@@ -301,18 +321,18 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <span className="material-symbols-outlined text-[#4b0878] text-xl">picture_as_pdf</span>
-                <span className="text-xs font-bold text-[#2e004e]">Ficha Técnica Oficial en PDF</span>
+                <span className="text-xs font-bold text-[#2e004e]">{mt.pdfSectionTitle}</span>
               </div>
               {pdfDownloaded && (
                 <span className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-full flex items-center gap-0.5">
                   <span className="material-symbols-outlined text-xs">done</span>
-                  Descargado
+                  {mt.downloadedBadge}
                 </span>
               )}
             </div>
 
             <p className="text-xs text-[#4c4451] leading-relaxed">
-              Genera un documento PDF profesional con el logotipo de tu peluquería, datos de la mascota, comportamiento en sesión con semaforización, recomendaciones personalizadas y las fotografías de antes y después.
+              {mt.pdfSectionDesc}
             </p>
 
             <div className="flex flex-col sm:flex-row gap-2 pt-1">
@@ -325,7 +345,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 <span className={`material-symbols-outlined text-base ${isGeneratingPdf ? 'animate-spin' : ''}`}>
                   {isGeneratingPdf ? 'progress_activity' : 'download'}
                 </span>
-                <span>{isGeneratingPdf ? 'Generando PDF...' : 'Descargar Ficha en PDF'}</span>
+                <span>{isGeneratingPdf ? pt.generatingPdf : mt.downloadPdfBtn}</span>
               </button>
 
               {canShareFiles && (
@@ -334,17 +354,17 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                   onClick={handleNativeSharePdf}
                   disabled={isGeneratingPdf}
                   className="py-2.5 px-3 bg-[#e9e6f7] hover:bg-[#dfdbf5] text-[#2e004e] text-xs font-bold rounded-xl border border-[#cfc2d2]/40 transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50"
-                  title="Compartir archivo directamente mediante el menú del sistema"
+                  title={mt.sharePdfTitle}
                 >
                   <span className="material-symbols-outlined text-base">share</span>
-                  <span>Compartir PDF</span>
+                  <span>{mt.sharePdfBtn}</span>
                 </button>
               )}
             </div>
 
             {downloadedFilename && (
               <p className="text-[11px] text-emerald-700 font-semibold">
-                ✓ Guardado en tu dispositivo como: <strong>{downloadedFilename}</strong>
+                {mt.savedDeviceAs} <strong>{downloadedFilename}</strong>
               </p>
             )}
           </div>
@@ -353,11 +373,11 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
           <div className="p-3 bg-amber-50/80 rounded-xl border border-amber-200/80 text-xs text-[#7a5900] flex items-start gap-2">
             <span className="material-symbols-outlined text-base shrink-0 mt-0.5">help_outline</span>
             <div className="space-y-1">
-              <p className="font-bold">Cómo entregar la ficha a tu cliente por WhatsApp:</p>
+              <p className="font-bold">{mt.workflowGuideTitle}</p>
               <ol className="list-decimal pl-4 space-y-0.5 text-[11px] text-[#4c4451]">
-                <li>Descarga la ficha en PDF pulsando el botón morado de arriba.</li>
-                <li>Pulsa <strong>«Abrir WhatsApp con mensaje preparado»</strong> para abrir el chat con tu cliente.</li>
-                <li>Dentro de WhatsApp, pulsa el botón de adjuntar (📎) y selecciona el archivo PDF descargado.</li>
+                <li>{mt.workflowStep1}</li>
+                <li>{mt.workflowStep2}</li>
+                <li>{mt.workflowStep3}</li>
               </ol>
             </div>
           </div>
@@ -366,7 +386,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-xs font-bold text-[#4c4451] uppercase tracking-wider">
-                Mensaje a enviar (Totalmente editable)
+                {mt.editableMsgLabel}
               </label>
               <button
                 type="button"
@@ -376,7 +396,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
                 <span className="material-symbols-outlined text-sm">
                   {copied ? 'done' : 'content_copy'}
                 </span>
-                <span>{copied ? '¡Copiado!' : 'Copiar texto'}</span>
+                <span>{copied ? ct.copied : mt.copyTextBtn}</span>
               </button>
             </div>
             <textarea
@@ -395,7 +415,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             onClick={onClose}
             className="w-full sm:w-auto px-4 py-3 rounded-xl border border-[#cfc2d2] text-[#4c4451] font-bold text-xs hover:bg-[#f5f2ff] cursor-pointer text-center"
           >
-            Cerrar
+            {ct.close}
           </button>
 
           <a
@@ -405,7 +425,7 @@ export const WhatsAppShareModal: React.FC<WhatsAppShareModalProps> = ({
             className="w-full sm:flex-1 py-3 px-4 rounded-xl bg-[#25D366] text-white font-bold text-xs shadow-md hover:bg-[#20ba59] active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer text-center"
           >
             <span className="material-symbols-outlined text-lg">chat</span>
-            <span>Abrir WhatsApp con mensaje preparado</span>
+            <span>{mt.openWaPreparedBtn}</span>
           </a>
         </div>
       </div>

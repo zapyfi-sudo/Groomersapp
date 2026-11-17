@@ -1,5 +1,54 @@
 import { SalonConfig, WhatsAppTemplate } from '../types';
 import { COUNTRIES } from './countries';
+import { AppLanguage, resolveAppLanguage } from './translations';
+
+export function getDefaultWhatsAppTemplates(lang: AppLanguage = 'es-LA'): WhatsAppTemplate[] {
+  if (lang === 'en') {
+    return [
+      {
+        id: 'tmpl-confirmacion',
+        title: 'Appointment confirmation',
+        content: `Hi {{cliente}} 👋\n\nWe confirm {{mascota}}'s appointment for {{servicio}}.\n\n📅 Date: {{fecha}}\n🕐 Time: {{hora}}\n\nWe look forward to seeing you! 🐶✨`,
+        isDefault: true
+      },
+      {
+        id: 'tmpl-recordatorio',
+        title: 'Reminder',
+        content: `Hi {{cliente}} 👋\n\nJust a reminder about {{mascota}}'s scheduled appointment ({{servicio}}).\n\n📅 Date: {{fecha}}\n🕐 Time: {{hora}}\n\nPlease let us know in advance if you need to reschedule. 🐾`,
+        isDefault: false
+      },
+      {
+        id: 'tmpl-personalizado',
+        title: 'Custom message',
+        content: `Hi {{cliente}}, your appointment for {{mascota}} ({{servicio}}) on {{fecha}} at {{hora}} is confirmed at {{salon}}. See you soon! 🐶✨`,
+        isDefault: false
+      }
+    ];
+  }
+  if (lang === 'pt') {
+    return [
+      {
+        id: 'tmpl-confirmacion',
+        title: 'Confirmação de agendamento',
+        content: `Olá, {{cliente}} 👋\n\nConfirmamos o horário de {{mascota}} para o serviço de {{servicio}}.\n\n📅 Data: {{fecha}}\n🕐 Horário: {{hora}}\n\nEsperamos por vocês. Obrigado pela confiança! 🐶✨`,
+        isDefault: true
+      },
+      {
+        id: 'tmpl-recordatorio',
+        title: 'Lembrete',
+        content: `Olá {{cliente}} 👋\n\nLembramos do agendamento de {{mascota}} ({{servicio}}).\n\n📅 Data: {{fecha}}\n🕐 Horário: {{hora}}\n\nAvise com antecedência caso precise reagendar. Até logo! 🐾`,
+        isDefault: false
+      },
+      {
+        id: 'tmpl-personalizado',
+        title: 'Mensagem personalizada',
+        content: `Olá {{cliente}}, o agendamento de {{mascota}} ({{servicio}}) em {{fecha}} às {{hora}} está confirmado na {{salon}}. Até breve! 🐶✨`,
+        isDefault: false
+      }
+    ];
+  }
+  return DEFAULT_WHATSAPP_TEMPLATES;
+}
 
 export const DEFAULT_WHATSAPP_TEMPLATES: WhatsAppTemplate[] = [
   {
@@ -252,16 +301,25 @@ export function buildWhatsAppConfirmationUrl(
     time: string;
     tutorPhone?: string;
   },
-  salonConfig: SalonConfig
+  salonConfig: SalonConfig,
+  lang?: AppLanguage
 ): string {
   const normalizedPhone = normalizePhoneForWhatsApp(appointment.tutorPhone || '', salonConfig);
-  const salonName = salonConfig?.name || 'la peluquería';
-  const petName = appointment.petName || 'tu mascota';
-  const serviceName = appointment.serviceName || 'el servicio solicitado';
-  const dateStr = appointment.date || 'la fecha acordada';
+  const effectiveLang = resolveAppLanguage(lang || salonConfig?.language);
+  const salonName = salonConfig?.name || (effectiveLang === 'en' ? 'the salon' : effectiveLang === 'pt' ? 'nosso pet shop' : 'la peluquería');
+  const petName = appointment.petName || (effectiveLang === 'en' ? 'your pet' : effectiveLang === 'pt' ? 'seu pet' : 'tu mascota');
+  const serviceName = appointment.serviceName || '';
+  const dateStr = appointment.date || '';
   const timeStr = appointment.time || '';
 
-  const message = `¡Hola ${appointment.tutorName}! Te confirmamos la cita de ${petName} para ${serviceName} el día ${dateStr} a las ${timeStr} en ${salonName}. ¡Muchas gracias por agendar con nosotros!`;
+  let message = `¡Hola ${appointment.tutorName}! Te confirmamos la cita de ${petName} para ${serviceName} el día ${dateStr} a las ${timeStr} en ${salonName}. ¡Muchas gracias por agendar con nosotros!`;
+  if (effectiveLang === 'es-ES') {
+    message = `¡Hola ${appointment.tutorName}! Te confirmamos la cita de ${petName} para ${serviceName} el día ${dateStr} a las ${timeStr} en ${salonName}. ¡Muchas gracias por reservar con nosotros!`;
+  } else if (effectiveLang === 'en') {
+    message = `Hi ${appointment.tutorName}! Your appointment for ${petName} (${serviceName}) is confirmed for ${dateStr} at ${timeStr} at ${salonName}. Thank you for booking with us!`;
+  } else if (effectiveLang === 'pt') {
+    message = `Olá ${appointment.tutorName}! Confirmamos o agendamento de ${petName} para ${serviceName} no dia ${dateStr} às ${timeStr} na ${salonName}. Muito obrigado por agendar conosco!`;
+  }
 
   if (!normalizedPhone) {
     return `https://wa.me/?text=${encodeURIComponent(message)}`;
